@@ -3,7 +3,7 @@ export type Gender = "male" | "female" | "other";
 export type Player = {
   id: string;
   username: string;
-  email: string;
+  email: string | null;
   role: "player" | "admin";
   created_at: string;
 };
@@ -20,13 +20,12 @@ export type Character = {
 };
 
 export type RegisterInput = {
-  email: string;
   password: string;
   username: string;
 };
 
 export type LoginInput = {
-  email: string;
+  username: string;
   password: string;
 };
 

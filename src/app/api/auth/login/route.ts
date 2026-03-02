@@ -1,9 +1,7 @@
-import {
-  getCharacter,
-  loginSchema,
-  upsertPlayerFromAuthUser,
-} from "@/domains/auth-character";
+import { getCharacter, loginSchema } from "@/domains/auth-character";
+import { signCustomJwt } from "@/lib/auth-jwt";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -19,30 +17,48 @@ export async function POST(request: Request) {
     }
 
     const supabase = createSupabaseServerClient();
-    const { email, password } = parsed.data;
+    const { username, password } = parsed.data;
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    // Use RPC to verify password securely
+    const { data: playerId, error } = await supabase.rpc("authenticate_player", {
+      p_username: username,
+      p_password: password,
     });
 
-    if (error || !data.user) {
+    if (error || !playerId) {
       return NextResponse.json(
-        { error: error?.message ?? "Login failed." },
+        { error: "Invalid username or password." },
         { status: 401 }
       );
     }
 
-    const requestedUsername =
-      typeof data.user.user_metadata?.username === "string"
-        ? data.user.user_metadata.username
-        : undefined;
+    // Since we are no longer using Supabase Auth, we don't upsert the player here,
+    // they are already in the DB. We just sign a token.
+    const token = await signCustomJwt(playerId);
 
-    await upsertPlayerFromAuthUser(supabase, data.user, requestedUsername);
-    const character = await getCharacter(supabase, data.user.id);
+    cookies().set("custom_session", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+    });
+
+    // Check if character exists using the newly minted JWT by injecting it
+    // Wait, the currently initialized supabase client doesn't have the token yet!
+    // We can just initialize a new one with the token, or pass the token manually.
+    // Actually, `createSupabaseServerClient` reads from `cookies()`. In Next.js App Router,
+    // setting a cookie makes it immediately readable from `cookies().get()` in the same route.
+    const { createClient } = require("@supabase/supabase-js");
+    const authClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      { global: { headers: { Authorization: `Bearer ${token}` } } }
+    );
+
+    const character = await getCharacter(authClient, playerId);
 
     return NextResponse.json({
-      userId: data.user.id,
+      userId: playerId,
       needsCharacterSetup: !character,
     });
   } catch (error: any) {

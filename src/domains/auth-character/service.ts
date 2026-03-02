@@ -46,7 +46,7 @@ export async function upsertPlayerFromAuthUser(
     .upsert(
       {
         id: user.id,
-        email: user.email ?? "",
+        email: user.email || null,
         username,
       },
       { onConflict: "id" }

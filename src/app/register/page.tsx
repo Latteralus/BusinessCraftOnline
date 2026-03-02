@@ -18,7 +18,6 @@ export default function RegisterPage() {
     const formData = new FormData(event.currentTarget);
     const username = String(formData.get("username") ?? "");
     const payload = {
-      email: `${username}@lifecraftonline.local`, // Auto-generated email to satisfy Supabase
       password: String(formData.get("password") ?? ""),
       username: username,
     };

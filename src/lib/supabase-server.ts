@@ -1,32 +1,22 @@
-import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
-
-type CookieToSet = {
-  name: string;
-  value: string;
-  options?: Record<string, unknown>;
-};
 
 export function createSupabaseServerClient() {
   const cookieStore = cookies();
+  const customToken = cookieStore.get("custom_session")?.value;
 
-  return createServerClient(
+  const headers: Record<string, string> = {};
+  if (customToken) {
+    headers.Authorization = `Bearer ${customToken}`;
+  }
+
+  return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
     {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet: CookieToSet[]) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            try {
-              cookieStore.set(name, value, options as any);
-            } catch {
-              // Server Components cannot always set cookies directly.
-            }
-          });
-        },
+      global: { headers },
+      auth: {
+        persistSession: false,
       },
     }
   );

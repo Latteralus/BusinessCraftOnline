@@ -17,7 +17,7 @@ export default function LoginPage() {
     const formData = new FormData(event.currentTarget);
     const username = String(formData.get("username") ?? "");
     const payload = {
-      email: `${username}@lifecraftonline.local`, // Auto-generated email to satisfy Supabase
+      username: username,
       password: String(formData.get("password") ?? ""),
     };
 
