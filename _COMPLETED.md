@@ -373,3 +373,80 @@ Completed items:
 - Added minimal dashboard automation visibility (unpaid workers + due shipping/travel counters):
   - `src/app/dashboard/page.tsx`
 - Verified `npm run typecheck` and `npm run build` pass
+
+## Phase 15 — storefront management (ad budget + traffic multipliers)
+Status: Implemented (pending migration apply + human confirmation)
+
+Completed items:
+- Added storefront settings schema migration:
+  - `supabase/migrations/20260302220000_025_market_storefront_settings.sql`
+- Extended market domain types, validations, and services for storefront settings:
+  - `src/domains/market/types.ts`
+  - `src/domains/market/validations.ts`
+  - `src/domains/market/service.ts`
+  - `src/domains/market/index.ts`
+- Added dedicated storefront API route:
+  - `src/app/api/market/storefront/route.ts`
+- Extended market API listing route to optionally include storefront payloads:
+  - `src/app/api/market/route.ts`
+- Integrated storefront controls into market UI:
+  - `src/app/market/page.tsx`
+- Added dashboard storefront summary indicators:
+  - `src/app/dashboard/page.tsx`
+- Integrated storefront factors into NPC demand simulation and ad spend debits:
+  - `supabase/functions/tick-npc-purchases/index.ts`
+  - `src/config/market.ts`
+- Verified `npm run typecheck` and `npm run build` pass
+
+## Phase 16 — economy observability (tick logs + storefront metrics + admin summaries)
+Status: Implemented (pending migration apply + human confirmation)
+
+Completed items:
+- Added observability migration with admin role + analytics tables:
+  - `supabase/migrations/20260302230000_026_economy_observability.sql`
+  - Adds `players.role` (`player|admin`) with default `player`
+  - Adds `tick_run_logs` with indexes + authenticated read policy
+  - Adds `market_storefront_performance_snapshots` with owner/admin read policies
+- Extended auth-character and market contracts for analytics typing:
+  - `src/domains/auth-character/types.ts`
+  - `src/domains/market/types.ts`
+  - `src/domains/market/service.ts`
+  - `src/domains/market/index.ts`
+- Added admin-safe analytics endpoint (role-gated admin summary):
+  - `src/app/api/analytics/route.ts`
+- Instrumented tick functions to write structured run logs:
+  - `supabase/functions/tick-wages/index.ts`
+  - `supabase/functions/tick-shipping/index.ts`
+  - `supabase/functions/tick-travel/index.ts`
+  - `supabase/functions/tick-npc-purchases/index.ts`
+- Added storefront performance snapshot writes in NPC market tick:
+  - `supabase/functions/tick-npc-purchases/index.ts`
+- Added dashboard analytics cards (tick health + storefront ROI posture + admin extras):
+  - `src/app/dashboard/page.tsx`
+- Verified `npm run typecheck` and `npm run build` pass
+
+## Phase 17 — full front-end overhaul (global shell + cohesive UI)
+Status: Implemented (pending human confirmation)
+
+Completed items:
+- Added shared visual foundation and responsive shell inspired by `Documents/Example.html`:
+  - `src/app/globals.css`
+  - `src/app/layout.tsx`
+- Added reusable UI primitives for future incremental composition:
+  - `src/components/ui/primitives.tsx`
+- Updated route-level UX shell and page framing while preserving all game logic and API behavior:
+  - `src/app/page.tsx`
+  - `src/app/login/page.tsx`
+  - `src/app/register/page.tsx`
+  - `src/app/character-setup/page.tsx`
+  - `src/app/dashboard/page.tsx`
+  - `src/app/businesses/page.tsx`
+  - `src/app/inventory/page.tsx`
+  - `src/app/market/page.tsx`
+  - `src/app/employees/page.tsx`
+  - `src/app/production/page.tsx`
+  - `src/app/contracts/page.tsx`
+  - `src/app/travel/page.tsx`
+  - `src/app/banking/page.tsx`
+- Preserved existing gameplay interactions and API contracts across all updated pages.
+- Verified `npm run typecheck` and `npm run build` pass after overhaul.

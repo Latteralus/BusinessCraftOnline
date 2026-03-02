@@ -110,11 +110,11 @@ export default function ContractsPage() {
   }
 
   return (
-    <main style={{ maxWidth: 980, margin: "0 auto", padding: "40px 24px" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+    <main>
+      <header className="lc-page-header">
         <div>
           <h1>Contracts</h1>
-          <p style={{ color: "#94a3b8" }}>
+          <p>
             Phase 11 contracts: create, accept, fulfill, and cancel supply agreements.
           </p>
         </div>
@@ -127,7 +127,7 @@ export default function ContractsPage() {
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
 
       {!loading ? (
-        <section style={{ marginTop: 16, border: "1px solid #334155", borderRadius: 8, padding: 16 }}>
+        <section>
           <h2 style={{ marginTop: 0 }}>Create Contract</h2>
           <div style={{ display: "grid", gap: 8, maxWidth: 560 }}>
             <label>
@@ -181,7 +181,7 @@ export default function ContractsPage() {
       ) : null}
 
       {!loading ? (
-        <section style={{ marginTop: 16, border: "1px solid #334155", borderRadius: 8, padding: 16 }}>
+        <section>
           <h2 style={{ marginTop: 0 }}>Your Contracts</h2>
           {contracts.length === 0 ? <p>No contracts yet.</p> : null}
           <div style={{ display: "grid", gap: 8 }}>
@@ -230,4 +230,3 @@ export default function ContractsPage() {
     </main>
   );
 }
-

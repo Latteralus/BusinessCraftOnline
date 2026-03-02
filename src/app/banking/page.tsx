@@ -186,11 +186,11 @@ export default function BankingPage() {
   }
 
   return (
-    <main style={{ maxWidth: 980, margin: "0 auto", padding: "40px 24px" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+    <main>
+      <header className="lc-page-header">
         <div>
           <h1>Banking</h1>
-          <p style={{ color: "#94a3b8" }}>
+          <p>
             Personal accounts, transfers, loan management, and transaction history.
           </p>
         </div>
@@ -204,14 +204,7 @@ export default function BankingPage() {
 
       {!loading ? (
         <>
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Account Balances</h2>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 }}>
               {accounts.map((account) => (
@@ -230,14 +223,7 @@ export default function BankingPage() {
             </div>
           </section>
 
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Transfer Between Personal Accounts</h2>
             <div style={{ display: "grid", gap: 8, maxWidth: 520 }}>
               <label>
@@ -293,14 +279,7 @@ export default function BankingPage() {
             </div>
           </section>
 
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Loans</h2>
             <p>
               <strong>Max Loan Available:</strong>{" "}
@@ -379,14 +358,7 @@ export default function BankingPage() {
             )}
           </section>
 
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Recent Transactions</h2>
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -446,4 +418,3 @@ export default function BankingPage() {
     </main>
   );
 }
-

@@ -1,14 +1,22 @@
 import { MARKET_TRANSACTION_FEE } from "@/config/market";
 import { getBusinessById } from "@/domains/businesses";
 import type {
+  AdminEconomySummary,
   BuyMarketListingInput,
   CancelMarketListingInput,
   CreateMarketListingInput,
   MarketListing,
   MarketListingFilter,
+  MarketStorefrontPerformanceSnapshot,
+  MarketStorefrontFilter,
+  MarketStorefrontSetting,
   MarketTransaction,
   NpcMarketSubtickState,
   RecordNpcPurchaseInput,
+  StorefrontPerformanceSummary,
+  TickHealthSummary,
+  TickRunLog,
+  UpdateMarketStorefrontSettingsInput,
 } from "./types";
 
 type QueryClient = {
@@ -50,6 +58,44 @@ function normalizeSubtickState(row: NpcMarketSubtickState): NpcMarketSubtickStat
   return {
     ...row,
     sub_tick_index: Number(row.sub_tick_index),
+  };
+}
+
+function normalizeStorefrontSetting(row: MarketStorefrontSetting): MarketStorefrontSetting {
+  return {
+    ...row,
+    ad_budget_per_tick: toNumber(row.ad_budget_per_tick),
+    traffic_multiplier: toNumber(row.traffic_multiplier),
+    is_ad_enabled: Boolean(row.is_ad_enabled),
+  };
+}
+
+function normalizeTickRunLog(row: TickRunLog): TickRunLog {
+  return {
+    ...row,
+    duration_ms: Number(row.duration_ms),
+    processed_count: Number(row.processed_count),
+    metrics:
+      row.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics)
+        ? (row.metrics as Record<string, unknown>)
+        : {},
+  };
+}
+
+function normalizeStorefrontSnapshot(
+  row: MarketStorefrontPerformanceSnapshot
+): MarketStorefrontPerformanceSnapshot {
+  return {
+    ...row,
+    sub_tick_index: row.sub_tick_index === null ? null : Number(row.sub_tick_index),
+    shoppers_generated: Number(row.shoppers_generated),
+    sales_count: Number(row.sales_count),
+    units_sold: Number(row.units_sold),
+    gross_revenue: toNumber(row.gross_revenue),
+    fee_total: toNumber(row.fee_total),
+    ad_spend: toNumber(row.ad_spend),
+    traffic_multiplier: toNumber(row.traffic_multiplier),
+    demand_multiplier: toNumber(row.demand_multiplier),
   };
 }
 
@@ -558,4 +604,352 @@ export async function updateNpcMarketSubtickState(
 
   if (error) throw error;
   return normalizeSubtickState(data as NpcMarketSubtickState);
+}
+
+export async function getMarketStorefrontSettings(
+  client: QueryClient,
+  playerId: string,
+  filter: MarketStorefrontFilter = {}
+): Promise<MarketStorefrontSetting[]> {
+  let query = client
+    .from("market_storefront_settings")
+    .select("*")
+    .eq("owner_player_id", playerId)
+    .order("created_at", { ascending: false });
+
+  if (filter.businessId) {
+    query = query.eq("business_id", filter.businessId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const existing = ((data as MarketStorefrontSetting[]) ?? []).map(normalizeStorefrontSetting);
+  const byBusinessId = new Map(existing.map((row) => [row.business_id, row]));
+
+  let storesQuery = client
+    .from("businesses")
+    .select("id")
+    .eq("player_id", playerId)
+    .in("type", ["general_store", "specialty_store"]);
+
+  if (filter.businessId) {
+    storesQuery = storesQuery.eq("id", filter.businessId);
+  }
+
+  const { data: storeRows, error: storesError } = await storesQuery;
+  if (storesError) throw storesError;
+
+  const defaults = ((storeRows as Array<{ id: string }>) ?? [])
+    .filter((store) => !byBusinessId.has(store.id))
+    .map((store) => ({
+      id: `default-${store.id}`,
+      owner_player_id: playerId,
+      business_id: store.id,
+      ad_budget_per_tick: 0,
+      traffic_multiplier: 1,
+      is_ad_enabled: true,
+      created_at: new Date(0).toISOString(),
+      updated_at: new Date(0).toISOString(),
+    }));
+
+  return [...existing, ...defaults];
+}
+
+export async function updateMarketStorefrontSettings(
+  client: QueryClient,
+  playerId: string,
+  input: UpdateMarketStorefrontSettingsInput
+): Promise<MarketStorefrontSetting> {
+  const business = await ensureOwnedBusiness(client, playerId, input.businessId);
+  if (!["general_store", "specialty_store"].includes(business.type)) {
+    throw new Error("Storefront settings are only available for store businesses.");
+  }
+
+  const payload = {
+    owner_player_id: playerId,
+    business_id: business.id,
+    ad_budget_per_tick: input.adBudgetPerTick,
+    traffic_multiplier: input.trafficMultiplier,
+    is_ad_enabled: input.isAdEnabled,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await client
+    .from("market_storefront_settings")
+    .upsert(payload, { onConflict: "business_id" })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return normalizeStorefrontSetting(data as MarketStorefrontSetting);
+}
+
+function toWindowHours(value: number): number {
+  if (!Number.isFinite(value)) return 24;
+  return Math.max(1, Math.min(168, Math.floor(value)));
+}
+
+function toRoi(adSpend: number, netRevenue: number): number | null {
+  if (adSpend <= 0) return null;
+  return Number((netRevenue / adSpend).toFixed(4));
+}
+
+function summarizeTickRuns(
+  rows: TickRunLog[],
+  windowHours: number,
+  capturedFrom: string,
+  capturedTo: string
+): TickHealthSummary {
+  const byTick = new Map<
+    string,
+    {
+      tick_name: string;
+      total_runs: number;
+      error_runs: number;
+      duration_sum: number;
+      last_status: "ok" | "error";
+      last_finished_at: string;
+    }
+  >();
+
+  for (const row of rows) {
+    const existing = byTick.get(row.tick_name);
+    if (!existing) {
+      byTick.set(row.tick_name, {
+        tick_name: row.tick_name,
+        total_runs: 1,
+        error_runs: row.status === "error" ? 1 : 0,
+        duration_sum: row.duration_ms,
+        last_status: row.status,
+        last_finished_at: row.finished_at,
+      });
+      continue;
+    }
+
+    existing.total_runs += 1;
+    existing.error_runs += row.status === "error" ? 1 : 0;
+    existing.duration_sum += row.duration_ms;
+  }
+
+  const totalRuns = rows.length;
+  const errorRuns = rows.reduce((sum, row) => sum + (row.status === "error" ? 1 : 0), 0);
+  const successRate = totalRuns === 0 ? 1 : Number(((totalRuns - errorRuns) / totalRuns).toFixed(4));
+
+  return {
+    window_hours: windowHours,
+    captured_from: capturedFrom,
+    captured_to: capturedTo,
+    total_runs: totalRuns,
+    error_runs: errorRuns,
+    success_rate: successRate,
+    recent_runs: rows.slice(0, 10),
+    by_tick: Array.from(byTick.values())
+      .map((item) => ({
+        tick_name: item.tick_name,
+        total_runs: item.total_runs,
+        error_runs: item.error_runs,
+        success_rate:
+          item.total_runs === 0
+            ? 1
+            : Number(((item.total_runs - item.error_runs) / item.total_runs).toFixed(4)),
+        average_duration_ms: Number((item.duration_sum / Math.max(1, item.total_runs)).toFixed(2)),
+        last_status: item.last_status,
+        last_finished_at: item.last_finished_at,
+      }))
+      .sort((a, b) => a.tick_name.localeCompare(b.tick_name)),
+  };
+}
+
+export async function getStorefrontPerformanceSummary(
+  client: QueryClient,
+  playerId: string,
+  windowHoursInput = 24
+): Promise<StorefrontPerformanceSummary> {
+  const windowHours = toWindowHours(windowHoursInput);
+  const now = new Date();
+  const from = new Date(now.getTime() - windowHours * 60 * 60 * 1000).toISOString();
+  const to = now.toISOString();
+
+  const [snapshotsResult, businessesResult] = await Promise.all([
+    client
+      .from("market_storefront_performance_snapshots")
+      .select("*")
+      .eq("owner_player_id", playerId)
+      .gte("captured_at", from)
+      .order("captured_at", { ascending: false }),
+    client.from("businesses").select("id, name").eq("player_id", playerId),
+  ]);
+
+  if (snapshotsResult.error) throw snapshotsResult.error;
+  if (businessesResult.error) throw businessesResult.error;
+
+  const snapshots = ((snapshotsResult.data as MarketStorefrontPerformanceSnapshot[]) ?? []).map(
+    normalizeStorefrontSnapshot
+  );
+  const businessNameById = new Map(
+    (((businessesResult.data as Array<{ id: string; name: string }>) ?? []) as Array<{
+      id: string;
+      name: string;
+    }>).map((row) => [row.id, row.name])
+  );
+
+  const totals = snapshots.reduce(
+    (acc, row) => {
+      acc.ad_spend += row.ad_spend;
+      acc.gross_revenue += row.gross_revenue;
+      acc.fee_total += row.fee_total;
+      acc.sales_count += row.sales_count;
+      acc.units_sold += row.units_sold;
+      acc.shoppers_generated += row.shoppers_generated;
+      return acc;
+    },
+    {
+      ad_spend: 0,
+      gross_revenue: 0,
+      fee_total: 0,
+      sales_count: 0,
+      units_sold: 0,
+      shoppers_generated: 0,
+    }
+  );
+
+  const byBusiness = new Map<string, StorefrontPerformanceSummary["businesses"][number]>();
+  for (const row of snapshots) {
+    const existing = byBusiness.get(row.business_id);
+    if (!existing) {
+      byBusiness.set(row.business_id, {
+        business_id: row.business_id,
+        business_name: businessNameById.get(row.business_id) ?? "Unknown Store",
+        ad_spend: row.ad_spend,
+        gross_revenue: row.gross_revenue,
+        fee_total: row.fee_total,
+        net_revenue: Number((row.gross_revenue - row.fee_total).toFixed(2)),
+        sales_count: row.sales_count,
+        units_sold: row.units_sold,
+        shoppers_generated: row.shoppers_generated,
+        roi: toRoi(row.ad_spend, row.gross_revenue - row.fee_total),
+      });
+      continue;
+    }
+
+    existing.ad_spend = Number((existing.ad_spend + row.ad_spend).toFixed(2));
+    existing.gross_revenue = Number((existing.gross_revenue + row.gross_revenue).toFixed(2));
+    existing.fee_total = Number((existing.fee_total + row.fee_total).toFixed(2));
+    existing.net_revenue = Number((existing.gross_revenue - existing.fee_total).toFixed(2));
+    existing.sales_count += row.sales_count;
+    existing.units_sold += row.units_sold;
+    existing.shoppers_generated += row.shoppers_generated;
+    existing.roi = toRoi(existing.ad_spend, existing.net_revenue);
+  }
+
+  const netRevenue = Number((totals.gross_revenue - totals.fee_total).toFixed(2));
+
+  return {
+    window_hours: windowHours,
+    captured_from: from,
+    captured_to: to,
+    ad_spend: Number(totals.ad_spend.toFixed(2)),
+    gross_revenue: Number(totals.gross_revenue.toFixed(2)),
+    fee_total: Number(totals.fee_total.toFixed(2)),
+    net_revenue: netRevenue,
+    sales_count: totals.sales_count,
+    units_sold: totals.units_sold,
+    shoppers_generated: totals.shoppers_generated,
+    roi: toRoi(totals.ad_spend, netRevenue),
+    businesses: Array.from(byBusiness.values()).sort((a, b) => b.gross_revenue - a.gross_revenue),
+  };
+}
+
+export async function getTickHealthSummary(
+  client: QueryClient,
+  windowHoursInput = 24
+): Promise<TickHealthSummary> {
+  const windowHours = toWindowHours(windowHoursInput);
+  const now = new Date();
+  const from = new Date(now.getTime() - windowHours * 60 * 60 * 1000).toISOString();
+  const to = now.toISOString();
+
+  const { data, error } = await client
+    .from("tick_run_logs")
+    .select("*")
+    .gte("created_at", from)
+    .order("created_at", { ascending: false })
+    .limit(800);
+
+  if (error) throw error;
+  const rows = ((data as TickRunLog[]) ?? []).map(normalizeTickRunLog);
+  return summarizeTickRuns(rows, windowHours, from, to);
+}
+
+export async function getAdminEconomySummary(
+  client: QueryClient,
+  windowHoursInput = 24
+): Promise<AdminEconomySummary> {
+  const windowHours = toWindowHours(windowHoursInput);
+  const now = new Date();
+  const from = new Date(now.getTime() - windowHours * 60 * 60 * 1000).toISOString();
+  const to = now.toISOString();
+
+  const [tickRowsResult, snapshotsResult] = await Promise.all([
+    client
+      .from("tick_run_logs")
+      .select("*")
+      .gte("created_at", from)
+      .order("created_at", { ascending: false })
+      .limit(1200),
+    client
+      .from("market_storefront_performance_snapshots")
+      .select("*")
+      .gte("captured_at", from)
+      .order("captured_at", { ascending: false })
+      .limit(3000),
+  ]);
+
+  if (tickRowsResult.error) throw tickRowsResult.error;
+  if (snapshotsResult.error) throw snapshotsResult.error;
+
+  const tickRows = ((tickRowsResult.data as TickRunLog[]) ?? []).map(normalizeTickRunLog);
+  const snapshots = ((snapshotsResult.data as MarketStorefrontPerformanceSnapshot[]) ?? []).map(
+    normalizeStorefrontSnapshot
+  );
+
+  const totals = snapshots.reduce(
+    (acc, row) => {
+      acc.ad_spend += row.ad_spend;
+      acc.gross_revenue += row.gross_revenue;
+      acc.fee_total += row.fee_total;
+      acc.sales_count += row.sales_count;
+      acc.units_sold += row.units_sold;
+      acc.shoppers_generated += row.shoppers_generated;
+      return acc;
+    },
+    {
+      ad_spend: 0,
+      gross_revenue: 0,
+      fee_total: 0,
+      sales_count: 0,
+      units_sold: 0,
+      shoppers_generated: 0,
+    }
+  );
+  const netRevenue = Number((totals.gross_revenue - totals.fee_total).toFixed(2));
+
+  return {
+    tick_health: summarizeTickRuns(tickRows, windowHours, from, to),
+    storefront_performance: {
+      window_hours: windowHours,
+      captured_from: from,
+      captured_to: to,
+      snapshots: snapshots.length,
+      ad_spend: Number(totals.ad_spend.toFixed(2)),
+      gross_revenue: Number(totals.gross_revenue.toFixed(2)),
+      fee_total: Number(totals.fee_total.toFixed(2)),
+      net_revenue: netRevenue,
+      sales_count: totals.sales_count,
+      units_sold: totals.units_sold,
+      shoppers_generated: totals.shoppers_generated,
+      roi: toRoi(totals.ad_spend, netRevenue),
+    },
+  };
 }

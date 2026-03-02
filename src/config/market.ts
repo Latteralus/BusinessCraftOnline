@@ -61,6 +61,10 @@ export const NPC_CATEGORY_INTEREST_WEIGHTS: ReadonlyArray<{ itemKey: string; wei
 
 export const NPC_SHOPPERS_PER_SUBTICK_BASE = 18;
 export const NPC_SUBTICK_VARIANCE = 0.3;
+export const STOREFRONT_TRAFFIC_MULTIPLIER_MIN = 0.5;
+export const STOREFRONT_TRAFFIC_MULTIPLIER_MAX = 3;
+export const STOREFRONT_AD_BUDGET_FOR_MAX_EFFECT = 200;
+export const STOREFRONT_AD_MAX_TRAFFIC_BOOST = 1;
 
 export function getDemandCurveMultiplierForHour(hour: number): number {
   const match = NPC_DEMAND_CURVE.find((window) => hour >= window.startHour && hour <= window.endHour);

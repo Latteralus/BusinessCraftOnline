@@ -7,6 +7,30 @@ function toNumber(value: number | string | null | undefined): number {
   return 0;
 }
 
+async function writeTickRunLog(
+  supabase: ReturnType<typeof createClient>,
+  input: {
+    status: "ok" | "error";
+    startedAtIso: string;
+    finishedAtIso: string;
+    durationMs: number;
+    processedCount: number;
+    metrics?: Record<string, unknown>;
+    errorMessage?: string | null;
+  }
+) {
+  await supabase.from("tick_run_logs").insert({
+    tick_name: "tick-shipping",
+    status: input.status,
+    started_at: input.startedAtIso,
+    finished_at: input.finishedAtIso,
+    duration_ms: Math.max(0, Math.floor(input.durationMs)),
+    processed_count: Math.max(0, Math.floor(input.processedCount)),
+    metrics: input.metrics ?? {},
+    error_message: input.errorMessage ?? null,
+  });
+}
+
 async function deliverToPersonalInventory(
   supabase: ReturnType<typeof createClient>,
   shipment: {
@@ -90,6 +114,8 @@ async function deliverToBusinessInventory(
 }
 
 Deno.serve(async () => {
+  const startedAt = new Date();
+  const startedAtIso = startedAt.toISOString();
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
@@ -101,54 +127,82 @@ Deno.serve(async () => {
   }
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
-  const nowIso = new Date().toISOString();
+  try {
+    const nowIso = new Date().toISOString();
 
-  const { data: dueShipments, error: shipmentsError } = await supabase
-    .from("shipping_queue")
-    .select("id, owner_player_id, to_city_id, item_key, quantity, destination_type, destination_id")
-    .eq("status", "in_transit")
-    .lte("arrives_at", nowIso)
-    .order("arrives_at", { ascending: true })
-    .limit(500);
+    const { data: dueShipments, error: shipmentsError } = await supabase
+      .from("shipping_queue")
+      .select("id, owner_player_id, to_city_id, item_key, quantity, destination_type, destination_id")
+      .eq("status", "in_transit")
+      .lte("arrives_at", nowIso)
+      .order("arrives_at", { ascending: true })
+      .limit(500);
 
-  if (shipmentsError) {
-    return new Response(JSON.stringify({ ok: false, error: shipmentsError.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  let processed = 0;
-  let deliveredPersonal = 0;
-  let deliveredBusiness = 0;
-
-  for (const shipment of dueShipments ?? []) {
-    if (shipment.destination_type === "personal") {
-      await deliverToPersonalInventory(supabase, shipment);
-      deliveredPersonal += 1;
-    } else {
-      await deliverToBusinessInventory(supabase, shipment);
-      deliveredBusiness += 1;
+    if (shipmentsError) {
+      throw shipmentsError;
     }
 
-    await supabase
-      .from("shipping_queue")
-      .update({ status: "delivered" })
-      .eq("id", shipment.id)
-      .eq("status", "in_transit");
+    let processed = 0;
+    let deliveredPersonal = 0;
+    let deliveredBusiness = 0;
 
-    processed += 1;
-  }
+    for (const shipment of dueShipments ?? []) {
+      if (shipment.destination_type === "personal") {
+        await deliverToPersonalInventory(supabase, shipment);
+        deliveredPersonal += 1;
+      } else {
+        await deliverToBusinessInventory(supabase, shipment);
+        deliveredBusiness += 1;
+      }
 
-  return new Response(
-    JSON.stringify({
+      await supabase
+        .from("shipping_queue")
+        .update({ status: "delivered" })
+        .eq("id", shipment.id)
+        .eq("status", "in_transit");
+
+      processed += 1;
+    }
+
+    const finishedAtIso = new Date().toISOString();
+    const payload = {
       ok: true,
       function: "tick-shipping",
       processed,
       deliveredPersonal,
       deliveredBusiness,
-    }),
-    { headers: { "Content-Type": "application/json" } }
-  );
-});
+    };
 
+    await writeTickRunLog(supabase, {
+      status: "ok",
+      startedAtIso,
+      finishedAtIso,
+      durationMs: new Date(finishedAtIso).getTime() - startedAt.getTime(),
+      processedCount: processed,
+      metrics: payload,
+      errorMessage: null,
+    });
+
+    return new Response(JSON.stringify(payload), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const finishedAtIso = new Date().toISOString();
+    const message = error instanceof Error ? error.message : "tick-shipping failed";
+
+    await writeTickRunLog(supabase, {
+      status: "error",
+      startedAtIso,
+      finishedAtIso,
+      durationMs: new Date(finishedAtIso).getTime() - startedAt.getTime(),
+      processedCount: 0,
+      metrics: {},
+      errorMessage: message,
+    });
+
+    return new Response(JSON.stringify({ ok: false, error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});

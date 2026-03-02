@@ -154,11 +154,11 @@ export default function TravelPage() {
   }
 
   return (
-    <main style={{ maxWidth: 920, margin: "0 auto", padding: "40px 24px" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+    <main>
+      <header className="lc-page-header">
         <div>
           <h1>Travel</h1>
-          <p style={{ color: "#94a3b8" }}>
+          <p>
             Move between cities with route-based travel time and cost.
           </p>
         </div>
@@ -172,14 +172,7 @@ export default function TravelPage() {
 
       {!loading && travelState ? (
         <>
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Current Location</h2>
             <p>
               <strong>City:</strong> {travelState.currentCity?.name ?? "Unknown"}
@@ -190,14 +183,7 @@ export default function TravelPage() {
             </p>
           </section>
 
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Travel Status</h2>
             {travelState.activeTravel ? (
               <>
@@ -225,14 +211,7 @@ export default function TravelPage() {
             )}
           </section>
 
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Start Travel</h2>
             <div style={{ display: "grid", gap: 10, maxWidth: 420 }}>
               <label htmlFor="destinationCity">Destination city</label>

@@ -1,7 +1,7 @@
 "use client";
 
 import type { BusinessWithBalance } from "@/domains/businesses";
-import type { MarketListing, MarketTransaction } from "@/domains/market";
+import type { MarketListing, MarketStorefrontSetting, MarketTransaction } from "@/domains/market";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -16,10 +16,16 @@ type ListingsResponse = {
   error?: string;
 };
 
+type StorefrontResponse = {
+  storefront: MarketStorefrontSetting[];
+  error?: string;
+};
+
 export default function MarketPage() {
   const [businesses, setBusinesses] = useState<BusinessWithBalance[]>([]);
   const [listings, setListings] = useState<MarketListing[]>([]);
   const [transactions, setTransactions] = useState<MarketTransaction[]>([]);
+  const [storefrontByBusinessId, setStorefrontByBusinessId] = useState<Record<string, MarketStorefrontSetting>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +36,9 @@ export default function MarketPage() {
   const [quantity, setQuantity] = useState(5);
   const [unitPrice, setUnitPrice] = useState(5);
   const [buyQuantityByListingId, setBuyQuantityByListingId] = useState<Record<string, number>>({});
+  const [storefrontAdBudget, setStorefrontAdBudget] = useState(0);
+  const [storefrontTrafficMultiplier, setStorefrontTrafficMultiplier] = useState(1);
+  const [storefrontAdEnabled, setStorefrontAdEnabled] = useState(true);
 
   const ownListings = useMemo(() => listings.filter((listing) => listing.status === "active"), [listings]);
 
@@ -55,6 +64,22 @@ export default function MarketPage() {
     setTransactions(payload.transactions ?? []);
   }
 
+  async function loadStorefrontSettings(businessId?: string) {
+    const query = businessId ? `?businessId=${encodeURIComponent(businessId)}` : "";
+    const response = await fetch(`/api/market/storefront${query}`, { cache: "no-store" });
+    const payload = (await response.json()) as StorefrontResponse;
+    if (!response.ok) throw new Error(payload.error ?? "Failed to load storefront settings.");
+
+    const mapped = Object.fromEntries((payload.storefront ?? []).map((row) => [row.business_id, row]));
+    setStorefrontByBusinessId((prev) => ({ ...prev, ...mapped }));
+
+    if (businessId && mapped[businessId]) {
+      setStorefrontAdBudget(mapped[businessId].ad_budget_per_tick);
+      setStorefrontTrafficMultiplier(mapped[businessId].traffic_multiplier);
+      setStorefrontAdEnabled(mapped[businessId].is_ad_enabled);
+    }
+  }
+
   useEffect(() => {
     async function init() {
       setLoading(true);
@@ -62,6 +87,7 @@ export default function MarketPage() {
       try {
         await loadBusinesses();
         await loadListings();
+        await loadStorefrontSettings();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to initialize market page.");
       } finally {
@@ -72,6 +98,20 @@ export default function MarketPage() {
     void init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const selected = sourceBusinessId ? storefrontByBusinessId[sourceBusinessId] : null;
+    if (!selected) {
+      setStorefrontAdBudget(0);
+      setStorefrontTrafficMultiplier(1);
+      setStorefrontAdEnabled(true);
+      return;
+    }
+
+    setStorefrontAdBudget(selected.ad_budget_per_tick);
+    setStorefrontTrafficMultiplier(selected.traffic_multiplier);
+    setStorefrontAdEnabled(selected.is_ad_enabled);
+  }, [sourceBusinessId, storefrontByBusinessId]);
 
   async function createListing() {
     if (!sourceBusinessId || busy) return;
@@ -135,12 +175,41 @@ export default function MarketPage() {
     await loadListings();
   }
 
+  async function saveStorefrontSettings() {
+    if (!sourceBusinessId || busy) return;
+    setBusy(true);
+    setError(null);
+
+    const response = await fetch("/api/market/storefront", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        businessId: sourceBusinessId,
+        adBudgetPerTick: storefrontAdBudget,
+        trafficMultiplier: storefrontTrafficMultiplier,
+        isAdEnabled: storefrontAdEnabled,
+      }),
+    });
+
+    const payload = (await response.json()) as { storefront?: MarketStorefrontSetting; error?: string };
+    setBusy(false);
+
+    if (!response.ok) {
+      setError(payload.error ?? "Failed to update storefront settings.");
+      return;
+    }
+
+    if (payload.storefront) {
+      setStorefrontByBusinessId((prev) => ({ ...prev, [payload.storefront!.business_id]: payload.storefront! }));
+    }
+  }
+
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: "40px 24px" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+    <main>
+      <header className="lc-page-header">
         <div>
           <h1>Market</h1>
-          <p style={{ color: "#94a3b8" }}>
+          <p>
             Phase 12 market listings: publish inventory, buy listings, and feed NPC demand from active listings.
           </p>
         </div>
@@ -153,7 +222,58 @@ export default function MarketPage() {
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
 
       {!loading ? (
-        <section style={{ marginTop: 16, border: "1px solid #334155", borderRadius: 8, padding: 16 }}>
+        <section>
+          <h2 style={{ marginTop: 0 }}>Storefront Controls</h2>
+          <div style={{ display: "grid", gap: 8, maxWidth: 620 }}>
+            <label>
+              Store Business
+              <select value={sourceBusinessId} onChange={(event) => setSourceBusinessId(event.target.value)}>
+                <option value="">Select business</option>
+                {businesses.map((business) => (
+                  <option key={business.id} value={business.id}>
+                    {business.name} ({business.type})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Ad Budget Per Tick
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={storefrontAdBudget}
+                onChange={(event) => setStorefrontAdBudget(Number(event.target.value) || 0)}
+              />
+            </label>
+            <label>
+              Traffic Multiplier
+              <input
+                type="number"
+                min={0.5}
+                max={3}
+                step={0.01}
+                value={storefrontTrafficMultiplier}
+                onChange={(event) => setStorefrontTrafficMultiplier(Number(event.target.value) || 1)}
+              />
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={storefrontAdEnabled}
+                onChange={(event) => setStorefrontAdEnabled(event.target.checked)}
+              />{" "}
+              Ads Enabled
+            </label>
+            <button onClick={() => void saveStorefrontSettings()} disabled={busy || !sourceBusinessId}>
+              Save Storefront Settings
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {!loading ? (
+        <section>
           <h2 style={{ marginTop: 0 }}>Create Listing</h2>
           <div style={{ display: "grid", gap: 8, maxWidth: 620 }}>
             <label>
@@ -208,7 +328,7 @@ export default function MarketPage() {
       ) : null}
 
       {!loading ? (
-        <section style={{ marginTop: 16, border: "1px solid #334155", borderRadius: 8, padding: 16 }}>
+        <section>
           <h2 style={{ marginTop: 0 }}>Active Listings</h2>
           {ownListings.length === 0 ? <p>No active listings found.</p> : null}
           <div style={{ display: "grid", gap: 8 }}>
@@ -254,7 +374,7 @@ export default function MarketPage() {
       ) : null}
 
       {!loading ? (
-        <section style={{ marginTop: 16, border: "1px solid #334155", borderRadius: 8, padding: 16 }}>
+        <section>
           <h2 style={{ marginTop: 0 }}>Recent Market Activity</h2>
           {transactions.length === 0 ? <p>No market transactions yet.</p> : null}
           <div style={{ display: "grid", gap: 8 }}>

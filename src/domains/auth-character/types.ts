@@ -4,6 +4,7 @@ export type Player = {
   id: string;
   username: string;
   email: string;
+  role: "player" | "admin";
   created_at: string;
 };
 

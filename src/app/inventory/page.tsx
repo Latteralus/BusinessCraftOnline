@@ -163,11 +163,11 @@ export default function InventoryPage() {
   }
 
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: "40px 24px" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+    <main>
+      <header className="lc-page-header">
         <div>
           <h1>Inventory</h1>
-          <p style={{ color: "#94a3b8" }}>
+          <p>
             Personal inventory, business inventory, shipping queue, and transfer controls.
           </p>
         </div>
@@ -182,14 +182,7 @@ export default function InventoryPage() {
 
       {!loading ? (
         <>
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Transfer Items</h2>
             <div style={{ display: "grid", gap: 10, maxWidth: 620 }}>
               <label>
@@ -315,14 +308,7 @@ export default function InventoryPage() {
             </div>
           </section>
 
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Personal Inventory</h2>
             {personalInventory.length === 0 ? (
               <p>No personal items.</p>
@@ -337,14 +323,7 @@ export default function InventoryPage() {
             )}
           </section>
 
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Business Inventory</h2>
             {businessInventory.length === 0 ? (
               <p>No business inventory rows.</p>
@@ -363,14 +342,7 @@ export default function InventoryPage() {
             )}
           </section>
 
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Shipping Queue</h2>
             {shippingQueue.length === 0 ? (
               <p>No shipping queue entries.</p>
@@ -392,4 +364,3 @@ export default function InventoryPage() {
     </main>
   );
 }
-

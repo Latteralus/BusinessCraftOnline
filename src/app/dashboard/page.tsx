@@ -3,7 +3,13 @@ import { getBankingSnapshot } from "@/domains/banking";
 import { getBusinessSummary } from "@/domains/businesses";
 import { getActiveTravel, getCityById } from "@/domains/cities-travel";
 import { getEmployeeSummary } from "@/domains/employees";
-import { getMarketTransactions } from "@/domains/market";
+import {
+  getAdminEconomySummary,
+  getMarketStorefrontSettings,
+  getMarketTransactions,
+  getStorefrontPerformanceSummary,
+  getTickHealthSummary,
+} from "@/domains/market";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -50,6 +56,11 @@ export default async function DashboardPage() {
   const businessSummary = await getBusinessSummary(supabase, user.id).catch(() => null);
   const employeeSummary = await getEmployeeSummary(supabase, user.id).catch(() => null);
   const marketTransactions = await getMarketTransactions(supabase, user.id, 8).catch(() => []);
+  const storefrontSettings = await getMarketStorefrontSettings(supabase, user.id).catch(() => []);
+  const tickHealth = await getTickHealthSummary(supabase, 24).catch(() => null);
+  const storefrontPerformance = await getStorefrontPerformanceSummary(supabase, user.id, 24).catch(() => null);
+  const adminEconomySummary =
+    player?.role === "admin" ? await getAdminEconomySummary(supabase, 24).catch(() => null) : null;
   const [{ count: inTransitShippingCount }, { count: dueShippingCount }, { count: dueTravelArrivalsCount }] =
     await Promise.all([
       supabase
@@ -82,18 +93,18 @@ export default async function DashboardPage() {
   const travelRemainingMinutes =
     travelRemainingMs !== null ? Math.max(0, Math.ceil(travelRemainingMs / 60000)) : null;
 
+  const adEnabledCount = storefrontSettings.filter((row) => row.is_ad_enabled).length;
+  const totalAdBudgetPerTick = storefrontSettings.reduce((sum, row) => sum + row.ad_budget_per_tick, 0);
+  const avgTrafficMultiplier =
+    storefrontSettings.length > 0
+      ? storefrontSettings.reduce((sum, row) => sum + row.traffic_multiplier, 0) / storefrontSettings.length
+      : 1;
+
   return (
-    <main style={{ maxWidth: 900, margin: "0 auto", padding: "48px 24px" }}>
+    <main>
       <h1>Dashboard</h1>
       <p style={{ color: "#94a3b8" }}>Phase 1 auth-character is active.</p>
-      <section
-        style={{
-          border: "1px solid #334155",
-          borderRadius: 8,
-          padding: 16,
-          marginTop: 16,
-        }}
-      >
+      <section>
         <p>
           <strong>Player:</strong> {player?.username ?? "Unknown"}
         </p>
@@ -193,6 +204,48 @@ export default async function DashboardPage() {
         <p>
           <strong>Travel Ready for Arrival Tick:</strong> {dueTravelArrivalsCount ?? 0}
         </p>
+        <p>
+          <strong>Storefront Ads Enabled:</strong> {adEnabledCount}
+        </p>
+        <p>
+          <strong>Total Ad Budget Per Tick:</strong> ${totalAdBudgetPerTick.toFixed(2)}
+        </p>
+        <p>
+          <strong>Avg Storefront Traffic Multiplier:</strong> {avgTrafficMultiplier.toFixed(2)}x
+        </p>
+        <hr style={{ borderColor: "#334155", margin: "12px 0" }} />
+        <p>
+          <strong>Analytics (24h):</strong>
+        </p>
+        <p>
+          <strong>Tick Success Rate:</strong>{" "}
+          {tickHealth ? `${(tickHealth.success_rate * 100).toFixed(1)}%` : "Unavailable"}
+        </p>
+        <p>
+          <strong>Tick Errors:</strong> {tickHealth?.error_runs ?? 0} / {tickHealth?.total_runs ?? 0}
+        </p>
+        <p>
+          <strong>Storefront ROI:</strong>{" "}
+          {storefrontPerformance?.roi !== null && storefrontPerformance?.roi !== undefined
+            ? `${(storefrontPerformance.roi * 100).toFixed(1)}%`
+            : "N/A"}
+        </p>
+        <p>
+          <strong>Storefront Net Revenue:</strong> ${storefrontPerformance?.net_revenue.toFixed(2) ?? "0.00"}
+        </p>
+        <p>
+          <strong>Storefront Ad Spend:</strong> ${storefrontPerformance?.ad_spend.toFixed(2) ?? "0.00"}
+        </p>
+        {adminEconomySummary ? (
+          <>
+            <p>
+              <strong>Admin Economy Snapshots:</strong> {adminEconomySummary.storefront_performance.snapshots}
+            </p>
+            <p>
+              <strong>Admin Market Net Revenue:</strong> ${adminEconomySummary.storefront_performance.net_revenue.toFixed(2)}
+            </p>
+          </>
+        ) : null}
         <hr style={{ borderColor: "#334155", margin: "12px 0" }} />
         <p>
           <strong>Recent Market Activity:</strong>

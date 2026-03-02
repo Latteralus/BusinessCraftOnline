@@ -228,11 +228,11 @@ export default function BusinessesPage() {
   }
 
   return (
-    <main style={{ maxWidth: 980, margin: "0 auto", padding: "40px 24px" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+    <main>
+      <header className="lc-page-header">
         <div>
           <h1>Businesses</h1>
-          <p style={{ color: "#94a3b8" }}>
+          <p>
             Register businesses, review balances, and purchase upgrades.
           </p>
         </div>
@@ -246,14 +246,7 @@ export default function BusinessesPage() {
 
       {!loading ? (
         <>
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Business Summary</h2>
             <p style={{ margin: "6px 0" }}>
               <strong>Total Businesses:</strong> {summary?.totalBusinesses ?? 0}
@@ -277,14 +270,7 @@ export default function BusinessesPage() {
             </p>
           </section>
 
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Create Business</h2>
             <div style={{ display: "grid", gap: 8, maxWidth: 560 }}>
               <label>
@@ -342,14 +328,7 @@ export default function BusinessesPage() {
             </div>
           </section>
 
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Businesses</h2>
             <div style={{ display: "grid", gap: 10 }}>
               {businesses.length === 0 ? <p>No businesses yet.</p> : null}
@@ -371,14 +350,7 @@ export default function BusinessesPage() {
             </div>
           </section>
 
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid #334155",
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
+          <section>
             <h2 style={{ marginTop: 0 }}>Purchase Upgrade</h2>
             <div style={{ display: "grid", gap: 8, maxWidth: 560 }}>
               <label>

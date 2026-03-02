@@ -8,6 +8,10 @@ const NPC_SUBTICKS_PER_TICK = 20;
 const NPC_SHOPPERS_PER_SUBTICK_BASE = 18;
 const NPC_SUBTICK_VARIANCE = 0.3;
 const NPC_PRICE_BAND_PERCENT = 0.05;
+const STOREFRONT_TRAFFIC_MULTIPLIER_MIN = 0.5;
+const STOREFRONT_TRAFFIC_MULTIPLIER_MAX = 3;
+const STOREFRONT_AD_BUDGET_FOR_MAX_EFFECT = 200;
+const STOREFRONT_AD_MAX_TRAFFIC_BOOST = 1;
 
 const NPC_DEMAND_CURVE = [
   { startHour: 0, endHour: 5, multiplier: 0.3 },
@@ -319,7 +323,68 @@ async function settleListingSale(
   return { gross, fee, net };
 }
 
+async function writeTickRunLog(
+  supabase: ReturnType<typeof createClient>,
+  input: {
+    status: "ok" | "error";
+    startedAtIso: string;
+    finishedAtIso: string;
+    durationMs: number;
+    processedCount: number;
+    metrics?: Record<string, unknown>;
+    errorMessage?: string | null;
+  }
+) {
+  await supabase.from("tick_run_logs").insert({
+    tick_name: "tick-npc-purchases",
+    status: input.status,
+    started_at: input.startedAtIso,
+    finished_at: input.finishedAtIso,
+    duration_ms: Math.max(0, Math.floor(input.durationMs)),
+    processed_count: Math.max(0, Math.floor(input.processedCount)),
+    metrics: input.metrics ?? {},
+    error_message: input.errorMessage ?? null,
+  });
+}
+
+async function writeStorefrontSnapshot(
+  supabase: ReturnType<typeof createClient>,
+  input: {
+    ownerPlayerId: string;
+    businessId: string;
+    cityId: string;
+    tickWindowStartedAt: string;
+    subTickIndex: number;
+    shoppersGenerated: number;
+    salesCount: number;
+    unitsSold: number;
+    grossRevenue: number;
+    feeTotal: number;
+    adSpend: number;
+    trafficMultiplier: number;
+    demandMultiplier: number;
+  }
+) {
+  await supabase.from("market_storefront_performance_snapshots").insert({
+    owner_player_id: input.ownerPlayerId,
+    business_id: input.businessId,
+    city_id: input.cityId,
+    tick_window_started_at: input.tickWindowStartedAt,
+    sub_tick_index: input.subTickIndex,
+    shoppers_generated: Math.max(0, Math.floor(input.shoppersGenerated)),
+    sales_count: Math.max(0, Math.floor(input.salesCount)),
+    units_sold: Math.max(0, Math.floor(input.unitsSold)),
+    gross_revenue: round2(Math.max(0, input.grossRevenue)),
+    fee_total: round2(Math.max(0, input.feeTotal)),
+    ad_spend: round2(Math.max(0, input.adSpend)),
+    traffic_multiplier: Number(input.trafficMultiplier.toFixed(3)),
+    demand_multiplier: Number(input.demandMultiplier.toFixed(3)),
+  });
+}
+
 Deno.serve(async () => {
+  const startedAt = new Date();
+  const startedAtIso = startedAt.toISOString();
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
@@ -331,48 +396,51 @@ Deno.serve(async () => {
   }
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
+  try {
+    const now = new Date();
+    const state = await getOrCreateSubtickState(supabase);
+    const cycleDurationMs = NPC_SUBTICK_SECONDS * NPC_SUBTICKS_PER_TICK * 1000;
+    const stateStartMs = Number(new Date(state.tickWindowStartedAt).getTime());
+    const stateStartValid = Number.isFinite(stateStartMs);
 
-  const now = new Date();
-  const state = await getOrCreateSubtickState(supabase);
-  const cycleDurationMs = NPC_SUBTICK_SECONDS * NPC_SUBTICKS_PER_TICK * 1000;
-  const stateStartMs = Number(new Date(state.tickWindowStartedAt).getTime());
-  const stateStartValid = Number.isFinite(stateStartMs);
+    let tickWindowStartedAt = stateStartValid ? state.tickWindowStartedAt : now.toISOString();
+    let subTickIndex = clamp(state.subTickIndex + 1, 0, NPC_SUBTICKS_PER_TICK - 1);
 
-  let tickWindowStartedAt = stateStartValid ? state.tickWindowStartedAt : now.toISOString();
-  let subTickIndex = clamp(state.subTickIndex + 1, 0, NPC_SUBTICKS_PER_TICK - 1);
+    if (!stateStartValid || now.getTime() - stateStartMs >= cycleDurationMs || subTickIndex >= NPC_SUBTICKS_PER_TICK) {
+      tickWindowStartedAt = now.toISOString();
+      subTickIndex = 0;
+    }
 
-  if (!stateStartValid || now.getTime() - stateStartMs >= cycleDurationMs || subTickIndex >= NPC_SUBTICKS_PER_TICK) {
-    tickWindowStartedAt = now.toISOString();
-    subTickIndex = 0;
-  }
+    if (subTickIndex === 0 && stateStartValid && now.getTime() - stateStartMs < cycleDurationMs) {
+      tickWindowStartedAt = now.toISOString();
+    }
 
-  if (subTickIndex === 0 && stateStartValid && now.getTime() - stateStartMs < cycleDurationMs) {
-    tickWindowStartedAt = now.toISOString();
-  }
+    await persistSubtickState(supabase, { tickWindowStartedAt, subTickIndex });
 
-  await persistSubtickState(supabase, { tickWindowStartedAt, subTickIndex });
+    const { data: stores, error: storesError } = await supabase
+      .from("businesses")
+      .select("id, player_id, type, city_id")
+      .in("type", [...STORE_TYPES]);
 
-  const { data: stores, error: storesError } = await supabase
-    .from("businesses")
-    .select("id, player_id, type, city_id")
-    .in("type", [...STORE_TYPES]);
+    if (storesError) {
+      throw storesError;
+    }
 
-  if (storesError) {
-    return new Response(JSON.stringify({ ok: false, error: storesError.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+    let storesProcessed = 0;
+    let salesCount = 0;
+    let unitsSold = 0;
+    let grossRevenue = 0;
+    let feeTotal = 0;
+    let adSpendTotal = 0;
+    let adEnabledStores = 0;
 
-  let storesProcessed = 0;
-  let salesCount = 0;
-  let unitsSold = 0;
-  let grossRevenue = 0;
-  let feeTotal = 0;
+    const demandMultiplier = getDemandCurveMultiplierForHour(now.getUTCHours());
 
-  const demandMultiplier = getDemandCurveMultiplierForHour(now.getUTCHours());
-
-  for (const store of stores ?? []) {
+    for (const store of stores ?? []) {
+      let storeSalesCount = 0;
+      let storeUnitsSold = 0;
+      let storeGrossRevenue = 0;
+      let storeFeeTotal = 0;
     const { data: upgrades } = await supabase
       .from("business_upgrades")
       .select("upgrade_key, level")
@@ -389,12 +457,69 @@ Deno.serve(async () => {
     const trafficMultiplier = Math.pow(1.05, Math.max(0, Number(storefrontAppealLevel)));
     const priceToleranceMultiplier = Math.pow(1.03, Math.max(0, Number(customerServiceLevel)));
 
+    const { data: storefront } = await supabase
+      .from("market_storefront_settings")
+      .select("id, ad_budget_per_tick, traffic_multiplier, is_ad_enabled")
+      .eq("owner_player_id", store.player_id)
+      .eq("business_id", store.id)
+      .maybeSingle();
+
+    const configuredTrafficMultiplier = storefront
+      ? clamp(
+          toNumber(storefront.traffic_multiplier),
+          STOREFRONT_TRAFFIC_MULTIPLIER_MIN,
+          STOREFRONT_TRAFFIC_MULTIPLIER_MAX
+        )
+      : 1;
+
+    let adBudgetApplied = 0;
+    let adBoostMultiplier = 1;
+
+    if (storefront?.is_ad_enabled) {
+      const adBudget = Math.max(0, toNumber(storefront.ad_budget_per_tick));
+      if (adBudget > 0) {
+        const { data: balanceValue, error: balanceError } = await supabase.rpc("get_business_account_balance", {
+          p_business_id: store.id,
+        });
+
+        const balance = balanceError ? 0 : toNumber(balanceValue);
+        if (balance >= adBudget) {
+          await supabase.from("business_accounts").insert({
+            business_id: store.id,
+            amount: adBudget,
+            entry_type: "debit",
+            category: "storefront_ads",
+            reference_id: null,
+            description: "Storefront ad spend for NPC traffic",
+          });
+
+          adBudgetApplied = adBudget;
+          adBoostMultiplier =
+            1 +
+            Math.min(
+              STOREFRONT_AD_MAX_TRAFFIC_BOOST,
+              adBudget / Math.max(1, STOREFRONT_AD_BUDGET_FOR_MAX_EFFECT)
+            );
+          adEnabledStores += 1;
+        }
+      }
+    }
+
     const seededRng = createRng(hashString(`${tickWindowStartedAt}|${subTickIndex}|${store.id}`));
     const variance = 1 + randBetweenWithRng(seededRng, -NPC_SUBTICK_VARIANCE, NPC_SUBTICK_VARIANCE);
     const shoppersThisSubtick = Math.max(
       1,
-      Math.floor(NPC_SHOPPERS_PER_SUBTICK_BASE * demandMultiplier * trafficMultiplier * variance)
+      Math.floor(
+        NPC_SHOPPERS_PER_SUBTICK_BASE *
+          demandMultiplier *
+          trafficMultiplier *
+          configuredTrafficMultiplier *
+          adBoostMultiplier *
+          variance
+      )
     );
+
+    adSpendTotal += adBudgetApplied;
 
     const { data: listingRows } = await supabase
       .from("market_listings")
@@ -411,6 +536,21 @@ Deno.serve(async () => {
     );
 
     if (availableRows.length === 0) {
+      await writeStorefrontSnapshot(supabase, {
+        ownerPlayerId: store.player_id,
+        businessId: store.id,
+        cityId: store.city_id,
+        tickWindowStartedAt,
+        subTickIndex,
+        shoppersGenerated: shoppersThisSubtick,
+        salesCount: 0,
+        unitsSold: 0,
+        grossRevenue: 0,
+        feeTotal: 0,
+        adSpend: adBudgetApplied,
+        trafficMultiplier: trafficMultiplier * configuredTrafficMultiplier * adBoostMultiplier,
+        demandMultiplier,
+      });
       storesProcessed += 1;
       continue;
     }
@@ -498,32 +638,85 @@ Deno.serve(async () => {
         remainingBudget = round2(Math.max(0, remainingBudget - settled.gross));
         remainingItems = Math.max(0, remainingItems - soldQty);
         salesCount += 1;
+        storeSalesCount += 1;
         unitsSold += soldQty;
+        storeUnitsSold += soldQty;
         grossRevenue += settled.gross;
+        storeGrossRevenue += settled.gross;
         feeTotal += settled.fee;
+        storeFeeTotal += settled.fee;
 
         const continueShoppingChance = remainingItems > 0 ? 0.45 : 0;
         if (seededRng() > continueShoppingChance) break;
       }
     }
 
-    storesProcessed += 1;
-  }
+      await writeStorefrontSnapshot(supabase, {
+        ownerPlayerId: store.player_id,
+        businessId: store.id,
+        cityId: store.city_id,
+        tickWindowStartedAt,
+        subTickIndex,
+        shoppersGenerated: shoppersThisSubtick,
+        salesCount: storeSalesCount,
+        unitsSold: storeUnitsSold,
+        grossRevenue: storeGrossRevenue,
+        feeTotal: storeFeeTotal,
+        adSpend: adBudgetApplied,
+        trafficMultiplier: trafficMultiplier * configuredTrafficMultiplier * adBoostMultiplier,
+        demandMultiplier,
+      });
 
-  return new Response(
-    JSON.stringify({
+      storesProcessed += 1;
+    }
+
+    const payload = {
       ok: true,
       function: "tick-npc-purchases",
       storesProcessed,
       subTickIndex,
       tickWindowStartedAt,
       demandMultiplier,
+      adSpendTotal: Number(adSpendTotal.toFixed(2)),
+      adEnabledStores,
       salesCount,
       unitsSold,
       grossRevenue: Number(grossRevenue.toFixed(2)),
       feeTotal: Number(feeTotal.toFixed(2)),
       netRevenue: Number((grossRevenue - feeTotal).toFixed(2)),
-    }),
-    { headers: { "Content-Type": "application/json" } }
-  );
+    };
+
+    const finishedAtIso = new Date().toISOString();
+    await writeTickRunLog(supabase, {
+      status: "ok",
+      startedAtIso,
+      finishedAtIso,
+      durationMs: new Date(finishedAtIso).getTime() - startedAt.getTime(),
+      processedCount: storesProcessed,
+      metrics: payload,
+      errorMessage: null,
+    });
+
+    return new Response(JSON.stringify(payload), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const finishedAtIso = new Date().toISOString();
+    const message = error instanceof Error ? error.message : "tick-npc-purchases failed";
+
+    await writeTickRunLog(supabase, {
+      status: "error",
+      startedAtIso,
+      finishedAtIso,
+      durationMs: new Date(finishedAtIso).getTime() - startedAt.getTime(),
+      processedCount: 0,
+      metrics: {},
+      errorMessage: message,
+    });
+
+    return new Response(JSON.stringify({ ok: false, error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 });

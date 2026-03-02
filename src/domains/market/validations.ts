@@ -52,7 +52,25 @@ export const buyMarketListingSchema = z.object({
   buyerBusinessId: z.uuid("Buyer business id is invalid.").optional(),
 });
 
+export const marketStorefrontFilterSchema = z.object({
+  businessId: z.uuid("Business id is invalid.").optional(),
+});
+
+export const updateMarketStorefrontSettingsSchema = z.object({
+  businessId: z.uuid("Business id is invalid."),
+  adBudgetPerTick: z
+    .number({ error: "Ad budget per tick must be a number." })
+    .min(0, "Ad budget per tick cannot be negative."),
+  trafficMultiplier: z
+    .number({ error: "Traffic multiplier must be a number." })
+    .min(0.5, "Traffic multiplier must be at least 0.5.")
+    .max(3, "Traffic multiplier must be at most 3."),
+  isAdEnabled: z.boolean({ error: "Ad enabled flag must be true or false." }),
+});
+
 export type MarketListingFilterInput = z.infer<typeof marketListingFilterSchema>;
 export type CreateMarketListingInput = z.infer<typeof createMarketListingSchema>;
 export type CancelMarketListingInput = z.infer<typeof cancelMarketListingSchema>;
 export type BuyMarketListingInput = z.infer<typeof buyMarketListingSchema>;
+export type MarketStorefrontFilterInput = z.infer<typeof marketStorefrontFilterSchema>;
+export type UpdateMarketStorefrontSettingsInput = z.infer<typeof updateMarketStorefrontSettingsSchema>;

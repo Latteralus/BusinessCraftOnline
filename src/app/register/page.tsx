@@ -43,9 +43,14 @@ export default function RegisterPage() {
   }
 
   return (
-    <main style={{ maxWidth: 480, margin: "0 auto", padding: "48px 24px" }}>
-      <h1>Register</h1>
-      <p style={{ color: "#94a3b8" }}>Create your LifeCraftOnline account.</p>
+    <main className="lc-auth-wrap">
+      <div className="lc-page-header">
+        <div>
+          <h1>Register</h1>
+          <p>Create your LifeCraftOnline account.</p>
+        </div>
+      </div>
+      <section>
       <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
         <input name="username" placeholder="Username" required />
         <input name="email" type="email" placeholder="Email" required />
@@ -56,9 +61,10 @@ export default function RegisterPage() {
       </form>
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
       {message ? <p style={{ color: "#34d399" }}>{message}</p> : null}
-      <p style={{ color: "#94a3b8" }}>
+      <p>
         Already registered? <a href="/login">Sign in</a>
       </p>
+      </section>
     </main>
   );
 }

@@ -42,9 +42,14 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={{ maxWidth: 480, margin: "0 auto", padding: "48px 24px" }}>
-      <h1>Sign in</h1>
-      <p style={{ color: "#94a3b8" }}>Continue your LifeCraftOnline session.</p>
+    <main className="lc-auth-wrap">
+      <div className="lc-page-header">
+        <div>
+          <h1>Sign in</h1>
+          <p>Continue your LifeCraftOnline session.</p>
+        </div>
+      </div>
+      <section>
       <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
         <input name="email" type="email" placeholder="Email" required />
         <input name="password" type="password" placeholder="Password" required />
@@ -53,9 +58,10 @@ export default function LoginPage() {
         </button>
       </form>
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
-      <p style={{ color: "#94a3b8" }}>
+      <p>
         Need an account? <a href="/register">Register</a>
       </p>
+      </section>
     </main>
   );
 }
