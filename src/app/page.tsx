@@ -31,6 +31,9 @@ export default function HomePage() {
         <li>
           <a href="/contracts">Contracts</a>
         </li>
+        <li>
+          <a href="/market">Market</a>
+        </li>
       </ul>
     </main>
   );

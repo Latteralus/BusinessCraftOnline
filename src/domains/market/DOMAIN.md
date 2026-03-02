@@ -1,10 +1,20 @@
 # market Domain
 
 ## Owns
-Define this domain's owned tables and logic in Phase implementation.
+- `public.market_listings`
+- `public.market_transactions`
+- Listing lifecycle (`active` → `filled`/`cancelled`/`expired`)
+- Player/NPC purchase settlement for listing-backed sales
 
 ## Public API
-Only export from index.ts.
+- `getMarketListings`
+- `createMarketListing`
+- `cancelMarketListing`
+- `buyMarketListing`
+- `recordNpcPurchase`
+- Validation schemas exported from `validations.ts`
 
 ## Off Limits
-Do not query/write tables owned by other domains.
+- Do not mutate non-market domain tables except approved integration points:
+  - reserve/consume seller inventory rows when creating or filling listings
+  - write seller business account entries for credits/fees

@@ -52,6 +52,85 @@ function randBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
+async function settleListingSale(
+  supabase: ReturnType<typeof createClient>,
+  listing: {
+    id: string;
+    owner_player_id: string;
+    source_business_id: string;
+    item_key: string;
+    quality: number | string;
+    quantity: number | string;
+    reserved_quantity: number | string;
+    unit_price: number | string;
+    city_id: string;
+  },
+  soldQty: number
+) {
+  const listingQty = toNumber(listing.quantity);
+  const listingReserved = toNumber(listing.reserved_quantity);
+  const listingPrice = toNumber(listing.unit_price);
+
+  const gross = Number((listingPrice * soldQty).toFixed(2));
+  const fee = Number((gross * MARKET_TRANSACTION_FEE).toFixed(2));
+  const net = Number((gross - fee).toFixed(2));
+
+  const nextQty = listingQty - soldQty;
+  const nextReserved = Math.max(0, listingReserved - soldQty);
+  const nextStatus = nextQty <= 0 ? "filled" : "active";
+  const now = new Date().toISOString();
+
+  const { error: listingError } = await supabase
+    .from("market_listings")
+    .update({
+      quantity: Math.max(0, nextQty),
+      reserved_quantity: Math.max(0, nextReserved),
+      status: nextStatus,
+      filled_at: nextStatus === "filled" ? now : null,
+      updated_at: now,
+    })
+    .eq("id", listing.id);
+  if (listingError) throw listingError;
+
+  await supabase.from("business_accounts").insert([
+    {
+      business_id: listing.source_business_id,
+      amount: gross,
+      entry_type: "credit",
+      category: "npc_sale",
+      description: `NPC market purchase: ${soldQty}x ${listing.item_key}`,
+      reference_id: listing.id,
+    },
+    {
+      business_id: listing.source_business_id,
+      amount: fee,
+      entry_type: "debit",
+      category: "market_fee",
+      description: `Market fee on NPC purchase: ${soldQty}x ${listing.item_key}`,
+      reference_id: listing.id,
+    },
+  ]);
+
+  await supabase.from("market_transactions").insert({
+    listing_id: listing.id,
+    seller_player_id: listing.owner_player_id,
+    buyer_player_id: null,
+    buyer_type: "npc",
+    seller_business_id: listing.source_business_id,
+    buyer_business_id: null,
+    city_id: listing.city_id,
+    item_key: listing.item_key,
+    quality: Math.max(1, Math.min(100, toNumber(listing.quality))),
+    quantity: soldQty,
+    unit_price: listingPrice,
+    gross_total: gross,
+    market_fee: fee,
+    net_total: net,
+  });
+
+  return { gross, fee, net };
+}
+
 Deno.serve(async () => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -67,7 +146,7 @@ Deno.serve(async () => {
 
   const { data: stores, error: storesError } = await supabase
     .from("businesses")
-    .select("id, player_id, type")
+    .select("id, player_id, type, city_id")
     .in("type", [...STORE_TYPES]);
 
   if (storesError) {
@@ -102,17 +181,18 @@ Deno.serve(async () => {
     const priceToleranceMultiplier = Math.pow(1.03, Math.max(0, Number(customerServiceLevel)));
     const effectiveAttempts = Math.max(1, Math.floor(listingAttempts * trafficMultiplier));
 
-    const { data: inventoryRows } = await supabase
-      .from("business_inventory")
-      .select("id, item_key, quantity, reserved_quantity, quality")
+    const { data: listingRows } = await supabase
+      .from("market_listings")
+      .select("id, owner_player_id, source_business_id, city_id, item_key, quality, quantity, reserved_quantity, unit_price")
       .eq("owner_player_id", store.player_id)
-      .eq("business_id", store.id)
+      .eq("source_business_id", store.id)
+      .eq("status", "active")
       .gt("quantity", 0)
-      .order("updated_at", { ascending: true })
+      .order("unit_price", { ascending: true })
       .limit(50);
 
-    const availableRows = (inventoryRows ?? []).filter(
-      (row) => toNumber(row.quantity) - toNumber(row.reserved_quantity) > 0
+    const availableRows = (listingRows ?? []).filter(
+      (row) => toNumber(row.quantity) > 0 && toNumber(row.reserved_quantity) > 0
     );
 
     if (availableRows.length === 0) {
@@ -121,13 +201,12 @@ Deno.serve(async () => {
     }
 
     for (let i = 0; i < effectiveAttempts; i += 1) {
-      const activeRows = availableRows.filter(
-        (row) => toNumber(row.quantity) - toNumber(row.reserved_quantity) > 0
-      );
+      const activeRows = availableRows.filter((row) => toNumber(row.quantity) > 0);
       if (activeRows.length === 0) break;
 
-      const chosen = activeRows[Math.floor(Math.random() * activeRows.length)];
-      const available = toNumber(chosen.quantity) - toNumber(chosen.reserved_quantity);
+      const shuffled = [...activeRows].sort(() => Math.random() - 0.5);
+      const chosen = shuffled[0];
+      const available = toNumber(chosen.quantity);
       if (available <= 0) continue;
 
       const demandRoll = Math.random();
@@ -141,50 +220,17 @@ Deno.serve(async () => {
       const quality = Math.max(1, Math.min(100, toNumber(chosen.quality)));
       const qualityFactor = 0.7 + (quality / 100) * 0.4;
       const ceiling = ceilForItem(chosen.item_key) * priceToleranceMultiplier;
-      const unitPrice = Math.max(0.01, ceiling * qualityFactor * randBetween(0.6, 1));
+      const listingPrice = toNumber(chosen.unit_price);
+      const acceptablePrice = ceiling * qualityFactor;
+      if (listingPrice > acceptablePrice) continue;
 
-      const saleGross = Number((soldQty * unitPrice).toFixed(2));
-      const fee = Number((saleGross * MARKET_TRANSACTION_FEE).toFixed(2));
-      const net = Number((saleGross - fee).toFixed(2));
-
-      const nextQuantity = toNumber(chosen.quantity) - soldQty;
-      if (nextQuantity <= 0) {
-        await supabase.from("business_inventory").delete().eq("id", chosen.id);
-      } else {
-        await supabase
-          .from("business_inventory")
-          .update({
-            quantity: nextQuantity,
-            reserved_quantity: Math.min(toNumber(chosen.reserved_quantity), nextQuantity),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", chosen.id);
-        chosen.quantity = nextQuantity;
-      }
-
-      await supabase.from("business_accounts").insert([
-        {
-          business_id: store.id,
-          amount: saleGross,
-          entry_type: "credit",
-          category: "npc_sale",
-          description: `NPC purchase: ${soldQty}x ${chosen.item_key}`,
-          reference_id: null,
-        },
-        {
-          business_id: store.id,
-          amount: fee,
-          entry_type: "debit",
-          category: "market_fee",
-          description: `Market fee on NPC purchase: ${soldQty}x ${chosen.item_key}`,
-          reference_id: null,
-        },
-      ]);
+      const settled = await settleListingSale(supabase, chosen, soldQty);
+      chosen.quantity = Math.max(0, toNumber(chosen.quantity) - soldQty);
 
       salesCount += 1;
       unitsSold += soldQty;
-      grossRevenue += saleGross;
-      feeTotal += fee;
+      grossRevenue += settled.gross;
+      feeTotal += settled.fee;
     }
 
     storesProcessed += 1;

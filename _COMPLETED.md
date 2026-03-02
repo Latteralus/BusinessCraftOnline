@@ -296,3 +296,29 @@ Completed items:
   - `src/app/dashboard/page.tsx`
   - `middleware.ts`
 - Verified `npm run typecheck` and `npm run build` pass
+
+## Phase 12 — market listings + API + UI + NPC listing consumption
+Status: Implemented (pending migration apply + human confirmation)
+
+Completed items:
+- Added market schema migration:
+  - `supabase/migrations/20260302190000_022_market_listings.sql`
+- Implemented market domain:
+  - `src/domains/market/DOMAIN.md`
+  - `src/domains/market/types.ts`
+  - `src/domains/market/validations.ts`
+  - `src/domains/market/service.ts`
+  - `src/domains/market/index.ts`
+- Added market API routes:
+  - `/api/market`
+  - `/api/market/[id]/buy`
+  - `/api/market/[id]/cancel`
+- Refactored NPC purchase tick to consume active market listings:
+  - `supabase/functions/tick-npc-purchases/index.ts`
+- Added Phase 12 market page:
+  - `/market`
+- Integrated navigation and route protection for market page:
+  - `src/app/page.tsx`
+  - `src/app/dashboard/page.tsx`
+  - `middleware.ts`
+- Verified `npm run typecheck` and `npm run build` pass
