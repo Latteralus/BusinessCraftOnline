@@ -1,0 +1,69 @@
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+
+const AUTH_PATHS = ["/login", "/register"];
+const PROTECTED_PATHS = [
+  "/dashboard",
+  "/character-setup",
+  "/travel",
+  "/banking",
+  "/inventory",
+  "/businesses",
+];
+type CookieToSet = {
+  name: string;
+  value: string;
+  options?: Record<string, unknown>;
+};
+
+export async function middleware(request: NextRequest) {
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet: CookieToSet[]) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set(name, value);
+            response.cookies.set(name, value, options as any);
+          });
+        },
+      },
+    }
+  );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const pathname = request.nextUrl.pathname;
+  const isAuthPath = AUTH_PATHS.some((path) => pathname.startsWith(path));
+  const isProtectedPath = PROTECTED_PATHS.some((path) =>
+    pathname.startsWith(path)
+  );
+
+  if (!user && isProtectedPath) {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("next", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  if (user && isAuthPath) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
+  return response;
+}
+
+export const config = {
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+};

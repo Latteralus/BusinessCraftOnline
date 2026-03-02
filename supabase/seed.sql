@@ -1,0 +1,2 @@
+-- Development seed data for Phase 1+
+-- Add city/item/upgrade seed rows as domains are implemented.
