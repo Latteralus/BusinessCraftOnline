@@ -146,6 +146,12 @@ export default async function DashboardPage() {
         <p>
           <Link href="/employees">Open Employees Page</Link>
         </p>
+        <p>
+          <Link href="/production">Open Production Page</Link>
+        </p>
+        <p>
+          <Link href="/contracts">Open Contracts Page</Link>
+        </p>
       </section>
       <form action={logout} style={{ marginTop: 20 }}>
         <button type="submit">Sign out</button>

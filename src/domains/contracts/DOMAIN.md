@@ -1,10 +1,21 @@
 # contracts Domain
 
 ## Owns
-Define this domain's owned tables and logic in Phase implementation.
+- `public.contracts`
+- Contract lifecycle state transitions (`open` → `accepted`/`in_progress` → `fulfilled`/`cancelled`/`expired`)
+- Contract payout bookkeeping through business ledger writes on fulfillment
 
 ## Public API
-Only export from index.ts.
+- `getContracts`
+- `getContractById`
+- `createContract`
+- `acceptContract`
+- `cancelContract`
+- `fulfillContract`
+- Validation schemas from `validations.ts`
 
 ## Off Limits
-Do not query/write tables owned by other domains.
+- Do not mutate non-contract domain state except approved integration points:
+  - read owned business context
+  - consume business inventory for fulfillment
+  - write business account entries for contract payout

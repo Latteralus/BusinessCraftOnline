@@ -202,3 +202,97 @@ Completed items:
 - Updated businesses UI upgrade selection and previews:
   - `src/app/businesses/page.tsx`
 - Verified `npm run typecheck` and `npm run build` pass
+
+## Phase 8 — production + tick-extraction
+Status: Implemented (pending migration apply + human confirmation)
+
+Completed items:
+- Added production migrations:
+  - `supabase/migrations/20260302160000_018_extraction_slots.sql`
+  - `supabase/migrations/20260302160100_019_tool_durability.sql`
+- Added production config constants and extraction mappings:
+  - `src/config/production.ts`
+- Implemented production domain:
+  - `src/domains/production/DOMAIN.md`
+  - `src/domains/production/types.ts`
+  - `src/domains/production/validations.ts`
+  - `src/domains/production/service.ts`
+  - `src/domains/production/index.ts`
+- Added production API routes:
+  - `/api/production`
+  - `/api/production/slots/assign`
+  - `/api/production/slots/unassign`
+  - `/api/production/slots/tool`
+  - `/api/production/slots/status`
+- Implemented extraction tick function behavior:
+  - `supabase/functions/tick-extraction/index.ts`
+- Verified `npm run typecheck` and `npm run build` pass
+
+## Phase 9 — manufacturing + production UI
+Status: Implemented (pending migration apply + human confirmation)
+
+Completed items:
+- Added manufacturing migration:
+  - `supabase/migrations/20260302170000_020_manufacturing_jobs.sql`
+- Expanded production config constants and recipe mappings:
+  - `src/config/production.ts`
+- Expanded production domain manufacturing contracts/services:
+  - `src/domains/production/DOMAIN.md`
+  - `src/domains/production/types.ts`
+  - `src/domains/production/validations.ts`
+  - `src/domains/production/service.ts`
+  - `src/domains/production/index.ts`
+- Added production manufacturing API route:
+  - `/api/production/manufacturing`
+- Added Phase 9 production page:
+  - `/production`
+- Integrated navigation and route protection for production page:
+  - `src/app/page.tsx`
+  - `src/app/dashboard/page.tsx`
+  - `middleware.ts`
+- Implemented manufacturing tick function behavior:
+  - `supabase/functions/tick-manufacturing/index.ts`
+- Verified `npm run typecheck` and `npm run build` pass
+
+## Phase 10 — market tick NPC purchases integration
+Status: Implemented (pending migration apply + human confirmation)
+
+Completed items:
+- Implemented NPC purchase processing in tick function:
+  - `supabase/functions/tick-npc-purchases/index.ts`
+- Added store business filtering, listing-attempt scaling, and demand/conversion simulation
+- Added pricing against item ceilings with quality and customer-service adjustments
+- Added inventory decrement and cleanup for sold quantities
+- Added business ledger entries for sale credits and market fee debits:
+  - `public.business_accounts` writes with `npc_sale` and `market_fee` categories
+- Verified regression checks:
+  - `npm run typecheck`
+  - `npm run build`
+
+## Phase 11 — contracts domain + API + tick + UI
+Status: Implemented (pending migration apply + human confirmation)
+
+Completed items:
+- Added contracts migration:
+  - `supabase/migrations/20260302180000_021_contracts.sql`
+- Implemented contracts domain:
+  - `src/domains/contracts/DOMAIN.md`
+  - `src/domains/contracts/types.ts`
+  - `src/domains/contracts/validations.ts`
+  - `src/domains/contracts/service.ts`
+  - `src/domains/contracts/index.ts`
+- Added contracts API routes:
+  - `/api/contracts`
+  - `/api/contracts/[id]`
+  - `/api/contracts/[id]/accept`
+  - `/api/contracts/[id]/cancel`
+  - `/api/contracts/[id]/fulfill`
+- Integrated contract settlement logic into manufacturing tick:
+  - `supabase/functions/tick-manufacturing/index.ts`
+- Added Phase 11 contracts page:
+  - `/contracts`
+- Integrated navigation and route protection for contracts page:
+  - `src/app/page.tsx`
+  - `src/app/dashboard/page.tsx`
+  - `middleware.ts`
+- Verified `npm run typecheck` and `npm run build` pass

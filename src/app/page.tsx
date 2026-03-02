@@ -25,6 +25,12 @@ export default function HomePage() {
         <li>
           <a href="/employees">Employees</a>
         </li>
+        <li>
+          <a href="/production">Production</a>
+        </li>
+        <li>
+          <a href="/contracts">Contracts</a>
+        </li>
       </ul>
     </main>
   );

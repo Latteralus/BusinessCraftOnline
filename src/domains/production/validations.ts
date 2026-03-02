@@ -1,2 +1,50 @@
-// Validation schemas for production.
-export {}
+import {
+  EXTRACTION_SLOT_STATUSES,
+  MANUFACTURING_RECIPE_KEYS,
+  TOOL_ITEM_TYPES,
+} from "@/config/production";
+import { z } from "zod";
+
+const extractionSlotStatusSchema = z.enum(EXTRACTION_SLOT_STATUSES);
+const toolItemTypeSchema = z.enum(TOOL_ITEM_TYPES);
+const manufacturingRecipeKeySchema = z.enum(MANUFACTURING_RECIPE_KEYS);
+
+export const productionStatusQuerySchema = z.object({
+  businessId: z.uuid("Business id is invalid."),
+});
+
+export const assignExtractionSlotSchema = z.object({
+  slotId: z.uuid("Slot id is invalid."),
+  employeeId: z.uuid("Employee id is invalid."),
+});
+
+export const unassignExtractionSlotSchema = z.object({
+  slotId: z.uuid("Slot id is invalid."),
+});
+
+export const installToolSchema = z.object({
+  slotId: z.uuid("Slot id is invalid."),
+  itemType: toolItemTypeSchema,
+});
+
+export const setExtractionSlotStatusSchema = z.object({
+  slotId: z.uuid("Slot id is invalid."),
+  status: extractionSlotStatusSchema,
+});
+
+export const manufacturingStatusQuerySchema = z.object({
+  businessId: z.uuid("Business id is invalid."),
+});
+
+export const setManufacturingRecipeSchema = z.object({
+  businessId: z.uuid("Business id is invalid."),
+  recipeKey: manufacturingRecipeKeySchema,
+});
+
+export const startManufacturingSchema = z.object({
+  businessId: z.uuid("Business id is invalid."),
+});
+
+export const stopManufacturingSchema = z.object({
+  businessId: z.uuid("Business id is invalid."),
+});
