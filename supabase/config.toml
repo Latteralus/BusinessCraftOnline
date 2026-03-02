@@ -11,3 +11,8 @@ major_version = 15
 [studio]
 enabled = true
 port = 54323
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false

@@ -16,10 +16,11 @@ export default function RegisterPage() {
     setLoading(true);
 
     const formData = new FormData(event.currentTarget);
+    const username = String(formData.get("username") ?? "");
     const payload = {
-      email: String(formData.get("email") ?? ""),
+      email: `${username}@lifecraftonline.local`, // Auto-generated email to satisfy Supabase
       password: String(formData.get("password") ?? ""),
-      username: String(formData.get("username") ?? ""),
+      username: username,
     };
 
     const response = await fetch("/api/auth/register", {
@@ -53,7 +54,6 @@ export default function RegisterPage() {
       <section>
       <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
         <input name="username" placeholder="Username" required />
-        <input name="email" type="email" placeholder="Email" required />
         <input name="password" type="password" placeholder="Password" required />
         <button type="submit" disabled={loading}>
           {loading ? "Creating account..." : "Create account"}
