@@ -149,3 +149,56 @@ Completed items:
 - Updated protected paths to include `/businesses`
 - Updated root nav links to include `/businesses`
 - Verified `npm run typecheck` and `npm run build` pass
+
+## Phase 6 — employees
+Status: Implemented (pending migration apply + human confirmation)
+
+Completed items:
+- Added employees migrations:
+  - `supabase/migrations/20260302140000_014_employees.sql`
+  - `supabase/migrations/20260302140100_015_employee_assignments.sql`
+  - `supabase/migrations/20260302140200_016_employee_skills.sql`
+- Expanded employees config constants and enums:
+  - `src/config/employees.ts`
+- Implemented employees domain:
+  - `src/domains/employees/DOMAIN.md`
+  - `src/domains/employees/types.ts`
+  - `src/domains/employees/validations.ts`
+  - `src/domains/employees/service.ts`
+  - `src/domains/employees/index.ts`
+- Added employees API routes:
+  - `/api/employees`
+  - `/api/employees/[id]`
+  - `/api/employees/assign`
+  - `/api/employees/reactivate`
+  - `/api/employees/unassign`
+- Added Phase 6 page:
+  - `/employees`
+- Integrated employee summary into dashboard:
+  - `/dashboard` now shows employee counts and link to `/employees`
+- Updated protected paths to include `/employees`
+- Updated root nav links to include `/employees`
+- Verified `npm run typecheck` and `npm run build` pass
+
+## Phase 7 — upgrades
+Status: Implemented (pending migration apply + human confirmation)
+
+Completed items:
+- Added upgrades migration:
+  - `supabase/migrations/20260302150000_017_upgrade_definitions.sql`
+- Expanded upgrades formula config and calculators:
+  - `src/config/upgrades.ts`
+- Implemented upgrades domain:
+  - `src/domains/upgrades/DOMAIN.md`
+  - `src/domains/upgrades/types.ts`
+  - `src/domains/upgrades/validations.ts`
+  - `src/domains/upgrades/service.ts`
+  - `src/domains/upgrades/index.ts`
+- Added upgrades API routes:
+  - `/api/upgrades`
+  - `/api/upgrades/preview`
+- Integrated upgrades domain into business purchase flow:
+  - `src/domains/businesses/service.ts` now sources upgrade cost/constraints from upgrades definitions
+- Updated businesses UI upgrade selection and previews:
+  - `src/app/businesses/page.tsx`
+- Verified `npm run typecheck` and `npm run build` pass

@@ -5,6 +5,7 @@ import type {
   BusinessWithBalance,
   BusinessSummary,
 } from "@/domains/businesses";
+import type { UpgradeDefinition, UpgradePreview } from "@/domains/upgrades";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -21,6 +22,14 @@ type TravelResponse = {
   currentCity: { id: string; name: string; state: string } | null;
   activeTravel: { id: string } | null;
   canPurchaseBusiness: boolean;
+};
+
+type UpgradeDefinitionsResponse = {
+  definitions: UpgradeDefinition[];
+};
+
+type UpgradePreviewResponse = {
+  preview: UpgradePreview;
 };
 
 const TYPE_LABELS: Record<BusinessType, string> = {
@@ -61,16 +70,19 @@ export default function BusinessesPage() {
 
   const [upgradeBusinessId, setUpgradeBusinessId] = useState("");
   const [upgradeKey, setUpgradeKey] = useState("extraction_efficiency");
+  const [upgradeDefinitions, setUpgradeDefinitions] = useState<UpgradeDefinition[]>([]);
+  const [upgradePreview, setUpgradePreview] = useState<UpgradePreview | null>(null);
   const [upgrading, setUpgrading] = useState(false);
 
   async function loadData() {
     setLoading(true);
     setError(null);
 
-    const [businessesRes, citiesRes, travelRes] = await Promise.all([
+    const [businessesRes, citiesRes, travelRes, definitionsRes] = await Promise.all([
       fetch("/api/businesses", { cache: "no-store" }),
       fetch("/api/cities", { cache: "no-store" }),
       fetch("/api/travel", { cache: "no-store" }),
+      fetch("/api/upgrades", { cache: "no-store" }),
     ]);
 
     const businessesJson = (await businessesRes.json()) as BusinessesResponse & {
@@ -78,6 +90,9 @@ export default function BusinessesPage() {
     };
     const citiesJson = (await citiesRes.json()) as CitiesResponse & { error?: string };
     const travelJson = (await travelRes.json()) as TravelResponse & { error?: string };
+    const definitionsJson = (await definitionsRes.json()) as UpgradeDefinitionsResponse & {
+      error?: string;
+    };
 
     if (!businessesRes.ok) {
       setError(businessesJson.error ?? "Failed to fetch businesses.");
@@ -97,10 +112,17 @@ export default function BusinessesPage() {
       return;
     }
 
+    if (!definitionsRes.ok) {
+      setError(definitionsJson.error ?? "Failed to fetch upgrade definitions.");
+      setLoading(false);
+      return;
+    }
+
     setBusinesses(businessesJson.businesses ?? []);
     setSummary(businessesJson.summary ?? null);
     setCities(citiesJson.cities ?? []);
     setTravelState(travelJson);
+    setUpgradeDefinitions(definitionsJson.definitions ?? []);
 
     if (travelJson.currentCity?.id) {
       setCreateCityId(travelJson.currentCity.id);
@@ -117,6 +139,44 @@ export default function BusinessesPage() {
     () => businesses.find((business) => business.id === upgradeBusinessId) ?? null,
     [businesses, upgradeBusinessId]
   );
+
+  const upgradeOptions = useMemo(() => {
+    if (!selectedBusiness) return upgradeDefinitions;
+    return upgradeDefinitions.filter((definition) =>
+      definition.applies_to_business_types.includes(selectedBusiness.type)
+    );
+  }, [selectedBusiness, upgradeDefinitions]);
+
+  useEffect(() => {
+    if (!upgradeOptions.some((option) => option.upgrade_key === upgradeKey)) {
+      setUpgradeKey(upgradeOptions[0]?.upgrade_key ?? "");
+    }
+  }, [upgradeOptions, upgradeKey]);
+
+  useEffect(() => {
+    async function loadUpgradePreview() {
+      if (!selectedBusiness || !upgradeKey) {
+        setUpgradePreview(null);
+        return;
+      }
+
+      const response = await fetch("/api/upgrades/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId: selectedBusiness.id, upgradeKey }),
+      });
+
+      const payload = (await response.json()) as UpgradePreviewResponse & { error?: string };
+      if (!response.ok) {
+        setUpgradePreview(null);
+        return;
+      }
+
+      setUpgradePreview(payload.preview ?? null);
+    }
+
+    void loadUpgradePreview();
+  }, [selectedBusiness, upgradeKey]);
 
   async function submitCreateBusiness() {
     if (creating) return;
@@ -338,18 +398,31 @@ export default function BusinessesPage() {
               </label>
 
               <label>
-                Upgrade Key
-                <input
-                  type="text"
+                Upgrade
+                <select
                   value={upgradeKey}
                   onChange={(event) => setUpgradeKey(event.target.value)}
-                  placeholder="extraction_efficiency"
-                />
+                  title="Upgrade"
+                >
+                  <option value="">Select upgrade</option>
+                  {upgradeOptions.map((definition) => (
+                    <option key={definition.upgrade_key} value={definition.upgrade_key}>
+                      {definition.display_name} ({definition.upgrade_key})
+                    </option>
+                  ))}
+                </select>
               </label>
 
               {selectedBusiness ? (
                 <p style={{ margin: 0, color: "#94a3b8" }}>
                   Selected balance: {formatCurrency(selectedBusiness.balance)}
+                </p>
+              ) : null}
+
+              {upgradePreview ? (
+                <p style={{ margin: 0, color: "#94a3b8" }}>
+                  Next Level {upgradePreview.nextLevel} · Cost {formatCurrency(upgradePreview.nextCost)} ·
+                  Effect {upgradePreview.nextEffect} {upgradePreview.effectLabel}
                 </p>
               ) : null}
 

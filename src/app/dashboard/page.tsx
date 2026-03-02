@@ -2,6 +2,7 @@ import { getCharacter, getPlayer } from "@/domains/auth-character";
 import { getBankingSnapshot } from "@/domains/banking";
 import { getBusinessSummary } from "@/domains/businesses";
 import { getActiveTravel, getCityById } from "@/domains/cities-travel";
+import { getEmployeeSummary } from "@/domains/employees";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -46,6 +47,7 @@ export default async function DashboardPage() {
 
   const bankingSnapshot = await getBankingSnapshot(supabase, user.id).catch(() => null);
   const businessSummary = await getBusinessSummary(supabase, user.id).catch(() => null);
+  const employeeSummary = await getEmployeeSummary(supabase, user.id).catch(() => null);
   const checkingAccount =
     bankingSnapshot?.accounts.find((account) => account.account_type === "checking") ?? null;
   const pocketCashAccount =
@@ -132,6 +134,17 @@ export default async function DashboardPage() {
         </p>
         <p>
           <Link href="/businesses">Open Businesses Page</Link>
+        </p>
+        <hr style={{ borderColor: "#334155", margin: "12px 0" }} />
+        <p>
+          <strong>Total Employees:</strong> {employeeSummary?.totalEmployees ?? 0}
+        </p>
+        <p>
+          <strong>Assigned / Resting / Available:</strong> {employeeSummary?.assignedCount ?? 0} /{" "}
+          {employeeSummary?.restingCount ?? 0} / {employeeSummary?.availableCount ?? 0}
+        </p>
+        <p>
+          <Link href="/employees">Open Employees Page</Link>
         </p>
       </section>
       <form action={logout} style={{ marginTop: 20 }}>

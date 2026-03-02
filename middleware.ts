@@ -9,6 +9,7 @@ const PROTECTED_PATHS = [
   "/banking",
   "/inventory",
   "/businesses",
+  "/employees",
 ];
 type CookieToSet = {
   name: string;

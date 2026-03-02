@@ -1,13 +1,12 @@
 import {
-  BUSINESS_UPGRADE_BASE_COSTS,
   BUSINESS_UPGRADE_KEYS_BY_TYPE,
   STARTUP_COSTS,
   type BusinessEntityType,
   type BusinessType,
   type BusinessUpgradeKey,
 } from "@/config/businesses";
-import { calculateUpgradeCost } from "@/config/upgrades";
 import { canPurchaseBusiness } from "@/domains/cities-travel";
+import { getUpgradePreviewForBusiness } from "@/domains/upgrades";
 import type {
   Business,
   BusinessAccountEntry,
@@ -278,8 +277,11 @@ export async function purchaseUpgrade(
   const currentLevel = existing?.level ?? 0;
   const nextLevel = currentLevel + 1;
 
-  const baseCost = BUSINESS_UPGRADE_BASE_COSTS[upgradeKey];
-  const upgradeCost = calculateUpgradeCost(baseCost, nextLevel);
+  const preview = await getUpgradePreviewForBusiness(client, business.type, {
+    upgradeKey,
+    currentLevel,
+  });
+  const upgradeCost = preview.nextCost;
   const currentBalance = await getBusinessBalance(client, playerId, businessId);
 
   if (currentBalance < upgradeCost) {
