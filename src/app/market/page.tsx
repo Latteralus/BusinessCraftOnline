@@ -1,7 +1,7 @@
 "use client";
 
 import type { BusinessWithBalance } from "@/domains/businesses";
-import type { MarketListing } from "@/domains/market";
+import type { MarketListing, MarketTransaction } from "@/domains/market";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -12,12 +12,14 @@ type BusinessesResponse = {
 
 type ListingsResponse = {
   listings: MarketListing[];
+  transactions?: MarketTransaction[];
   error?: string;
 };
 
 export default function MarketPage() {
   const [businesses, setBusinesses] = useState<BusinessWithBalance[]>([]);
   const [listings, setListings] = useState<MarketListing[]>([]);
+  const [transactions, setTransactions] = useState<MarketTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,11 +45,14 @@ export default function MarketPage() {
   }
 
   async function loadListings() {
-    const response = await fetch("/api/market", { cache: "no-store" });
+    const response = await fetch("/api/market?includeTransactions=true&transactionsLimit=40", {
+      cache: "no-store",
+    });
     const payload = (await response.json()) as ListingsResponse;
     if (!response.ok) throw new Error(payload.error ?? "Failed to load market listings.");
 
     setListings(payload.listings ?? []);
+    setTransactions(payload.transactions ?? []);
   }
 
   useEffect(() => {
@@ -247,7 +252,33 @@ export default function MarketPage() {
           </div>
         </section>
       ) : null}
+
+      {!loading ? (
+        <section style={{ marginTop: 16, border: "1px solid #334155", borderRadius: 8, padding: 16 }}>
+          <h2 style={{ marginTop: 0 }}>Recent Market Activity</h2>
+          {transactions.length === 0 ? <p>No market transactions yet.</p> : null}
+          <div style={{ display: "grid", gap: 8 }}>
+            {transactions.map((tx) => (
+              <article
+                key={tx.id}
+                style={{ border: "1px solid #334155", borderRadius: 8, padding: 10, display: "grid", gap: 2 }}
+              >
+                <strong>
+                  {tx.item_key} (Q{tx.quality}) x{tx.quantity}
+                </strong>
+                <span>
+                  ${tx.unit_price.toFixed(2)} each • Gross ${tx.gross_total.toFixed(2)} • Fee ${tx.market_fee.toFixed(2)}
+                </span>
+                <span style={{ color: "#94a3b8" }}>
+                  Buyer: {tx.buyer_type === "npc" ? tx.shopper_name ?? "NPC shopper" : "Player"}
+                  {tx.buyer_type === "npc" && tx.shopper_tier ? ` (${tx.shopper_tier})` : ""}
+                  {tx.sub_tick_index !== null ? ` • Sub-tick ${tx.sub_tick_index + 1}` : ""}
+                </span>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </main>
   );
 }
-

@@ -37,7 +37,21 @@ export type MarketTransaction = {
   gross_total: number;
   market_fee: number;
   net_total: number;
+  shopper_name: string | null;
+  shopper_tier: string | null;
+  shopper_budget: number | null;
+  sub_tick_index: number | null;
+  tick_window_started_at: string | null;
   created_at: string;
+};
+
+export type NpcShopperTierKey = "small" | "medium" | "large";
+
+export type NpcMarketSubtickState = {
+  state_key: string;
+  tick_window_started_at: string;
+  sub_tick_index: number;
+  updated_at: string;
 };
 
 export type MarketListingFilter = {

@@ -232,6 +232,9 @@ export async function assignEmployee(
   const employee = await getEmployeeById(client, playerId, input.employeeId);
   if (!employee) throw new Error("Employee not found.");
   if (employee.status === "fired") throw new Error("Cannot assign a fired employee.");
+  if (employee.status === "unpaid") {
+    throw new Error("Cannot assign an unpaid employee until wages are settled.");
+  }
 
   await ensureBusinessBelongsToPlayer(client, playerId, input.businessId);
 
@@ -296,6 +299,9 @@ export async function reactivateEmployee(
   const employee = await getEmployeeById(client, playerId, input.employeeId);
   if (!employee) throw new Error("Employee not found.");
   if (employee.status === "fired") throw new Error("Cannot reactivate a fired employee.");
+  if (employee.status === "unpaid") {
+    throw new Error("Cannot reactivate an unpaid employee until wages are settled.");
+  }
 
   const assignment = await getEmployeeAssignment(client, playerId, employee.id);
   if (!assignment) throw new Error("Employee must be assigned before re-activation.");

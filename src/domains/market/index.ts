@@ -2,8 +2,11 @@ export {
   buyMarketListing,
   cancelMarketListing,
   createMarketListing,
+  getMarketTransactions,
+  getOrCreateNpcMarketSubtickState,
   getMarketListings,
   recordNpcPurchase,
+  updateNpcMarketSubtickState,
 } from "./service";
 
 export {
@@ -21,5 +24,7 @@ export type {
   MarketListingFilter,
   MarketListingStatus,
   MarketTransaction,
+  NpcMarketSubtickState,
+  NpcShopperTierKey,
   RecordNpcPurchaseInput,
 } from "./types";

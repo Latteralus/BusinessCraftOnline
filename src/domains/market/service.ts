@@ -7,6 +7,7 @@ import type {
   MarketListing,
   MarketListingFilter,
   MarketTransaction,
+  NpcMarketSubtickState,
   RecordNpcPurchaseInput,
 } from "./types";
 
@@ -40,6 +41,15 @@ function normalizeTransaction(row: MarketTransaction): MarketTransaction {
     gross_total: toNumber(row.gross_total),
     market_fee: toNumber(row.market_fee),
     net_total: toNumber(row.net_total),
+    shopper_budget: row.shopper_budget === null ? null : toNumber(row.shopper_budget),
+    sub_tick_index: row.sub_tick_index === null ? null : Number(row.sub_tick_index),
+  };
+}
+
+function normalizeSubtickState(row: NpcMarketSubtickState): NpcMarketSubtickState {
+  return {
+    ...row,
+    sub_tick_index: Number(row.sub_tick_index),
   };
 }
 
@@ -141,7 +151,14 @@ async function settleSaleAccounting(
   soldQuantity: number,
   buyerType: "player" | "npc",
   buyerPlayerId: string | null,
-  buyerBusinessId: string | null
+  buyerBusinessId: string | null,
+  meta?: {
+    shopperName?: string | null;
+    shopperTier?: string | null;
+    shopperBudget?: number | null;
+    subTickIndex?: number | null;
+    tickWindowStartedAt?: string | null;
+  }
 ): Promise<MarketTransaction> {
   const gross = Number((listing.unit_price * soldQuantity).toFixed(2));
   const fee = Number((gross * MARKET_TRANSACTION_FEE).toFixed(2));
@@ -185,6 +202,11 @@ async function settleSaleAccounting(
       gross_total: gross,
       market_fee: fee,
       net_total: net,
+      shopper_name: meta?.shopperName ?? null,
+      shopper_tier: meta?.shopperTier ?? null,
+      shopper_budget: meta?.shopperBudget ?? null,
+      sub_tick_index: meta?.subTickIndex ?? null,
+      tick_window_started_at: meta?.tickWindowStartedAt ?? null,
     })
     .select("*")
     .single();
@@ -416,7 +438,8 @@ export async function buyMarketListing(
     soldQuantity,
     "player",
     playerId,
-    buyerBusiness?.id ?? null
+    buyerBusiness?.id ?? null,
+    undefined
   );
 
   return {
@@ -427,7 +450,13 @@ export async function buyMarketListing(
 
 export async function recordNpcPurchase(
   client: QueryClient,
-  input: RecordNpcPurchaseInput
+  input: RecordNpcPurchaseInput & {
+    shopperName?: string;
+    shopperTier?: string;
+    shopperBudget?: number;
+    subTickIndex?: number;
+    tickWindowStartedAt?: string;
+  }
 ): Promise<{ listing: MarketListing; transaction: MarketTransaction }> {
   const listing = await getListing(client, input.listingId);
   if (listing.status !== "active") throw new Error("Listing is not active.");
@@ -454,10 +483,79 @@ export async function recordNpcPurchase(
     .single();
   if (listingError) throw listingError;
 
-  const transaction = await settleSaleAccounting(client, listing, soldQuantity, "npc", null, null);
+  const transaction = await settleSaleAccounting(client, listing, soldQuantity, "npc", null, null, {
+    shopperName: input.shopperName ?? null,
+    shopperTier: input.shopperTier ?? null,
+    shopperBudget: input.shopperBudget ?? null,
+    subTickIndex: input.subTickIndex ?? null,
+    tickWindowStartedAt: input.tickWindowStartedAt ?? null,
+  });
 
   return {
     listing: normalizeListing(updatedRow as MarketListing),
     transaction,
   };
+}
+
+export async function getMarketTransactions(
+  client: QueryClient,
+  playerId: string,
+  limit = 100
+): Promise<MarketTransaction[]> {
+  const { data, error } = await client
+    .from("market_transactions")
+    .select("*")
+    .or(`seller_player_id.eq.${playerId},buyer_player_id.eq.${playerId}`)
+    .order("created_at", { ascending: false })
+    .limit(Math.max(1, Math.min(300, limit)));
+
+  if (error) throw error;
+  return ((data as MarketTransaction[]) ?? []).map(normalizeTransaction);
+}
+
+export async function getOrCreateNpcMarketSubtickState(
+  client: QueryClient
+): Promise<NpcMarketSubtickState> {
+  const { data, error } = await client
+    .from("npc_market_subtick_state")
+    .select("*")
+    .eq("state_key", "global")
+    .maybeSingle();
+  if (error) throw error;
+
+  if (data) {
+    return normalizeSubtickState(data as NpcMarketSubtickState);
+  }
+
+  const { data: inserted, error: insertError } = await client
+    .from("npc_market_subtick_state")
+    .insert({
+      state_key: "global",
+      tick_window_started_at: new Date().toISOString(),
+      sub_tick_index: 0,
+    })
+    .select("*")
+    .single();
+  if (insertError) throw insertError;
+
+  return normalizeSubtickState(inserted as NpcMarketSubtickState);
+}
+
+export async function updateNpcMarketSubtickState(
+  client: QueryClient,
+  input: { tickWindowStartedAt: string; subTickIndex: number }
+): Promise<NpcMarketSubtickState> {
+  const { data, error } = await client
+    .from("npc_market_subtick_state")
+    .update({
+      tick_window_started_at: input.tickWindowStartedAt,
+      sub_tick_index: input.subTickIndex,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("state_key", "global")
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return normalizeSubtickState(data as NpcMarketSubtickState);
 }

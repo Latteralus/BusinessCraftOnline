@@ -322,3 +322,54 @@ Completed items:
   - `src/app/dashboard/page.tsx`
   - `middleware.ts`
 - Verified `npm run typecheck` and `npm run build` pass
+
+## Phase 13 — sub-tick shopper simulation + demand curve + feed fidelity
+Status: Implemented (pending migration apply + human confirmation)
+
+Completed items:
+- Added sub-tick state and transaction fidelity migration:
+  - `supabase/migrations/20260302200000_023_market_subtick_state.sql`
+- Extended market config and types for shopper behavior + demand windows:
+  - `src/config/market.ts`
+  - `src/domains/market/types.ts`
+- Extended market domain services with sub-tick state persistence and enriched transaction metadata:
+  - `src/domains/market/service.ts`
+  - `src/domains/market/index.ts`
+- Extended market API listing endpoint for transaction feed reads:
+  - `src/app/api/market/route.ts`
+- Implemented deterministic NPC sub-tick shopper loop with:
+  - demand-curve-scaled shopper counts
+  - weighted shopper tiers + budgets
+  - strict item price-ceiling enforcement
+  - 5% price-band quality preference selection
+  - shopper/sub-tick transaction attribution
+  - `supabase/functions/tick-npc-purchases/index.ts`
+- Added minimal UI feed updates to market + dashboard:
+  - `src/app/market/page.tsx`
+  - `src/app/dashboard/page.tsx`
+- Verified `npm run typecheck` and `npm run build` pass
+
+## Phase 14 — economy automation ticks (wages, shipping, travel)
+Status: Implemented (pending migration apply + human confirmation)
+
+Completed items:
+- Added wage automation migration for unpaid gating + hourly idempotency markers:
+  - `supabase/migrations/20260302210000_024_economy_automation_wages.sql`
+- Added wage automation tick function:
+  - `supabase/functions/tick-wages/index.ts`
+  - hourly wage debits from `business_accounts`
+  - insufficient-funds flow marks employee `unpaid`
+  - auto-unassigns unpaid workers (no firing)
+- Added shipping delivery tick function:
+  - `supabase/functions/tick-shipping/index.ts`
+  - delivers due `shipping_queue` rows to personal/business inventory
+  - marks delivered shipments
+- Added travel arrival tick function:
+  - `supabase/functions/tick-travel/index.ts`
+  - finalizes due `travel_log` rows as arrived
+  - updates `characters.current_city_id`
+- Enforced unpaid worker assignment/reactivation gate:
+  - `src/domains/employees/service.ts`
+- Added minimal dashboard automation visibility (unpaid workers + due shipping/travel counters):
+  - `src/app/dashboard/page.tsx`
+- Verified `npm run typecheck` and `npm run build` pass

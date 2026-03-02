@@ -3,6 +3,7 @@ import { getBankingSnapshot } from "@/domains/banking";
 import { getBusinessSummary } from "@/domains/businesses";
 import { getActiveTravel, getCityById } from "@/domains/cities-travel";
 import { getEmployeeSummary } from "@/domains/employees";
+import { getMarketTransactions } from "@/domains/market";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -48,6 +49,27 @@ export default async function DashboardPage() {
   const bankingSnapshot = await getBankingSnapshot(supabase, user.id).catch(() => null);
   const businessSummary = await getBusinessSummary(supabase, user.id).catch(() => null);
   const employeeSummary = await getEmployeeSummary(supabase, user.id).catch(() => null);
+  const marketTransactions = await getMarketTransactions(supabase, user.id, 8).catch(() => []);
+  const [{ count: inTransitShippingCount }, { count: dueShippingCount }, { count: dueTravelArrivalsCount }] =
+    await Promise.all([
+      supabase
+        .from("shipping_queue")
+        .select("id", { count: "exact", head: true })
+        .eq("owner_player_id", user.id)
+        .eq("status", "in_transit"),
+      supabase
+        .from("shipping_queue")
+        .select("id", { count: "exact", head: true })
+        .eq("owner_player_id", user.id)
+        .eq("status", "in_transit")
+        .lte("arrives_at", new Date().toISOString()),
+      supabase
+        .from("travel_log")
+        .select("id", { count: "exact", head: true })
+        .eq("player_id", user.id)
+        .eq("status", "traveling")
+        .lte("arrives_at", new Date().toISOString()),
+    ]);
   const checkingAccount =
     bankingSnapshot?.accounts.find((account) => account.account_type === "checking") ?? null;
   const pocketCashAccount =
@@ -144,6 +166,9 @@ export default async function DashboardPage() {
           {employeeSummary?.restingCount ?? 0} / {employeeSummary?.availableCount ?? 0}
         </p>
         <p>
+          <strong>Unpaid Workers:</strong> {employeeSummary?.unpaidCount ?? 0}
+        </p>
+        <p>
           <Link href="/employees">Open Employees Page</Link>
         </p>
         <p>
@@ -155,6 +180,45 @@ export default async function DashboardPage() {
         <p>
           <Link href="/market">Open Market Page</Link>
         </p>
+        <hr style={{ borderColor: "#334155", margin: "12px 0" }} />
+        <p>
+          <strong>Automation Status:</strong>
+        </p>
+        <p>
+          <strong>Shipping In Transit:</strong> {inTransitShippingCount ?? 0}
+        </p>
+        <p>
+          <strong>Shipping Ready for Delivery Tick:</strong> {dueShippingCount ?? 0}
+        </p>
+        <p>
+          <strong>Travel Ready for Arrival Tick:</strong> {dueTravelArrivalsCount ?? 0}
+        </p>
+        <hr style={{ borderColor: "#334155", margin: "12px 0" }} />
+        <p>
+          <strong>Recent Market Activity:</strong>
+        </p>
+        {marketTransactions.length === 0 ? (
+          <p style={{ color: "#94a3b8" }}>No market transactions yet.</p>
+        ) : (
+          <div style={{ display: "grid", gap: 6 }}>
+            {marketTransactions.map((tx) => (
+              <div key={tx.id} style={{ border: "1px solid #334155", borderRadius: 6, padding: 8 }}>
+                <div>
+                  <strong>
+                    {tx.item_key} (Q{tx.quality}) x{tx.quantity}
+                  </strong>
+                </div>
+                <div>
+                  ${tx.unit_price.toFixed(2)} each • Net ${tx.net_total.toFixed(2)} • Buyer{" "}
+                  {tx.buyer_type === "npc" ? tx.shopper_name ?? "NPC" : "Player"}
+                  {tx.buyer_type === "npc" && tx.sub_tick_index !== null
+                    ? ` (sub-tick ${tx.sub_tick_index + 1})`
+                    : ""}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
       <form action={logout} style={{ marginTop: 20 }}>
         <button type="submit">Sign out</button>

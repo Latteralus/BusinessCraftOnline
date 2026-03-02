@@ -2,6 +2,7 @@ import {
   createMarketListing,
   createMarketListingSchema,
   getMarketListings,
+  getMarketTransactions,
   marketListingFilterSchema,
 } from "@/domains/market";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -18,6 +19,9 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
+  const includeTransactions = url.searchParams.get("includeTransactions") === "true";
+  const transactionsLimit = Number(url.searchParams.get("transactionsLimit") ?? "50");
+
   const parsed = marketListingFilterSchema.safeParse({
     cityId: url.searchParams.get("cityId") ?? undefined,
     itemKey: url.searchParams.get("itemKey") ?? undefined,
@@ -37,7 +41,13 @@ export async function GET(request: Request) {
 
   try {
     const listings = await getMarketListings(supabase, user.id, parsed.data);
-    return NextResponse.json({ listings });
+
+    if (!includeTransactions) {
+      return NextResponse.json({ listings });
+    }
+
+    const transactions = await getMarketTransactions(supabase, user.id, transactionsLimit);
+    return NextResponse.json({ listings, transactions });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load market listings." },
@@ -76,4 +86,3 @@ export async function POST(request: Request) {
     );
   }
 }
-
