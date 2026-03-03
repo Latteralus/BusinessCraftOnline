@@ -1,6 +1,8 @@
 import { getCharacter } from "@/domains/auth-character";
-import { getBusinessById } from "@/domains/businesses";
+import { getBusinessById, getBusinessUpgrades } from "@/domains/businesses";
 import { getCityById } from "@/domains/cities-travel";
+import { getProductionStatus, getManufacturingStatus } from "@/domains/production";
+import { getBusinessInventory } from "@/domains/inventory";
 import { getEmployeeSummary } from "@/domains/employees";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
@@ -28,7 +30,25 @@ export default async function BusinessDetailsPage({ params }: { params: { id: st
     redirect("/businesses"); // Redirect if it doesn't exist or isn't theirs
   }
 
-  const city = await getCityById(supabase, business.city_id).catch(() => null);
+  // Handle differences between extraction and manufacturing businesses
+  const isExtraction = [
+    "mine",
+    "farm",
+    "water_company",
+    "logging_camp",
+    "oil_well",
+  ].includes(business.type);
+
+  const [city, production, manufacturing, inventory, upgrades, employeesRes] = await Promise.all([
+    getCityById(supabase, business.city_id).catch(() => null),
+    isExtraction ? getProductionStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
+    !isExtraction ? getManufacturingStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
+    getBusinessInventory(supabase, user.id, business.id).catch(() => []),
+    getBusinessUpgrades(supabase, user.id, business.id).catch(() => []),
+    supabase.from("employee_assignments").select("*, employee:employees(*)").eq("business_id", business.id)
+  ]);
+
+  const employees = employeesRes.data || [];
 
   return (
     <>
@@ -54,7 +74,14 @@ export default async function BusinessDetailsPage({ params }: { params: { id: st
         </div>
       </div>
 
-      <BusinessDetailsClient business={business} />
+      <BusinessDetailsClient 
+        business={business} 
+        production={production}
+        manufacturing={manufacturing}
+        inventory={inventory}
+        upgrades={upgrades}
+        employees={employees as any}
+      />
     </>
   );
 }

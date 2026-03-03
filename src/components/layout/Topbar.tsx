@@ -9,6 +9,7 @@ interface TopbarProps {
   lastName: string;
   businessLevel: number;
   adEnabledCount: number;
+  playerCount: number;
   onLogout: () => void;
 }
 
@@ -18,6 +19,7 @@ export function Topbar({
   lastName,
   businessLevel,
   adEnabledCount,
+  playerCount,
   onLogout,
 }: TopbarProps) {
   const pathname = usePathname();
@@ -29,6 +31,10 @@ export function Topbar({
         <div className="server-badge">
           <div className="server-dot"></div>
           US-East · {adEnabledCount > 0 ? "Ads Active" : "Online"}
+        </div>
+        <div className="server-badge">
+          <div className="server-dot"></div>
+          Players Online: {playerCount}
         </div>
       </div>
       <div className="topbar-nav">

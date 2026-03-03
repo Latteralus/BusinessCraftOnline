@@ -1,4 +1,4 @@
-import { getCharacter } from "@/domains/auth-character";
+import { getCharacter, getPlayerCount } from "@/domains/auth-character";
 import { getMarketStorefrontSettings } from "@/domains/market";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
@@ -18,13 +18,16 @@ export default async function AuthenticatedLayout({
     redirect("/login");
   }
 
-  const character = await getCharacter(supabase, user.id).catch(() => null);
+  const [character, storefrontSettings, playerCount] = await Promise.all([
+    getCharacter(supabase, user.id).catch(() => null),
+    getMarketStorefrontSettings(supabase, user.id).catch(() => []),
+    getPlayerCount(supabase).catch(() => 0),
+  ]);
 
   if (!character) {
     redirect("/character-setup");
   }
 
-  const storefrontSettings = await getMarketStorefrontSettings(supabase, user.id).catch(() => []);
   const adEnabledCount = storefrontSettings?.filter((row) => row.is_ad_enabled)?.length ?? 0;
 
   const initials = character.first_name[0] + character.last_name[0];
@@ -44,6 +47,7 @@ export default async function AuthenticatedLayout({
         lastName={character.last_name}
         businessLevel={character.business_level}
         adEnabledCount={adEnabledCount}
+        playerCount={playerCount}
         onLogout={handleLogout}
       />
       <div className="main-container">

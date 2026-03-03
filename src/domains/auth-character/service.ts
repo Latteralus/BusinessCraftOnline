@@ -5,6 +5,17 @@ type QueryClient = {
   from: (table: string) => any;
 };
 
+export async function getPlayerCount(
+  client: QueryClient
+): Promise<number> {
+  const { count, error } = await client
+    .from("players")
+    .select("*", { count: "exact", head: true });
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export async function getPlayer(
   client: QueryClient,
   playerId: string

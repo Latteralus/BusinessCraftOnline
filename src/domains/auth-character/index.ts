@@ -2,6 +2,7 @@ export {
   createCharacter,
   getCharacter,
   getPlayer,
+  getPlayerCount,
   updateCharacterCity,
   upsertPlayerFromAuthUser,
 } from "./service";
