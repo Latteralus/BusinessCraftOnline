@@ -3,7 +3,6 @@ import { z } from "zod";
 const usernamePattern = /^[a-zA-Z0-9_]+$/;
 
 export const registerSchema = z.object({
-  email: z.string().email("Enter a valid email address."),
   password: z.string().min(8, "Password must be at least 8 characters."),
   username: z
     .string()
