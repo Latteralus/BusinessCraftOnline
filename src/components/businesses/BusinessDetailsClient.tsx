@@ -8,7 +8,6 @@ import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { EmployeeAssignment, Employee } from "@/domains/employees";
 import type { UpgradeDefinition } from "@/domains/upgrades";
 import { calculateUpgradePreview } from "@/domains/upgrades";
-import type { EmployeeRole } from "@/config/employees";
 import { BASE_WAGE_PER_HOUR } from "@/config/employees";
 
 type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades";
@@ -64,7 +63,6 @@ export default function BusinessDetailsClient({ business, production, manufactur
   const [error, setError] = useState<string | null>(null);
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
   const [businessAssignEmployeeId, setBusinessAssignEmployeeId] = useState("");
-  const [businessAssignRole, setBusinessAssignRole] = useState<EmployeeRole>("production");
   const [marketActionItem, setMarketActionItem] = useState<{ id: string; type: "market" | "transfer"; available: number } | null>(null);
   const [actionQuantity, setActionQuantity] = useState(1);
   const [actionPrice, setActionPrice] = useState(1);
@@ -247,7 +245,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
     }
   }
 
-  async function assignEmployeeToThisBusiness(employeeId: string, role: EmployeeRole) {
+  async function assignEmployeeToThisBusiness(employeeId: string) {
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -258,11 +256,33 @@ export default function BusinessDetailsClient({ business, production, manufactur
         body: JSON.stringify({
           employeeId,
           businessId: business.id,
-          role,
+          role: "production",
           roleSkillKey: "logistics"
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error || "Failed to assign employee.");
+
+      if (production?.slots?.length) {
+        const firstOpenSlot = production.slots.find((slot) => !slot.employee_id);
+        if (firstOpenSlot) {
+          const slotRes = await fetch("/api/production/slots/assign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ slotId: firstOpenSlot.id, employeeId }),
+          });
+          if (!slotRes.ok) {
+            let slotMessage = "Employee assigned to business, but slot assignment failed.";
+            try {
+              const payload = await slotRes.json();
+              if (payload?.error) slotMessage = `Employee assigned to business, but slot assignment failed: ${payload.error}`;
+            } catch {
+              // Ignore parse errors and use fallback message.
+            }
+            setError(slotMessage);
+          }
+        }
+      }
+
       if (employeeId === businessAssignEmployeeId) {
         setBusinessAssignEmployeeId("");
       }
@@ -434,17 +454,8 @@ export default function BusinessDetailsClient({ business, production, manufactur
                           </option>
                         ))}
                       </select>
-                      <select
-                        title="Select role"
-                        value={businessAssignRole}
-                        onChange={(e) => setBusinessAssignRole(e.target.value as EmployeeRole)}
-                        style={{ fontSize: "0.75rem", padding: "4px 8px" }}
-                      >
-                        <option value="production">Production</option>
-                        <option value="supply">Supply</option>
-                      </select>
                       <button
-                        onClick={() => assignEmployeeToThisBusiness(businessAssignEmployeeId, businessAssignRole)}
+                        onClick={() => assignEmployeeToThisBusiness(businessAssignEmployeeId)}
                         disabled={busy || !businessAssignEmployeeId}
                         style={{ fontSize: "0.75rem", padding: "4px 8px" }}
                       >
