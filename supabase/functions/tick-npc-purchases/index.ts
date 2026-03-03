@@ -417,10 +417,28 @@ Deno.serve(async () => {
 
     await persistSubtickState(supabase, { tickWindowStartedAt, subTickIndex });
 
-    const { data: stores, error: storesError } = await supabase
-      .from("businesses")
-      .select("id, player_id, type, city_id")
-      .in("type", [...STORE_TYPES]);
+    const { data: activeListingRows, error: activeListingRowsError } = await supabase
+      .from("market_listings")
+      .select("source_business_id")
+      .eq("status", "active")
+      .gt("quantity", 0)
+      .gt("reserved_quantity", 0);
+
+    if (activeListingRowsError) {
+      throw activeListingRowsError;
+    }
+
+    const activeBusinessIds = Array.from(
+      new Set((activeListingRows ?? []).map((row) => String(row.source_business_id)).filter(Boolean))
+    );
+
+    const { data: stores, error: storesError } =
+      activeBusinessIds.length > 0
+        ? await supabase
+            .from("businesses")
+            .select("id, player_id, type, city_id")
+            .in("id", activeBusinessIds)
+        : { data: [], error: null };
 
     if (storesError) {
       throw storesError;
@@ -441,41 +459,47 @@ Deno.serve(async () => {
       let storeUnitsSold = 0;
       let storeGrossRevenue = 0;
       let storeFeeTotal = 0;
-    const { data: upgrades } = await supabase
-      .from("business_upgrades")
-      .select("upgrade_key, level")
-      .eq("business_id", store.id)
-      .in("upgrade_key", ["listing_capacity", "storefront_appeal", "customer_service"]);
+      const isStoreType = STORE_TYPES.includes(store.type as (typeof STORE_TYPES)[number]);
+      let listingCapacityLevel = 0;
+      let storefrontAppealLevel = 0;
+      let customerServiceLevel = 0;
 
-    const listingCapacityLevel =
-      upgrades?.find((row) => row.upgrade_key === "listing_capacity")?.level ?? 0;
-    const storefrontAppealLevel =
-      upgrades?.find((row) => row.upgrade_key === "storefront_appeal")?.level ?? 0;
-    const customerServiceLevel =
-      upgrades?.find((row) => row.upgrade_key === "customer_service")?.level ?? 0;
+      if (isStoreType) {
+        const { data: upgrades } = await supabase
+          .from("business_upgrades")
+          .select("upgrade_key, level")
+          .eq("business_id", store.id)
+          .in("upgrade_key", ["listing_capacity", "storefront_appeal", "customer_service"]);
 
-    const trafficMultiplier = Math.pow(1.05, Math.max(0, Number(storefrontAppealLevel)));
-    const priceToleranceMultiplier = Math.pow(1.03, Math.max(0, Number(customerServiceLevel)));
+        listingCapacityLevel = upgrades?.find((row) => row.upgrade_key === "listing_capacity")?.level ?? 0;
+        storefrontAppealLevel = upgrades?.find((row) => row.upgrade_key === "storefront_appeal")?.level ?? 0;
+        customerServiceLevel = upgrades?.find((row) => row.upgrade_key === "customer_service")?.level ?? 0;
+      }
 
-    const { data: storefront } = await supabase
-      .from("market_storefront_settings")
-      .select("id, ad_budget_per_tick, traffic_multiplier, is_ad_enabled")
-      .eq("owner_player_id", store.player_id)
-      .eq("business_id", store.id)
-      .maybeSingle();
+      const trafficMultiplier = isStoreType ? Math.pow(1.05, Math.max(0, Number(storefrontAppealLevel))) : 1;
+      const priceToleranceMultiplier = isStoreType ? Math.pow(1.03, Math.max(0, Number(customerServiceLevel))) : 1;
 
-    const configuredTrafficMultiplier = storefront
-      ? clamp(
-          toNumber(storefront.traffic_multiplier),
-          STOREFRONT_TRAFFIC_MULTIPLIER_MIN,
-          STOREFRONT_TRAFFIC_MULTIPLIER_MAX
-        )
-      : 1;
+      const { data: storefront } = isStoreType
+        ? await supabase
+            .from("market_storefront_settings")
+            .select("id, ad_budget_per_tick, traffic_multiplier, is_ad_enabled")
+            .eq("owner_player_id", store.player_id)
+            .eq("business_id", store.id)
+            .maybeSingle()
+        : { data: null };
+
+      const configuredTrafficMultiplier = storefront
+        ? clamp(
+            toNumber(storefront.traffic_multiplier),
+            STOREFRONT_TRAFFIC_MULTIPLIER_MIN,
+            STOREFRONT_TRAFFIC_MULTIPLIER_MAX
+          )
+        : 1;
 
     let adBudgetApplied = 0;
     let adBoostMultiplier = 1;
 
-    if (storefront?.is_ad_enabled) {
+    if (isStoreType && storefront?.is_ad_enabled) {
       const adBudget = Math.max(0, toNumber(storefront.ad_budget_per_tick));
       if (adBudget > 0) {
         const { data: balanceValue, error: balanceError } = await supabase.rpc("get_business_account_balance", {
