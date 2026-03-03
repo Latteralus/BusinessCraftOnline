@@ -1,12 +1,35 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+
+type City = {
+  id: string;
+  name: string;
+  state: string;
+  region: string;
+};
 
 export default function CharacterSetupPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cities, setCities] = useState<City[]>([]);
+
+  useEffect(() => {
+    async function loadCities() {
+      try {
+        const res = await fetch("/api/cities");
+        const data = await res.json();
+        if (res.ok && data.cities) {
+          setCities(data.cities);
+        }
+      } catch (err) {
+        console.error("Failed to load cities", err);
+      }
+    }
+    loadCities();
+  }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -18,7 +41,7 @@ export default function CharacterSetupPage() {
       firstName: String(formData.get("firstName") ?? ""),
       lastName: String(formData.get("lastName") ?? ""),
       gender: String(formData.get("gender") ?? ""),
-      currentCityId: null,
+      currentCityId: formData.get("currentCityId") ? String(formData.get("currentCityId")) : null,
     };
 
     const response = await fetch("/api/character", {
@@ -58,6 +81,21 @@ export default function CharacterSetupPage() {
           <option value="other">Other</option>
           </select>
         </label>
+        
+        {cities.length > 0 && (
+          <label>
+            Starting City
+            <select name="currentCityId" title="Starting City" required>
+              <option value="" disabled selected>Select a city...</option>
+              {cities.map((city) => (
+                <option key={city.id} value={city.id}>
+                  {city.name}, {city.state}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
         <button type="submit" disabled={loading}>
           {loading ? "Saving..." : "Create character"}
         </button>
