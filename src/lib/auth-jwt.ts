@@ -32,6 +32,7 @@ export async function verifyCustomJwt(token: string) {
     const { payload } = await jwtVerify(token, secret);
     return payload;
   } catch (error) {
+    console.error("[verifyCustomJwt] verification failed:", error);
     return null;
   }
 }

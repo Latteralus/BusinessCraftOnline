@@ -2,7 +2,6 @@ import {
   createCharacter,
   createCharacterSchema,
   getCharacter,
-  upsertPlayerFromAuthUser,
 } from "@/domains/auth-character";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
@@ -31,8 +30,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const payload = await request.json().catch(() => null);
-  const parsed = createCharacterSchema.safeParse(payload);
+  const body = await request.json().catch(() => null);
+  const parsed = createCharacterSchema.safeParse(body);
 
   if (!parsed.success) {
     return NextResponse.json(
@@ -49,11 +48,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const username =
-    typeof user.user_metadata?.username === "string"
-      ? user.user_metadata.username
-      : undefined;
-  await upsertPlayerFromAuthUser(supabase, user, username);
   const character = await createCharacter(supabase, user.id, parsed.data);
 
   return NextResponse.json({ character }, { status: 201 });
