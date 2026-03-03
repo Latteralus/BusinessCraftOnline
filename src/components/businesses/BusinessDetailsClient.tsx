@@ -309,6 +309,42 @@ export default function BusinessDetailsClient({ business, production, manufactur
             </div>
           </div>
         )}
+
+        {activeTab === "finance" && (
+          <div>
+            <h3 style={{ marginBottom: 16 }}>Finance Overview</h3>
+            {financeSummary ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
+                <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
+                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Bank Balance</div>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 600, color: financeSummary.balance >= 0 ? "var(--text-primary)" : "#f87171" }}>
+                    ${financeSummary.balance.toFixed(2)}
+                  </div>
+                </div>
+                <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
+                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Revenue (24h)</div>
+                  <div style={{ fontSize: "1.2rem", fontWeight: 500, color: "var(--accent-green)" }}>
+                    +${financeSummary.revenue24h.toFixed(2)}
+                  </div>
+                </div>
+                <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
+                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Items Sold (24h)</div>
+                  <div style={{ fontSize: "1.2rem", fontWeight: 500 }}>
+                    {financeSummary.itemsSold24h}
+                  </div>
+                </div>
+                <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
+                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Active Listings Value</div>
+                  <div style={{ fontSize: "1.2rem", fontWeight: 500 }}>
+                    ${financeSummary.totalValueOnMarket.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p>Loading finance data...</p>
+            )}
+          </div>
+        )}
         
         {activeTab === "operations" && (
           <div>

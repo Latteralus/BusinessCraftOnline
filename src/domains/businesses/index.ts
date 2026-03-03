@@ -4,6 +4,7 @@ export {
   getBusinessBalance,
   getBusinessById,
   getBusinessDetail,
+  getBusinessFinanceSummary,
   getBusinessSummary,
   getBusinessUpgrades,
   getBusinessesWithBalances,
