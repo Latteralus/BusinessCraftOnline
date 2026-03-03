@@ -8,6 +8,7 @@ import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { EmployeeAssignment, Employee } from "@/domains/employees";
 import type { UpgradeDefinition } from "@/domains/upgrades";
 import { calculateUpgradePreview } from "@/domains/upgrades";
+import { BASE_WAGE_PER_HOUR } from "@/config/employees";
 
 type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades";
 
@@ -25,6 +26,9 @@ type Props = {
 
 export default function BusinessDetailsClient({ business, production, manufacturing, inventory, upgrades, employees, upgradeDefinitions = [], financeSummary, initialTab }: Props) {
   const router = useRouter();
+  const tempPayPer15Min = (BASE_WAGE_PER_HOUR.temp / 4).toFixed(2);
+  const partTimePayPer15Min = (BASE_WAGE_PER_HOUR.part_time / 4).toFixed(2);
+  const fullTimePayPer15Min = (BASE_WAGE_PER_HOUR.full_time / 4).toFixed(2);
   
   const defaultTab = (initialTab as TabType) || "overview";
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
@@ -143,10 +147,19 @@ export default function BusinessDetailsClient({ business, production, manufactur
           firstName: "New",
           lastName: "Hire",
           employeeType,
-          specialtySkillKey: "logistics"
+          specialtySkillKey: employeeType === "specialist" ? "logistics" : undefined,
         }),
       });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to hire employee.");
+      if (!res.ok) {
+        let message = "Failed to hire employee.";
+        try {
+          const payload = await res.json();
+          if (payload?.error) message = payload.error;
+        } catch {
+          // Ignore parse errors and use fallback message.
+        }
+        throw new Error(message);
+      }
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error hiring employee");
@@ -481,9 +494,9 @@ export default function BusinessDetailsClient({ business, production, manufactur
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <h3 style={{ margin: 0 }}>Employees</h3>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => hireEmployee("temp")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Temp ($50)</button>
-                <button onClick={() => hireEmployee("contract")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Contract ($500)</button>
-                <button onClick={() => hireEmployee("full_time")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Full Time ($2000)</button>
+                <button onClick={() => hireEmployee("temp")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Temp ($0 · ${tempPayPer15Min}/15m)</button>
+                <button onClick={() => hireEmployee("part_time")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Part Time ($200 · ${partTimePayPer15Min}/15m)</button>
+                <button onClick={() => hireEmployee("full_time")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Full Time ($500 · ${fullTimePayPer15Min}/15m)</button>
               </div>
             </div>
 
