@@ -136,7 +136,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/employees/hire", {
+      const res = await fetch("/api/employees", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -186,8 +186,10 @@ export default function BusinessDetailsClient({ business, production, manufactur
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/employees/${employeeId}/unassign`, {
+      const res = await fetch("/api/employees/unassign", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId }),
       });
       if (!res.ok) throw new Error((await res.json()).error || "Failed to unassign employee.");
       router.refresh();
@@ -203,10 +205,11 @@ export default function BusinessDetailsClient({ business, production, manufactur
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/employees/${employeeId}/assign`, {
+      const res = await fetch("/api/employees/assign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          employeeId,
           businessId: business.id,
           role,
           roleSkillKey: "logistics"

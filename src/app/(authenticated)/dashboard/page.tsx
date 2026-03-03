@@ -24,6 +24,18 @@ async function logout() {
   redirect("/login");
 }
 
+function formatTimeAgo(value: string): string {
+  const diffMs = Date.now() - new Date(value).getTime();
+  const diffSeconds = Math.max(0, Math.floor(diffMs / 1000));
+  if (diffSeconds < 60) return `${diffSeconds}s ago`;
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
 export default async function DashboardPage() {
   const supabase = createSupabaseServerClient();
   const {
@@ -57,7 +69,13 @@ export default async function DashboardPage() {
   const bankingSnapshot = await getBankingSnapshot(supabase, user.id).catch(() => null);
   const businessSummary = await getBusinessSummary(supabase, user.id).catch(() => null);
   const employeeSummary = await getEmployeeSummary(supabase, user.id).catch(() => null);
-  const marketTransactions = await getMarketTransactions(supabase, user.id, 8).catch(() => []);
+  const marketTransactions = await getMarketTransactions(supabase, user.id, 12).catch(() => []);
+  const { data: postedListings } = await supabase
+    .from("market_listings")
+    .select("id, source_business_id, item_key, quantity, unit_price, created_at")
+    .eq("owner_player_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(12);
   const storefrontSettings = await getMarketStorefrontSettings(supabase, user.id).catch(() => []);
   const tickHealth = await getTickHealthSummary(supabase, 24).catch(() => null);
   const storefrontPerformance = await getStorefrontPerformanceSummary(supabase, user.id, 24).catch(() => null);
@@ -159,6 +177,53 @@ export default async function DashboardPage() {
     storefrontSettings && storefrontSettings.length > 0
       ? storefrontSettings.reduce((sum, row) => sum + row.traffic_multiplier, 0) / storefrontSettings.length
       : 1;
+
+  const feedBusinessIds = Array.from(
+    new Set([
+      ...(postedListings ?? []).map((row) => String(row.source_business_id)),
+      ...marketTransactions.map((tx) => tx.seller_business_id),
+      ...marketTransactions.map((tx) => tx.buyer_business_id).filter((id): id is string => Boolean(id)),
+    ])
+  ).filter(Boolean);
+
+  const { data: feedBusinesses } =
+    feedBusinessIds.length > 0
+      ? await supabase.from("businesses").select("id, name").in("id", feedBusinessIds)
+      : { data: [] as Array<{ id: string; name: string }> };
+
+  const businessNameById = new Map(((feedBusinesses as Array<{ id: string; name: string }>) ?? []).map((b) => [b.id, b.name]));
+
+  const marketFeed = [
+    ...((postedListings ?? []).map((row) => {
+      const businessName =
+        businessNameById.get(String(row.source_business_id)) ?? `Business ${String(row.source_business_id).slice(0, 8)}`;
+      const itemName = String(row.item_key).replace(/_/g, " ");
+      return {
+        id: `listing-${row.id}`,
+        createdAt: String(row.created_at),
+        line: `[${formatTimeAgo(String(row.created_at))}] ${businessName} posted ${row.quantity} ${itemName} at $${Number(
+          row.unit_price
+        ).toFixed(2)}`,
+      };
+    }) ?? []),
+    ...marketTransactions.map((tx) => {
+      const itemName = tx.item_key.replace(/_/g, " ");
+      const sellerName = businessNameById.get(tx.seller_business_id) ?? `Business ${tx.seller_business_id.slice(0, 8)}`;
+      const buyerName =
+        tx.buyer_type === "npc"
+          ? tx.shopper_name ?? "NPC shopper"
+          : tx.buyer_business_id
+          ? businessNameById.get(tx.buyer_business_id) ?? `Business ${tx.buyer_business_id.slice(0, 8)}`
+          : "A player";
+      return {
+        id: `tx-${tx.id}`,
+        createdAt: tx.created_at,
+        line: `[${formatTimeAgo(tx.created_at)}] ${buyerName} bought ${tx.quantity} ${itemName} from ${sellerName}`,
+      };
+    }),
+  ]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 8);
 
   // Helpers for UI
   const initials = character.first_name[0] + character.last_name[0];
@@ -352,18 +417,12 @@ export default async function DashboardPage() {
                 <Link href="/market" className="card-action">Full Market →</Link>
               </div>
               <div className="card-body">
-                {marketTransactions.slice(0, 4).map((tx) => (
-                  <div className="market-item" key={tx.id}>
-                    <div>
-                      <div className="market-name">{tx.item_key} (Q{tx.quality}) x{tx.quantity}</div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div className="market-price">${tx.unit_price.toFixed(2)}</div>
-                      <div className="market-change up">Net: ${tx.net_total.toFixed(2)}</div>
-                    </div>
+                {marketFeed.map((entry) => (
+                  <div className="market-item" key={entry.id}>
+                    <div className="market-name" style={{ fontSize: "0.78rem" }}>{entry.line}</div>
                   </div>
                 ))}
-                {marketTransactions.length === 0 && (
+                {marketFeed.length === 0 && (
                   <p style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>No recent market activity.</p>
                 )}
               </div>

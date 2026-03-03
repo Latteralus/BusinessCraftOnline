@@ -41,6 +41,46 @@ export default function MarketPage() {
   const [storefrontAdEnabled, setStorefrontAdEnabled] = useState(true);
 
   const ownListings = useMemo(() => listings.filter((listing) => listing.status === "active"), [listings]);
+  const marketFeed = useMemo(() => {
+    const toTime = (value: string) =>
+      new Date(value).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+    const businessNameById = new Map<string, string>();
+    for (const business of businesses) {
+      businessNameById.set(business.id, business.name);
+    }
+    for (const listing of listings) {
+      if (listing.business?.name) {
+        businessNameById.set(listing.source_business_id, listing.business.name);
+      }
+    }
+
+    const listingEvents = listings.map((listing) => ({
+      id: `listing-${listing.id}`,
+      createdAt: listing.created_at,
+      line: `[${toTime(listing.created_at)}] ${listing.business?.name ?? "A business"} posted ${listing.quantity} ${listing.item_key.replace(
+        /_/g,
+        " "
+      )} at $${listing.unit_price.toFixed(2)}`,
+    }));
+
+    const transactionEvents = transactions.map((tx) => ({
+      id: `tx-${tx.id}`,
+      createdAt: tx.created_at,
+      line: `[${toTime(tx.created_at)}] ${
+        tx.buyer_type === "npc" ? tx.shopper_name ?? "NPC shopper" : "A player"
+      } bought ${tx.quantity} ${tx.item_key.replace(/_/g, " ")} from ${
+        businessNameById.get(tx.seller_business_id) ?? `business ${tx.seller_business_id.slice(0, 8)}`
+      }`,
+    }));
+
+    return [...listingEvents, ...transactionEvents]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 40);
+  }, [businesses, listings, transactions]);
 
   async function loadBusinesses() {
     const response = await fetch("/api/businesses", { cache: "no-store" });
@@ -379,24 +419,14 @@ export default function MarketPage() {
       {!loading ? (
         <section>
           <h2 style={{ marginTop: 0 }}>Recent Market Activity</h2>
-          {transactions.length === 0 ? <p>No market transactions yet.</p> : null}
+          {marketFeed.length === 0 ? <p>No market transactions yet.</p> : null}
           <div style={{ display: "grid", gap: 8 }}>
-            {transactions.map((tx) => (
+            {marketFeed.map((entry) => (
               <article
-                key={tx.id}
+                key={entry.id}
                 style={{ border: "1px solid #334155", borderRadius: 8, padding: 10, display: "grid", gap: 2 }}
               >
-                <strong>
-                  {tx.item_key} (Q{tx.quality}) x{tx.quantity}
-                </strong>
-                <span>
-                  ${tx.unit_price.toFixed(2)} each • Gross ${tx.gross_total.toFixed(2)} • Fee ${tx.market_fee.toFixed(2)}
-                </span>
-                <span style={{ color: "#94a3b8" }}>
-                  Buyer: {tx.buyer_type === "npc" ? tx.shopper_name ?? "NPC shopper" : "Player"}
-                  {tx.buyer_type === "npc" && tx.shopper_tier ? ` (${tx.shopper_tier})` : ""}
-                  {tx.sub_tick_index !== null ? ` • Sub-tick ${tx.sub_tick_index + 1}` : ""}
-                </span>
+                <span>{entry.line}</span>
               </article>
             ))}
           </div>
