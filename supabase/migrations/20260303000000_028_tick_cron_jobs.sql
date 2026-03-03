@@ -1,5 +1,6 @@
 -- Enable the pg_net extension to make HTTP requests from Postgres
 CREATE EXTENSION IF NOT EXISTS pg_net;
+CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 -- Helper function to invoke an Edge Function using database settings.
 -- This allows different configurations for local development vs production.

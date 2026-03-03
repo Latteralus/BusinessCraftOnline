@@ -333,9 +333,10 @@ export default function BusinessesPage() {
             <div style={{ display: "grid", gap: 10 }}>
               {businesses.length === 0 ? <p>No businesses yet.</p> : null}
               {businesses.map((business) => (
-                <div
+                <Link
                   key={business.id}
-                  style={{ border: "1px solid #334155", borderRadius: 8, padding: 12 }}
+                  href={`/businesses/${business.id}`}
+                  style={{ border: "1px solid #334155", borderRadius: 8, padding: 12, textDecoration: 'none', color: 'inherit', display: 'block' }}
                 >
                   <p style={{ margin: 0, fontWeight: 700 }}>{business.name}</p>
                   <p style={{ margin: "6px 0", color: "#94a3b8" }}>
@@ -345,7 +346,7 @@ export default function BusinessesPage() {
                   <p style={{ margin: 0, color: "#94a3b8" }}>
                     Value: {formatCurrency(business.value)}
                   </p>
-                </div>
+                </Link>
               ))}
             </div>
           </section>

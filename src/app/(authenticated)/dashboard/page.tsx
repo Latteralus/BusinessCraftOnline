@@ -208,7 +208,7 @@ export default async function DashboardPage() {
             </div>
             <div className="card-body">
               {businessSummary?.topBusiness ? (
-                <div className="biz-item">
+                <Link href={`/businesses/${businessSummary.topBusiness.id}`} className="biz-item" style={{ textDecoration: 'none' }}>
                   <div className="biz-icon" style={{ background: "var(--accent-amber-dim)", color: "var(--accent-amber)" }}>⛏️</div>
                   <div className="biz-info">
                     <div className="biz-name">{businessSummary.topBusiness.name}</div>
@@ -218,7 +218,7 @@ export default async function DashboardPage() {
                     <span className="status-badge status-producing">Producing</span>
                     <span className="biz-profit">${businessSummary.topBusiness.balance.toFixed(2)}</span>
                   </div>
-                </div>
+                </Link>
               ) : (
                 <p style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>No active businesses yet.</p>
               )}
