@@ -8,6 +8,7 @@ import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { EmployeeAssignment, Employee } from "@/domains/employees";
 import type { UpgradeDefinition } from "@/domains/upgrades";
 import { calculateUpgradePreview } from "@/domains/upgrades";
+import type { EmployeeRole } from "@/config/employees";
 import { BASE_WAGE_PER_HOUR } from "@/config/employees";
 
 type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades";
@@ -24,6 +25,33 @@ type Props = {
   initialTab?: string;
 };
 
+const FIRST_NAMES = [
+  "James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph",
+  "Thomas", "Charles", "Mary", "Patricia", "Jennifer", "Linda", "Elizabeth",
+  "Barbara", "Susan", "Jessica", "Sarah", "Karen", "Oliver", "Noah", "Elijah",
+  "Lucas", "Mason", "Harper", "Evelyn", "Abigail", "Emily", "Ella",
+];
+
+const LAST_NAMES = [
+  "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis",
+  "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson",
+  "Thomas", "Taylor", "Moore", "Jackson", "Martin", "Lee", "Perez", "Thompson",
+  "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
+];
+
+function toTitleLabel(value: string) {
+  return value
+    .split("_")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(" ");
+}
+
+function formatEmployeeType(type: string) {
+  if (type === "part_time") return "Part-Time";
+  if (type === "full_time") return "Full-Time";
+  return toTitleLabel(type);
+}
+
 export default function BusinessDetailsClient({ business, production, manufacturing, inventory, upgrades, employees, upgradeDefinitions = [], financeSummary, initialTab }: Props) {
   const router = useRouter();
   const tempPayPer15Min = (BASE_WAGE_PER_HOUR.temp / 4).toFixed(2);
@@ -35,6 +63,8 @@ export default function BusinessDetailsClient({ business, production, manufactur
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
+  const [businessAssignEmployeeId, setBusinessAssignEmployeeId] = useState("");
+  const [businessAssignRole, setBusinessAssignRole] = useState<EmployeeRole>("production");
   const [marketActionItem, setMarketActionItem] = useState<{ id: string; type: "market" | "transfer"; available: number } | null>(null);
   const [actionQuantity, setActionQuantity] = useState(1);
   const [actionPrice, setActionPrice] = useState(1);
@@ -48,6 +78,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
   // Find employees that are assigned to this business as production workers
   // but are not currently assigned to any slot.
   const thisBusinessEmployees = employees.filter(e => e.employee_assignments?.[0]?.business_id === business.id);
+  const availableEmployees = employees.filter(e => e.status === "available");
   const availableWorkersForSlots = thisBusinessEmployees
     .filter(e => e.employee_assignments?.[0]?.role === "production" && !production?.slots?.some(s => s.employee_id === e.id));
 
@@ -139,13 +170,16 @@ export default function BusinessDetailsClient({ business, production, manufactur
     if (busy) return;
     setBusy(true);
     setError(null);
+    const randomFirstName = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
+    const randomLastName = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
+
     try {
       const res = await fetch("/api/employees", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          firstName: "New",
-          lastName: "Hire",
+          firstName: randomFirstName,
+          lastName: randomLastName,
           employeeType,
           specialtySkillKey: employeeType === "specialist" ? "logistics" : undefined,
         }),
@@ -213,7 +247,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
     }
   }
 
-  async function assignEmployeeToThisBusiness(employeeId: string, role: string) {
+  async function assignEmployeeToThisBusiness(employeeId: string, role: EmployeeRole) {
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -229,6 +263,9 @@ export default function BusinessDetailsClient({ business, production, manufactur
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error || "Failed to assign employee.");
+      if (employeeId === businessAssignEmployeeId) {
+        setBusinessAssignEmployeeId("");
+      }
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error assigning employee");
@@ -374,16 +411,51 @@ export default function BusinessDetailsClient({ business, production, manufactur
         {activeTab === "operations" && (
           <div>
             <h3 style={{ marginBottom: 16 }}>Operations</h3>
-            {production || manufacturing ? (
-              <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
-                <div style={{ marginBottom: 12 }}>
-                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Type</span>
-                  <div style={{ fontWeight: 600 }}>{production ? "Extraction" : "Manufacturing"}</div>
-                </div>
+	            {production || manufacturing ? (
+	              <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
+	                <div style={{ marginBottom: 12 }}>
+	                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Type</span>
+	                  <div style={{ fontWeight: 600 }}>{production ? "Extraction" : "Manufacturing"}</div>
+	                </div>
 
-                {production && production.slots && (
-                  <div>
-                    <h4 style={{ marginBottom: 8, fontSize: "0.9rem" }}>Extraction Slots</h4>
+                  <div style={{ marginBottom: 12, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)" }}>
+                    <div style={{ fontSize: "0.8rem", fontWeight: 600, marginBottom: 8 }}>Assign Employee to This Business</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <select
+                        title="Select employee"
+                        value={businessAssignEmployeeId}
+                        onChange={(e) => setBusinessAssignEmployeeId(e.target.value)}
+                        style={{ fontSize: "0.75rem", padding: "4px 8px", minWidth: 180 }}
+                      >
+                        <option value="">Select available employee...</option>
+                        {availableEmployees.map((employee) => (
+                          <option key={employee.id} value={employee.id}>
+                            {employee.first_name} {employee.last_name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        title="Select role"
+                        value={businessAssignRole}
+                        onChange={(e) => setBusinessAssignRole(e.target.value as EmployeeRole)}
+                        style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                      >
+                        <option value="production">Production</option>
+                        <option value="supply">Supply</option>
+                      </select>
+                      <button
+                        onClick={() => assignEmployeeToThisBusiness(businessAssignEmployeeId, businessAssignRole)}
+                        disabled={busy || !businessAssignEmployeeId}
+                        style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                      >
+                        Assign
+                      </button>
+                    </div>
+                  </div>
+	
+	                {production && production.slots && (
+	                  <div>
+	                    <h4 style={{ marginBottom: 8, fontSize: "0.9rem" }}>Extraction Slots</h4>
                     {production.slots.length > 0 ? (
                       <div style={{ display: "grid", gap: 8 }}>
                         {production.slots.map((slot) => {
@@ -528,7 +600,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                       <div>
                         <div style={{ fontWeight: 600 }}>{e.first_name} {e.last_name}</div>
                         <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: 4 }}>
-                          {e.employee_type.replace(/_/g, " ")} • {e.status}
+                          {formatEmployeeType(e.employee_type)} • {toTitleLabel(e.status)}
                         </div>
                         {assignment && (
                           <div style={{ fontSize: "0.8rem", color: "var(--accent-blue)", marginTop: 4 }}>
@@ -536,16 +608,10 @@ export default function BusinessDetailsClient({ business, production, manufactur
                           </div>
                         )}
                         <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
-                          Wage: ${assignment?.wage_per_hour?.toFixed(2) || "0.00"}/hr
+                          Wage: ${(assignment?.wage_per_hour ?? BASE_WAGE_PER_HOUR[e.employee_type]).toFixed(2)}/hr
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        {e.status === "available" && (
-                          <>
-                            <button onClick={() => assignEmployeeToThisBusiness(e.id, "production")} disabled={busy} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)" }}>Assign Production</button>
-                            <button onClick={() => assignEmployeeToThisBusiness(e.id, "supply")} disabled={busy} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)" }}>Assign Supply</button>
-                          </>
-                        )}
                         {assignment && (
                           <button onClick={() => unassignEmployeeGlobal(e.id)} disabled={busy} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)" }}>Unassign</button>
                         )}
