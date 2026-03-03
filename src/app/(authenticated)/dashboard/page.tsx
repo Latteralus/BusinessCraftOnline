@@ -100,37 +100,41 @@ export default async function DashboardPage() {
   const activeExtSlot = extRes.data?.[0];
   let activeOperation = null;
 
-  if (activeMfgJob || activeExtSlot) {
-    const activeBizId = activeMfgJob ? activeMfgJob.business_id : activeExtSlot.business_id;
-    const { data: upgrades } = await supabase
-      .from("business_upgrades")
-      .select("*")
-      .eq("business_id", activeBizId);
+  try {
+    if (activeMfgJob || activeExtSlot) {
+      const activeBizId = activeMfgJob ? activeMfgJob.business_id : activeExtSlot.business_id;
+      const { data: upgrades } = await supabase
+        .from("business_upgrades")
+        .select("*")
+        .eq("business_id", activeBizId);
 
-    if (activeMfgJob) {
-      const recipe = getManufacturingRecipeByKey(activeMfgJob.active_recipe_key);
-      const effUpgrade = upgrades?.find((u) => u.upgrade_key === "production_efficiency")?.level || 0;
-      const outputQty = Math.floor((recipe?.baseOutputQuantity || 1) * Math.pow(1.1, effUpgrade));
-      activeOperation = {
-        type: "manufacturing",
-        name: activeMfgJob.business.name,
-        businessId: activeBizId,
-        detail: recipe ? `${recipe.displayName} x${outputQty}/tick` : "Producing",
-      };
-    } else if (activeExtSlot) {
-      const type = activeExtSlot.business.type as keyof typeof EXTRACTION_UPGRADE_KEY_BY_BUSINESS;
-      const upgradeKey = EXTRACTION_UPGRADE_KEY_BY_BUSINESS[type] || "extraction_efficiency";
-      const effUpgrade = upgrades?.find((u) => u.upgrade_key === upgradeKey)?.level || 0;
-      const outputQty = Math.max(1, Math.round(1 * Math.pow(1.1, effUpgrade)));
-      const itemKey = EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[type] || "Unknown";
-      
-      activeOperation = {
-        type: "extraction",
-        name: activeExtSlot.business.name,
-        businessId: activeBizId,
-        detail: `${itemKey.replace(/_/g, " ")} x${outputQty}/tick (Slot #${activeExtSlot.slot_number})`,
-      };
+      if (activeMfgJob) {
+        const recipe = getManufacturingRecipeByKey(activeMfgJob.active_recipe_key);
+        const effUpgrade = upgrades?.find((u) => u.upgrade_key === "production_efficiency")?.level || 0;
+        const outputQty = Math.floor((recipe?.baseOutputQuantity || 1) * Math.pow(1.1, effUpgrade));
+        activeOperation = {
+          type: "manufacturing",
+          name: activeMfgJob.business?.name || "Unknown Business",
+          businessId: activeBizId,
+          detail: recipe ? `${recipe.displayName} x${outputQty}/tick` : "Producing",
+        };
+      } else if (activeExtSlot) {
+        const type = activeExtSlot.business?.type as keyof typeof EXTRACTION_UPGRADE_KEY_BY_BUSINESS;
+        const upgradeKey = EXTRACTION_UPGRADE_KEY_BY_BUSINESS[type] || "extraction_efficiency";
+        const effUpgrade = upgrades?.find((u) => u.upgrade_key === upgradeKey)?.level || 0;
+        const outputQty = Math.max(1, Math.round(1 * Math.pow(1.1, effUpgrade)));
+        const itemKey = type ? EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[type] || "Unknown" : "Unknown";
+        
+        activeOperation = {
+          type: "extraction",
+          name: activeExtSlot.business?.name || "Unknown Business",
+          businessId: activeBizId,
+          detail: `${itemKey.replace(/_/g, " ")} x${outputQty}/tick (Slot #${activeExtSlot.slot_number})`,
+        };
+      }
     }
+  } catch (err) {
+    console.error("Error computing active operation:", err);
   }
 
   const inTransitShippingCount = res1?.count ?? 0;
