@@ -160,10 +160,19 @@ export default function BusinessDetailsClient({ business, production, manufactur
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/employees/${employeeId}/fire`, {
-        method: "POST",
+      const res = await fetch(`/api/employees/${employeeId}`, {
+        method: "DELETE",
       });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to fire employee.");
+      if (!res.ok) {
+        let message = "Failed to fire employee.";
+        try {
+          const payload = await res.json();
+          if (payload?.error) message = payload.error;
+        } catch {
+          // Ignore parse errors and use fallback message.
+        }
+        throw new Error(message);
+      }
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error firing employee");

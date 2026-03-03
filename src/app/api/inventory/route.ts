@@ -26,10 +26,42 @@ export async function GET(request: Request) {
       getShippingQueue(supabase, user.id),
     ]);
 
+    const businessNamesById: Record<string, string> = {};
+    const cityNamesById: Record<string, string> = {};
+
+    const businessIds = Array.from(new Set(businessInventory.map((row) => row.business_id)));
+    const cityIds = Array.from(new Set(businessInventory.map((row) => row.city_id)));
+
+    const [businessesRes, citiesRes] = await Promise.all([
+      businessIds.length > 0
+        ? supabase
+            .from("businesses")
+            .select("id, name")
+            .eq("player_id", user.id)
+            .in("id", businessIds)
+        : Promise.resolve({ data: [], error: null }),
+      cityIds.length > 0
+        ? supabase.from("cities").select("id, name").in("id", cityIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (businessesRes.error) throw businessesRes.error;
+    if (citiesRes.error) throw citiesRes.error;
+
+    for (const row of (businessesRes.data as Array<{ id: string; name: string }> | null) ?? []) {
+      businessNamesById[row.id] = row.name;
+    }
+
+    for (const row of (citiesRes.data as Array<{ id: string; name: string }> | null) ?? []) {
+      cityNamesById[row.id] = row.name;
+    }
+
     return NextResponse.json({
       personalInventory,
       businessInventory,
       shippingQueue,
+      businessNamesById,
+      cityNamesById,
     });
   } catch (error) {
     return NextResponse.json(

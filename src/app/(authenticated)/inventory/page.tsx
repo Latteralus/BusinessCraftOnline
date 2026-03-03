@@ -13,6 +13,8 @@ type InventoryResponse = {
   personalInventory: PersonalInventoryItem[];
   businessInventory: BusinessInventoryItem[];
   shippingQueue: ShippingQueueItem[];
+  businessNamesById?: Record<string, string>;
+  cityNamesById?: Record<string, string>;
   error?: string;
 };
 
@@ -38,6 +40,8 @@ export default function InventoryPage() {
   const [businessInventory, setBusinessInventory] = useState<BusinessInventoryItem[]>([]);
   const [shippingQueue, setShippingQueue] = useState<ShippingQueueItem[]>([]);
   const [accounts, setAccounts] = useState<BankAccountWithBalance[]>([]);
+  const [businessNamesById, setBusinessNamesById] = useState<Record<string, string>>({});
+  const [cityNamesById, setCityNamesById] = useState<Record<string, string>>({});
 
   const [sourceType, setSourceType] = useState<"personal" | "business">("personal");
   const [sourceBusinessId, setSourceBusinessId] = useState("");
@@ -81,6 +85,8 @@ export default function InventoryPage() {
     setPersonalInventory(inventoryJson.personalInventory ?? []);
     setBusinessInventory(inventoryJson.businessInventory ?? []);
     setShippingQueue(inventoryJson.shippingQueue ?? []);
+    setBusinessNamesById(inventoryJson.businessNamesById ?? {});
+    setCityNamesById(inventoryJson.cityNamesById ?? {});
     setAccounts(accountsJson.accounts ?? []);
 
     const checking = (accountsJson.accounts ?? []).find((account) => account.account_type === "checking");
@@ -334,7 +340,8 @@ export default function InventoryPage() {
                     <strong>{row.item_key}</strong> · Qty {row.quantity} · Reserved {row.reserved_quantity} · Q
                     {row.quality}
                     <div style={{ color: "#94a3b8", fontSize: 13 }}>
-                      Business {row.business_id} · City {row.city_id}
+                      Business {businessNamesById[row.business_id] ?? row.business_id} · City{" "}
+                      {cityNamesById[row.city_id] ?? row.city_id}
                     </div>
                   </div>
                 ))}

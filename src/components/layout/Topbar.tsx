@@ -18,7 +18,6 @@ export function Topbar({
   firstName,
   lastName,
   businessLevel,
-  adEnabledCount,
   playerCount,
   onLogout,
 }: TopbarProps) {
@@ -28,10 +27,6 @@ export function Topbar({
     <div className="topbar">
       <div className="topbar-left">
         <div className="logo">Life<span>Craft</span>Online</div>
-        <div className="server-badge">
-          <div className="server-dot"></div>
-          US-East · {adEnabledCount > 0 ? "Ads Active" : "Online"}
-        </div>
         <div className="server-badge">
           <div className="server-dot"></div>
           Players Online: {playerCount}
