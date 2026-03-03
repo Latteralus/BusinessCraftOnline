@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import type { Business, BusinessUpgrade } from "@/domains/businesses";
 import type { ProductionStatus, ManufacturingStatusView } from "@/domains/production";
 import type { BusinessInventoryItem } from "@/domains/inventory";
@@ -19,24 +19,23 @@ type Props = {
   upgrades: BusinessUpgrade[];
   employees: (EmployeeAssignment & { employee: Employee })[];
   upgradeDefinitions?: UpgradeDefinition[];
+  initialTab?: string;
 };
 
-export default function BusinessDetailsClient({ business, production, manufacturing, inventory, upgrades, employees, upgradeDefinitions = [] }: Props) {
+export default function BusinessDetailsClient({ business, production, manufacturing, inventory, upgrades, employees, upgradeDefinitions = [], initialTab }: Props) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const defaultTab = (searchParams.get("tab") as TabType) || "overview";
   
+  const defaultTab = (initialTab as TabType) || "overview";
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    const tab = searchParams.get("tab") as TabType;
-    if (tab && ["overview", "operations", "employees", "inventory", "upgrades"].includes(tab)) {
-      setActiveTab(tab);
+    if (initialTab && ["overview", "operations", "employees", "inventory", "upgrades"].includes(initialTab)) {
+      setActiveTab(initialTab as TabType);
     }
-  }, [searchParams]);
+  }, [initialTab]);
 
   // Find employees that are assigned to this business as production workers
   // but are not currently assigned to any slot.

@@ -290,7 +290,7 @@ export default async function DashboardPage() {
             <div className="card-body">
               {activeOperation ? (
                 <Link href={`/businesses/${activeOperation.businessId}?tab=operations`} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
-                  <div className="mfg-item" style={{ cursor: "pointer", transition: "transform 0.1s" }} onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-2px)"} onMouseLeave={(e) => e.currentTarget.style.transform = "none"}>
+                  <div className="mfg-item" style={{ cursor: "pointer", transition: "transform 0.2s" }}>
                     <div className="mfg-top">
                       <div className="mfg-name">{activeOperation.name}</div>
                       <div className="mfg-recipe" style={{ textTransform: "capitalize" }}>{activeOperation.detail}</div>

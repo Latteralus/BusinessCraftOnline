@@ -9,7 +9,9 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import BusinessDetailsClient from "@/components/businesses/BusinessDetailsClient";
 
-export default async function BusinessDetailsPage({ params }: { params: { id: string } }) {
+export default async function BusinessDetailsPage(props: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string }> }) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const {
     data: { user },
@@ -83,6 +85,7 @@ export default async function BusinessDetailsPage({ params }: { params: { id: st
         upgrades={upgrades}
         employees={employees as any}
         upgradeDefinitions={upgradeDefinitions}
+        initialTab={searchParams.tab}
       />
     </>
   );
