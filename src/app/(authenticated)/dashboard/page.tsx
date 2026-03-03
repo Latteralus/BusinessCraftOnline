@@ -63,7 +63,7 @@ export default async function DashboardPage() {
   const adminEconomySummary =
     player?.role === "admin" ? await getAdminEconomySummary(supabase, 24).catch(() => null) : null;
 
-  const [res1, res2, res3] = await Promise.all([
+  const [res1, res2, res3, mfgRes, extRes] = await Promise.all([
     supabase
       .from("shipping_queue")
       .select("id", { count: "exact", head: true })
@@ -81,7 +81,27 @@ export default async function DashboardPage() {
       .eq("player_id", user.id)
       .eq("status", "traveling")
       .lte("arrives_at", new Date().toISOString()),
+    supabase
+      .from("manufacturing_jobs")
+      .select("*, business:businesses!inner(name, type, player_id)")
+      .eq("businesses.player_id", user.id)
+      .eq("status", "active")
+      .limit(1),
+    supabase
+      .from("extraction_slots")
+      .select("*, business:businesses!inner(name, type, player_id)")
+      .eq("businesses.player_id", user.id)
+      .eq("status", "active")
+      .limit(1),
   ]);
+
+  const activeMfgJob = mfgRes.data?.[0];
+  const activeExtSlot = extRes.data?.[0];
+  const activeOperation = activeMfgJob 
+    ? { type: "manufacturing", name: activeMfgJob.business.name, detail: activeMfgJob.active_recipe_key || "Producing" }
+    : activeExtSlot
+    ? { type: "extraction", name: activeExtSlot.business.name, detail: `Slot #${activeExtSlot.slot_number} Active` }
+    : null;
 
   const inTransitShippingCount = res1?.count ?? 0;
   const dueShippingCount = res2?.count ?? 0;
@@ -229,26 +249,44 @@ export default async function DashboardPage() {
             <div className="card-header">
               <div className="card-title">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 20h20M5 20V8l5 4V4l5 8h5v8"/></svg>
-                Manufacturing Center
+                Active Operations
               </div>
-              <Link href="/production" className="card-action">Manage →</Link>
+              <Link href="/businesses" className="card-action">Manage →</Link>
             </div>
             <div className="card-body">
-              <div className="mfg-item" style={{ opacity: 0.5 }}>
-                <div className="mfg-top">
-                  <div className="mfg-name">No active production</div>
-                  <div className="mfg-recipe">Assign workers to start</div>
-                </div>
-                <div className="mfg-bar-track">
-                  <div className="mfg-bar-fill" style={{ width: "0%", background: "var(--accent-red)" }}></div>
-                </div>
-                <div className="mfg-bottom">
-                  <div className="mfg-inputs">
-                    <span className="input-chip input-empty">Worker: Resting</span>
+              {activeOperation ? (
+                <div className="mfg-item">
+                  <div className="mfg-top">
+                    <div className="mfg-name">{activeOperation.name}</div>
+                    <div className="mfg-recipe" style={{ textTransform: "capitalize" }}>{activeOperation.detail}</div>
                   </div>
-                  <div className="mfg-countdown" style={{ color: "var(--accent-red)" }}>Halted</div>
+                  <div className="mfg-bar-track">
+                    <div className="mfg-bar-fill anim-pulse" style={{ width: "100%", background: "var(--accent-green)" }}></div>
+                  </div>
+                  <div className="mfg-bottom">
+                    <div className="mfg-inputs">
+                      <span className="input-chip input-filled">Status: Active</span>
+                    </div>
+                    <div className="mfg-countdown" style={{ color: "var(--accent-green)" }}>Running</div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="mfg-item" style={{ opacity: 0.5 }}>
+                  <div className="mfg-top">
+                    <div className="mfg-name">No active production</div>
+                    <div className="mfg-recipe">Assign workers to start</div>
+                  </div>
+                  <div className="mfg-bar-track">
+                    <div className="mfg-bar-fill" style={{ width: "0%", background: "var(--accent-red)" }}></div>
+                  </div>
+                  <div className="mfg-bottom">
+                    <div className="mfg-inputs">
+                      <span className="input-chip input-empty">Worker: Resting/None</span>
+                    </div>
+                    <div className="mfg-countdown" style={{ color: "var(--accent-red)" }}>Halted</div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
