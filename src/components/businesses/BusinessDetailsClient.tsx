@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Business, BusinessUpgrade } from "@/domains/businesses";
 import type { ProductionStatus, ManufacturingStatusView } from "@/domains/production";
 import type { BusinessInventoryItem } from "@/domains/inventory";
@@ -19,6 +20,82 @@ type Props = {
 
 export default function BusinessDetailsClient({ business, production, manufacturing, inventory, upgrades, employees }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
+  
+  const router = useRouter();
+
+  // Find employees that are assigned to this business as production workers
+  // but are not currently assigned to any slot.
+  const availableWorkersForSlots = employees
+    .filter(e => e.role === "production" && !production?.slots?.some(s => s.employee_id === e.employee_id))
+    .map(e => e.employee);
+
+  async function assignSlot(slotId: string) {
+    const employeeId = assignSelections[slotId];
+    if (!employeeId || busy) return;
+    
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/production/slots/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slotId, employeeId }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to assign employee to slot.");
+      
+      setAssignSelections(prev => {
+        const next = { ...prev };
+        delete next[slotId];
+        return next;
+      });
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error assigning slot");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unassignSlot(slotId: string) {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/production/slots/unassign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slotId }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to unassign slot.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error unassigning slot");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setSlotStatus(slotId: string, status: "active" | "idle") {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/production/slots/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slotId, status }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to set slot status.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error setting slot status");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="card anim" style={{ marginTop: 24 }}>
@@ -47,6 +124,11 @@ export default function BusinessDetailsClient({ business, production, manufactur
         </div>
       </div>
       <div className="card-body" style={{ minHeight: 400 }}>
+        {error && (
+          <div style={{ padding: "12px", marginBottom: "16px", background: "rgba(248, 113, 113, 0.1)", color: "#f87171", borderRadius: "8px", border: "1px solid rgba(248, 113, 113, 0.2)" }}>
+            {error}
+          </div>
+        )}
         {activeTab === "overview" && (
           <div>
             <h3 style={{ marginBottom: 16 }}>Business Overview</h3>
@@ -91,12 +173,62 @@ export default function BusinessDetailsClient({ business, production, manufactur
                           const assignedEmp = employees.find(e => e.employee_id === slot.employee_id)?.employee;
                           
                           return (
-                            <div key={slot.id} style={{ display: "flex", justifyContent: "space-between", padding: 12, background: "var(--bg-elevated)", borderRadius: 8 }}>
+                            <div key={slot.id} style={{ display: "flex", justifyContent: "space-between", padding: 12, background: "var(--bg-elevated)", borderRadius: 8, flexWrap: "wrap", gap: 12 }}>
                               <div>
                                 <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Slot #{slot.slot_number}</div>
                                 <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                                   Worker: {assignedEmp ? `${assignedEmp.first_name}` : "None"}
                                 </div>
+                                {!assignedEmp && availableWorkersForSlots.length > 0 && (
+                                  <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+                                    <select
+                                      title="Select worker"
+                                      value={assignSelections[slot.id] || ""}
+                                      onChange={(e) => setAssignSelections(prev => ({ ...prev, [slot.id]: e.target.value }))}
+                                      style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                                    >
+                                      <option value="">Select worker...</option>
+                                      {availableWorkersForSlots.map(w => (
+                                        <option key={w.id} value={w.id}>{w.first_name} {w.last_name}</option>
+                                      ))}
+                                    </select>
+                                    <button 
+                                      onClick={() => assignSlot(slot.id)}
+                                      disabled={busy || !assignSelections[slot.id]}
+                                      style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                                    >
+                                      Assign
+                                    </button>
+                                  </div>
+                                )}
+                                {assignedEmp && (
+                                  <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                                    <button
+                                      onClick={() => unassignSlot(slot.id)}
+                                      disabled={busy}
+                                      style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                                    >
+                                      Unassign
+                                    </button>
+                                    {slot.status === "active" ? (
+                                      <button
+                                        onClick={() => setSlotStatus(slot.id, "idle")}
+                                        disabled={busy}
+                                        style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                                      >
+                                        Stop
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => setSlotStatus(slot.id, "active")}
+                                        disabled={busy}
+                                        style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                                      >
+                                        Start
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                               <div style={{ textAlign: "right" }}>
                                 <span className={`status-badge ${slot.status === 'active' ? 'status-producing' : ''}`}>{slot.status}</span>
