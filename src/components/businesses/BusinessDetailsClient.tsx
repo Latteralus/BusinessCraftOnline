@@ -258,7 +258,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
     <div className="card anim" style={{ marginTop: 24 }}>
       <div className="card-header" style={{ padding: 0, borderBottom: "1px solid var(--border-subtle)", overflowX: "auto" }}>
         <div style={{ display: "flex", gap: 24, padding: "0 24px" }}>
-          {(["overview", "operations", "employees", "inventory", "upgrades"] as TabType[]).map((tab) => (
+          {(["overview", "finance", "operations", "employees", "inventory", "upgrades"] as TabType[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}

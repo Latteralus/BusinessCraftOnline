@@ -18,15 +18,16 @@ export default async function AuthenticatedLayout({
     redirect("/login");
   }
 
-  const [character, storefrontSettings, playerCount] = await Promise.all([
-    getCharacter(supabase, user.id).catch(() => null),
-    getMarketStorefrontSettings(supabase, user.id).catch(() => []),
-    getPlayerCount(supabase).catch(() => 0),
-  ]);
+  const character = await getCharacter(supabase, user.id).catch(() => null);
 
   if (!character) {
     redirect("/character-setup");
   }
+
+  const [storefrontSettings, playerCount] = await Promise.all([
+    getMarketStorefrontSettings(supabase, user.id).catch(() => []),
+    getPlayerCount(supabase).catch(() => 0),
+  ]);
 
   const adEnabledCount = storefrontSettings?.filter((row) => row.is_ad_enabled)?.length ?? 0;
 

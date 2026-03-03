@@ -34,9 +34,9 @@ For pages that need real-time or frequent updates (like countdowns or rapidly ch
 
 ## Action Plan (Todos)
 
-1. [ ] Create a generic `loading.tsx` for the `(authenticated)` route group to provide instant visual feedback on navigation.
-2. [ ] Refactor `src/app/(authenticated)/layout.tsx` to not block rendering unnecessarily (wrap slower fetches in Suspense if possible, or leave as is if the data is required for the Topbar).
-3. [ ] Refactor a single page (e.g., `Travel` or `Production`) to be a Server Component.
-4. [ ] Extract interactive elements of that page into smaller Client Components.
-5. [ ] Replace client-side API calls for that page with Server Actions.
+1. [x] Create a generic `loading.tsx` for the `(authenticated)` route group to provide instant visual feedback on navigation.
+2. [x] Refactor `src/app/(authenticated)/layout.tsx` to not block rendering unnecessarily (fetch required character first, then load non-critical topbar fields).
+3. [x] Refactor a single page (`Travel`) to be a Server Component.
+4. [x] Extract interactive elements of that page into smaller Client Components (`TravelClient.tsx`).
+5. [x] Replace client-side API calls for that page with Server Actions (`travel/actions.ts`).
 6. [ ] Review the performance improvement and apply the pattern to the rest of the application.
