@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { Business, BusinessUpgrade } from "@/domains/businesses";
 import type { ProductionStatus, ManufacturingStatusView } from "@/domains/production";
 import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { EmployeeAssignment, Employee } from "@/domains/employees";
+import type { UpgradeDefinition } from "@/domains/upgrades";
+import { calculateUpgradePreview } from "@/domains/upgrades";
 
 type TabType = "overview" | "operations" | "employees" | "inventory" | "upgrades";
 
@@ -16,15 +18,25 @@ type Props = {
   inventory: BusinessInventoryItem[];
   upgrades: BusinessUpgrade[];
   employees: (EmployeeAssignment & { employee: Employee })[];
+  upgradeDefinitions?: UpgradeDefinition[];
 };
 
-export default function BusinessDetailsClient({ business, production, manufacturing, inventory, upgrades, employees }: Props) {
-  const [activeTab, setActiveTab] = useState<TabType>("overview");
+export default function BusinessDetailsClient({ business, production, manufacturing, inventory, upgrades, employees, upgradeDefinitions = [] }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const defaultTab = (searchParams.get("tab") as TabType) || "overview";
+  
+  const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
-  
-  const router = useRouter();
+
+  useEffect(() => {
+    const tab = searchParams.get("tab") as TabType;
+    if (tab && ["overview", "operations", "employees", "inventory", "upgrades"].includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
   // Find employees that are assigned to this business as production workers
   // but are not currently assigned to any slot.
@@ -92,6 +104,25 @@ export default function BusinessDetailsClient({ business, production, manufactur
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error setting slot status");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function purchaseUpgrade(upgradeKey: string) {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/businesses/${business.id}/upgrade`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ upgradeKey }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to purchase upgrade.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error purchasing upgrade");
     } finally {
       setBusy(false);
     }
@@ -335,19 +366,48 @@ export default function BusinessDetailsClient({ business, production, manufactur
         {activeTab === "upgrades" && (
           <div>
             <h3 style={{ marginBottom: 16 }}>Upgrades</h3>
-            {upgrades.length > 0 ? (
+            {upgradeDefinitions.length > 0 ? (
               <div style={{ display: "grid", gap: 12 }}>
-                {upgrades.map((upgrade) => (
-                  <div key={upgrade.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 12, background: "var(--bg-primary)", borderRadius: 8 }}>
-                    <div>
-                      <div style={{ fontWeight: 600 }}>{upgrade.upgrade_key}</div>
-                      <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: 4 }}>Level {upgrade.level}</div>
+                {upgradeDefinitions.map((def) => {
+                  const currentUpgrade = upgrades.find(u => u.upgrade_key === def.upgrade_key);
+                  const currentLevel = currentUpgrade?.level || 0;
+                  const preview = calculateUpgradePreview(def, { upgradeKey: def.upgrade_key, currentLevel });
+                  
+                  const isMaxed = !def.is_infinite && def.max_level !== null && currentLevel >= def.max_level;
+
+                  return (
+                    <div key={def.upgrade_key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 16, background: "var(--bg-primary)", borderRadius: 8 }}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: "1.05rem", marginBottom: 4 }}>{def.display_name}</div>
+                        <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: 8 }}>{def.description}</div>
+                        <div style={{ display: "flex", gap: 16, fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                          <span><strong>Level:</strong> {currentLevel} {def.max_level ? `/ ${def.max_level}` : ""}</span>
+                          {!isMaxed && <span><strong>Next Cost:</strong> ${preview.nextCost.toFixed(2)}</span>}
+                          <span>
+                            <strong>Effect:</strong> {def.effect_label} (+{Math.round((preview.currentEffect - 1) * 100)}% {isMaxed ? "" : `→ +${Math.round((preview.nextEffect - 1) * 100)}%`})
+                          </span>
+                        </div>
+                      </div>
+                      <div>
+                        {!isMaxed && (
+                          <button
+                            onClick={() => purchaseUpgrade(def.upgrade_key)}
+                            disabled={busy}
+                            style={{ padding: "8px 16px", fontWeight: 600 }}
+                          >
+                            Upgrade
+                          </button>
+                        )}
+                        {isMaxed && (
+                          <span style={{ color: "var(--text-muted)", fontSize: "0.9rem", fontWeight: 600 }}>Max Level</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
-              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No upgrades installed.</p>
+              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No upgrades available for this business.</p>
             )}
           </div>
         )}

@@ -10,6 +10,7 @@ import {
   getStorefrontPerformanceSummary,
   getTickHealthSummary,
 } from "@/domains/market";
+import { EXTRACTION_OUTPUT_ITEM_BY_BUSINESS, EXTRACTION_UPGRADE_KEY_BY_BUSINESS, getManufacturingRecipeByKey } from "@/config/production";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -97,11 +98,40 @@ export default async function DashboardPage() {
 
   const activeMfgJob = mfgRes.data?.[0];
   const activeExtSlot = extRes.data?.[0];
-  const activeOperation = activeMfgJob 
-    ? { type: "manufacturing", name: activeMfgJob.business.name, detail: activeMfgJob.active_recipe_key || "Producing" }
-    : activeExtSlot
-    ? { type: "extraction", name: activeExtSlot.business.name, detail: `Slot #${activeExtSlot.slot_number} Active` }
-    : null;
+  let activeOperation = null;
+
+  if (activeMfgJob || activeExtSlot) {
+    const activeBizId = activeMfgJob ? activeMfgJob.business_id : activeExtSlot.business_id;
+    const { data: upgrades } = await supabase
+      .from("business_upgrades")
+      .select("*")
+      .eq("business_id", activeBizId);
+
+    if (activeMfgJob) {
+      const recipe = getManufacturingRecipeByKey(activeMfgJob.active_recipe_key);
+      const effUpgrade = upgrades?.find((u) => u.upgrade_key === "production_efficiency")?.level || 0;
+      const outputQty = Math.floor((recipe?.baseOutputQuantity || 1) * Math.pow(1.1, effUpgrade));
+      activeOperation = {
+        type: "manufacturing",
+        name: activeMfgJob.business.name,
+        businessId: activeBizId,
+        detail: recipe ? `${recipe.displayName} x${outputQty}/tick` : "Producing",
+      };
+    } else if (activeExtSlot) {
+      const type = activeExtSlot.business.type as keyof typeof EXTRACTION_UPGRADE_KEY_BY_BUSINESS;
+      const upgradeKey = EXTRACTION_UPGRADE_KEY_BY_BUSINESS[type] || "extraction_efficiency";
+      const effUpgrade = upgrades?.find((u) => u.upgrade_key === upgradeKey)?.level || 0;
+      const outputQty = Math.max(1, Math.round(1 * Math.pow(1.1, effUpgrade)));
+      const itemKey = EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[type] || "Unknown";
+      
+      activeOperation = {
+        type: "extraction",
+        name: activeExtSlot.business.name,
+        businessId: activeBizId,
+        detail: `${itemKey.replace(/_/g, " ")} x${outputQty}/tick (Slot #${activeExtSlot.slot_number})`,
+      };
+    }
+  }
 
   const inTransitShippingCount = res1?.count ?? 0;
   const dueShippingCount = res2?.count ?? 0;
@@ -255,21 +285,23 @@ export default async function DashboardPage() {
             </div>
             <div className="card-body">
               {activeOperation ? (
-                <div className="mfg-item">
-                  <div className="mfg-top">
-                    <div className="mfg-name">{activeOperation.name}</div>
-                    <div className="mfg-recipe" style={{ textTransform: "capitalize" }}>{activeOperation.detail}</div>
-                  </div>
-                  <div className="mfg-bar-track">
-                    <div className="mfg-bar-fill anim-pulse" style={{ width: "100%", background: "var(--accent-green)" }}></div>
-                  </div>
-                  <div className="mfg-bottom">
-                    <div className="mfg-inputs">
-                      <span className="input-chip input-filled">Status: Active</span>
+                <Link href={`/businesses/${activeOperation.businessId}?tab=operations`} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+                  <div className="mfg-item" style={{ cursor: "pointer", transition: "transform 0.1s" }} onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-2px)"} onMouseLeave={(e) => e.currentTarget.style.transform = "none"}>
+                    <div className="mfg-top">
+                      <div className="mfg-name">{activeOperation.name}</div>
+                      <div className="mfg-recipe" style={{ textTransform: "capitalize" }}>{activeOperation.detail}</div>
                     </div>
-                    <div className="mfg-countdown" style={{ color: "var(--accent-green)" }}>Running</div>
+                    <div className="mfg-bar-track">
+                      <div className="mfg-bar-fill anim-pulse" style={{ width: "100%", background: "var(--accent-green)" }}></div>
+                    </div>
+                    <div className="mfg-bottom">
+                      <div className="mfg-inputs">
+                        <span className="input-chip input-filled">Status: Active</span>
+                      </div>
+                      <div className="mfg-countdown" style={{ color: "var(--accent-green)" }}>Running</div>
+                    </div>
                   </div>
-                </div>
+                </Link>
               ) : (
                 <div className="mfg-item" style={{ opacity: 0.5 }}>
                   <div className="mfg-top">

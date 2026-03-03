@@ -3,7 +3,7 @@ import { getBusinessById, getBusinessUpgrades } from "@/domains/businesses";
 import { getCityById } from "@/domains/cities-travel";
 import { getProductionStatus, getManufacturingStatus } from "@/domains/production";
 import { getBusinessInventory } from "@/domains/inventory";
-import { getEmployeeSummary } from "@/domains/employees";
+import { getUpgradeDefinitionsForBusinessType, type BusinessType } from "@/domains/upgrades";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -39,13 +39,14 @@ export default async function BusinessDetailsPage({ params }: { params: { id: st
     "oil_well",
   ].includes(business.type);
 
-  const [city, production, manufacturing, inventory, upgrades, employeesRes] = await Promise.all([
+  const [city, production, manufacturing, inventory, upgrades, employeesRes, upgradeDefinitions] = await Promise.all([
     getCityById(supabase, business.city_id).catch(() => null),
     isExtraction ? getProductionStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
     !isExtraction ? getManufacturingStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
     getBusinessInventory(supabase, user.id, business.id).catch(() => []),
     getBusinessUpgrades(supabase, user.id, business.id).catch(() => []),
-    supabase.from("employee_assignments").select("*, employee:employees(*)").eq("business_id", business.id)
+    supabase.from("employee_assignments").select("*, employee:employees(*)").eq("business_id", business.id),
+    getUpgradeDefinitionsForBusinessType(supabase, business.type as BusinessType).catch(() => [])
   ]);
 
   const employees = employeesRes.data || [];
@@ -81,6 +82,7 @@ export default async function BusinessDetailsPage({ params }: { params: { id: st
         inventory={inventory}
         upgrades={upgrades}
         employees={employees as any}
+        upgradeDefinitions={upgradeDefinitions}
       />
     </>
   );

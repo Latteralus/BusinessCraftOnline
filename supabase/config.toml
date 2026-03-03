@@ -16,3 +16,21 @@ port = 54323
 enable_signup = true
 double_confirm_changes = true
 enable_confirmations = false
+
+[functions.tick-extraction]
+verify_jwt = false
+
+[functions.tick-manufacturing]
+verify_jwt = false
+
+[functions.tick-npc-purchases]
+verify_jwt = false
+
+[functions.tick-shipping]
+verify_jwt = false
+
+[functions.tick-travel]
+verify_jwt = false
+
+[functions.tick-wages]
+verify_jwt = false
