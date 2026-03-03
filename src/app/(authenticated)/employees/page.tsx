@@ -368,7 +368,7 @@ export default function EmployeesPage() {
                     <button onClick={() => unassign(employee.id)} disabled={employee.status === "fired"}>
                       Unassign
                     </button>
-                    <button onClick={() => fire(employee.id)} disabled={employee.status === "fired"}>
+                    <button onClick={() => fire(employee.id)}>
                       Fire
                     </button>
                   </div>

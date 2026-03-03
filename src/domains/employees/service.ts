@@ -392,26 +392,27 @@ export async function fireEmployee(
     if (deleteAssignmentError) throw deleteAssignmentError;
   }
 
-  const { data: updatedEmployeeRow, error: updateEmployeeError } = await client
+  const { error: deleteSkillsError } = await client
+    .from("employee_skills")
+    .delete()
+    .eq("employee_id", employee.id);
+
+  if (deleteSkillsError) throw deleteSkillsError;
+
+  const { error: deleteEmployeeError } = await client
     .from("employees")
-    .update({
-      status: "fired",
-      shift_ends_at: null,
-      updated_at: new Date().toISOString(),
-    })
+    .delete()
     .eq("id", employee.id)
-    .eq("player_id", playerId)
-    .select("*")
-    .single();
+    .eq("player_id", playerId);
 
-  if (updateEmployeeError) throw updateEmployeeError;
-
-  const skills = await getEmployeeSkills(client, playerId, employee.id);
+  if (deleteEmployeeError) throw deleteEmployeeError;
 
   return {
-    ...normalizeEmployee(updatedEmployeeRow as Employee),
+    ...employee,
+    status: "fired",
+    shift_ends_at: null,
     assignment: null,
-    skills,
+    skills: [],
   };
 }
 

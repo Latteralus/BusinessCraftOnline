@@ -47,7 +47,7 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
     !isExtraction ? getManufacturingStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
     getBusinessInventory(supabase, user.id, business.id).catch(() => []),
     getBusinessUpgrades(supabase, user.id, business.id).catch(() => []),
-    supabase.from("employee_assignments").select("*, employee:employees(*)").eq("business_id", business.id),
+    supabase.from("employees").select("*, employee_assignments(*, business:businesses(*))").eq("player_id", user.id).order("created_at", { ascending: false }),
     getUpgradeDefinitionsForBusinessType(supabase, business.type as BusinessType).catch(() => [])
   ]);
 
