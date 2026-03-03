@@ -1,23 +1,20 @@
 "use client";
 
-import { useState } from "react";
-
-/* ─── drop-in preview — swap useRouter back in for Next.js ─── */
-const useRouter = () => ({ push: (p) => alert(`Navigate → ${p}`) });
+import { useRouter } from "next/navigation";
+import { FormEvent, useState, ChangeEvent } from "react";
 
 export default function LoginPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({ username: "", password: "" });
 
-  async function onSubmit(e) {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
-    /* ── real fetch — uncomment for production ──
     const response = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -25,18 +22,19 @@ export default function LoginPage() {
     });
     const data = await response.json();
     setLoading(false);
-    if (!response.ok) { setError(data.error ?? "Sign in failed."); return; }
-    if (data.needsCharacterSetup) { router.push("/character-setup"); return; }
-    router.push("/dashboard");
-    */
 
-    setTimeout(() => {
-      setLoading(false);
-      router.push("/dashboard");
-    }, 1400);
+    if (!response.ok) {
+      setError(data.error ?? "Sign in failed.");
+      return;
+    }
+    if (data.needsCharacterSetup) {
+      router.push("/character-setup");
+      return;
+    }
+    router.push("/dashboard");
   }
 
-  const handleChange = (e) =>
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) =>
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
   const spark = [38, 45, 42, 55, 50, 62, 58, 70, 65, 78, 74, 85];
@@ -73,7 +71,6 @@ export default function LoginPage() {
           overflow-x: hidden;
         }
 
-        /* ═══ LAYOUT ═══ */
         .lco-shell {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -84,7 +81,6 @@ export default function LoginPage() {
           .lco-left { display: none; }
         }
 
-        /* ═══ TOP NAV BAR (mirrors dashboard) ═══ */
         .lco-topbar {
           position: fixed;
           top: 0;
@@ -142,7 +138,6 @@ export default function LoginPage() {
           color: var(--text-dim);
         }
 
-        /* ═══ LEFT: SHOWCASE ═══ */
         .lco-left {
           padding: 48px 0 0 0;
           display: flex;
@@ -214,7 +209,6 @@ export default function LoginPage() {
           margin-bottom: 36px;
         }
 
-        /* ── stat cards (matching dashboard cards) ── */
         .lco-stat-row {
           display: grid;
           grid-template-columns: 1fr 1fr 1fr;
@@ -250,7 +244,6 @@ export default function LoginPage() {
           margin-left: 4px;
         }
 
-        /* sparkline chart card */
         .lco-chart-card {
           background: var(--surface);
           border: 1px solid var(--border);
@@ -283,7 +276,6 @@ export default function LoginPage() {
         }
         .lco-chart-card svg { display: block; width: 100%; }
 
-        /* ═══ RIGHT: AUTH PANEL ═══ */
         .lco-right {
           padding: 48px 0 0 0;
           display: flex;
@@ -324,7 +316,6 @@ export default function LoginPage() {
           color: var(--text-dim);
         }
 
-        /* ── form ── */
         .lco-form { display: flex; flex-direction: column; gap: 16px; }
 
         .lco-field { display: flex; flex-direction: column; gap: 5px; }
@@ -388,7 +379,6 @@ export default function LoginPage() {
         }
         @keyframes lco-spin { to { transform: rotate(360deg); } }
 
-        /* error */
         .lco-error {
           display: flex;
           align-items: center;
@@ -447,7 +437,6 @@ export default function LoginPage() {
           white-space: nowrap;
         }
 
-        /* ── entrance ── */
         @keyframes lco-fadeIn {
           from { opacity: 0; transform: translateY(12px); }
           to   { opacity: 1; transform: translateY(0); }
@@ -460,7 +449,6 @@ export default function LoginPage() {
         .lco-d5 { animation-delay: .30s; }
       `}</style>
 
-      {/* ── TOP BAR (matches dashboard) ── */}
       <nav className="lco-topbar">
         <div className="lco-topbar-logo">
           <span>Life</span>Craft<span>Online</span>
@@ -473,7 +461,6 @@ export default function LoginPage() {
       </nav>
 
       <div className="lco-shell">
-        {/* ═══ LEFT PANEL ═══ */}
         <div className="lco-left">
           <div className="lco-left-inner">
             <div className="lco-hero-label">Live Simulation</div>
@@ -488,7 +475,6 @@ export default function LoginPage() {
               every decision counts.
             </p>
 
-            {/* stat cards row — mirrors dashboard financial cards */}
             <div className="lco-stat-row">
               <div className="lco-stat-card">
                 <span className="lco-stat-card-label">Active Players</span>
@@ -504,7 +490,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* chart card — mirrors dashboard Market Watch */}
             <div className="lco-chart-card">
               <div className="lco-chart-header">
                 <span className="lco-chart-title">
@@ -546,7 +531,6 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* ═══ RIGHT PANEL ═══ */}
         <div className="lco-right">
           <div className="lco-auth-box">
             <div className="lco-mobile-brand">
