@@ -13,6 +13,7 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { DashboardClock } from "@/components/dashboard/DashboardClock";
 
 async function logout() {
   "use server";
@@ -119,11 +120,7 @@ export default async function DashboardPage() {
             <h1>Good afternoon, {character.first_name}</h1>
             <p>All systems running · <span>{businessSummary?.totalBusinesses ?? 0} businesses active</span></p>
           </div>
-          <div className="game-clock">
-            <div className="time" id="gameClock">00:00:00</div>
-            <div className="date">Dashboard Active</div>
-            <div className="next-tick-label"><span className="dot"></span> Mfg tick in <span id="tickTimer">...</span></div>
-          </div>
+          <DashboardClock />
         </div>
 
         <div className="finance-row anim anim-d1">
