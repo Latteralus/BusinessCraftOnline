@@ -114,44 +114,7 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <div className="topbar">
-        <div className="topbar-left">
-          <div className="logo">Life<span>Craft</span>Online</div>
-          <div className="server-badge">
-            <div className="server-dot"></div>
-            US-East · {adEnabledCount > 0 ? "Ads Active" : "Online"}
-          </div>
-        </div>
-        <div className="topbar-nav">
-          <Link href="/dashboard" className="active">Dashboard</Link>
-          <Link href="/businesses">My Businesses</Link>
-          <Link href="/market">Market</Link>
-          <Link href="/production">Manufacturing</Link>
-          <Link href="/banking">Banking</Link>
-          <Link href="/contracts">Contracts</Link>
-          <Link href="/inventory">Inventory</Link>
-        </div>
-        <div className="topbar-right">
-          <div className="icon-btn" title="Messages">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-            <div className="notif-badge">0</div>
-          </div>
-          <div className="icon-btn" title="Notifications">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-            <div className="notif-badge">0</div>
-          </div>
-          <div className="avatar-btn">
-            <div className="avatar-circle">{initials}</div>
-            <div className="avatar-info">
-              <div className="avatar-name">{character.first_name} {character.last_name}</div>
-              <div className="avatar-level">Biz Level {character.business_level}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="main-container">
-        <div className="welcome-strip anim">
+      <div className="welcome-strip anim">
           <div className="welcome-left">
             <h1>Good afternoon, {character.first_name}</h1>
             <p>All systems running · <span>{businessSummary?.totalBusinesses ?? 0} businesses active</span></p>
@@ -432,7 +395,6 @@ export default async function DashboardPage() {
           </div>
 
         </div>
-      </div>
     </>
   );
 }

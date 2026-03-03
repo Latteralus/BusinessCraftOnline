@@ -205,7 +205,7 @@ export default function MarketPage() {
   }
 
   return (
-    <main>
+    <div className="anim">
       <header className="lc-page-header">
         <div>
           <h1>Market</h1>
@@ -399,6 +399,6 @@ export default function MarketPage() {
           </div>
         </section>
       ) : null}
-    </main>
+    </div>
   );
 }

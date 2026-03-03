@@ -163,7 +163,7 @@ export default function InventoryPage() {
   }
 
   return (
-    <main>
+    <div className="anim">
       <header className="lc-page-header">
         <div>
           <h1>Inventory</h1>
@@ -361,6 +361,6 @@ export default function InventoryPage() {
           </section>
         </>
       ) : null}
-    </main>
+    </div>
   );
 }

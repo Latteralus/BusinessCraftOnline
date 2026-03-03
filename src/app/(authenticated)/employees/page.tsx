@@ -31,6 +31,20 @@ function formatDate(value: string | null) {
   return new Date(value).toLocaleString();
 }
 
+const FIRST_NAMES = [
+  "James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph",
+  "Thomas", "Charles", "Mary", "Patricia", "Jennifer", "Linda", "Elizabeth",
+  "Barbara", "Susan", "Jessica", "Sarah", "Karen", "Oliver", "Noah", "Elijah",
+  "Lucas", "Mason", "Harper", "Evelyn", "Abigail", "Emily", "Ella"
+];
+
+const LAST_NAMES = [
+  "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis",
+  "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson",
+  "Thomas", "Taylor", "Moore", "Jackson", "Martin", "Lee", "Perez", "Thompson",
+  "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson"
+];
+
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [summary, setSummary] = useState<EmployeeSummary | null>(null);
@@ -39,8 +53,6 @@ export default function EmployeesPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
   const [employeeType, setEmployeeType] = useState<EmployeeType>("temp");
   const [specialtySkillKey, setSpecialtySkillKey] = useState("");
   const [hiring, setHiring] = useState(false);
@@ -95,12 +107,15 @@ export default function EmployeesPage() {
     setError(null);
     setSuccess(null);
 
+    const randomFirstName = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
+    const randomLastName = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
+
     const response = await fetch("/api/employees", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        firstName,
-        lastName,
+        firstName: randomFirstName,
+        lastName: randomLastName,
         employeeType,
         specialtySkillKey: employeeType === "specialist" ? specialtySkillKey || undefined : undefined,
       }),
@@ -114,8 +129,6 @@ export default function EmployeesPage() {
       return;
     }
 
-    setFirstName("");
-    setLastName("");
     setSpecialtySkillKey("");
     setSuccess("Employee hired successfully.");
     await loadData();
@@ -208,7 +221,7 @@ export default function EmployeesPage() {
   }
 
   return (
-    <main>
+    <div className="anim">
       <header className="lc-page-header">
         <div>
           <h1>Employees</h1>
@@ -246,16 +259,6 @@ export default function EmployeesPage() {
             <h2 style={{ marginTop: 0 }}>Hire Employee</h2>
             <div style={{ display: "grid", gap: 8, maxWidth: 560 }}>
               <label>
-                First Name
-                <input value={firstName} onChange={(event) => setFirstName(event.target.value)} />
-              </label>
-
-              <label>
-                Last Name
-                <input value={lastName} onChange={(event) => setLastName(event.target.value)} />
-              </label>
-
-              <label>
                 Employee Type
                 <select
                   value={employeeType}
@@ -284,8 +287,6 @@ export default function EmployeesPage() {
                 onClick={submitHire}
                 disabled={
                   hiring ||
-                  !firstName.trim() ||
-                  !lastName.trim() ||
                   (employeeType === "specialist" && !specialtySkillKey.trim())
                 }
               >
@@ -377,6 +378,6 @@ export default function EmployeesPage() {
           </section>
         </>
       ) : null}
-    </main>
+    </div>
   );
 }

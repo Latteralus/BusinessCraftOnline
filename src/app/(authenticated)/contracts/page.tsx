@@ -110,7 +110,7 @@ export default function ContractsPage() {
   }
 
   return (
-    <main>
+    <div className="anim">
       <header className="lc-page-header">
         <div>
           <h1>Contracts</h1>
@@ -227,6 +227,6 @@ export default function ContractsPage() {
           </div>
         </section>
       ) : null}
-    </main>
+    </div>
   );
 }

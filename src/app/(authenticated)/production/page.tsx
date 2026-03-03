@@ -153,7 +153,7 @@ export default function ProductionPage() {
   }
 
   return (
-    <main>
+    <div className="anim">
       <header className="lc-page-header">
         <div>
           <h1>Production</h1>
@@ -234,6 +234,6 @@ export default function ProductionPage() {
           )}
         </section>
       ) : null}
-    </main>
+    </div>
   );
 }

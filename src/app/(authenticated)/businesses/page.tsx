@@ -228,7 +228,7 @@ export default function BusinessesPage() {
   }
 
   return (
-    <main>
+    <div className="anim">
       <header className="lc-page-header">
         <div>
           <h1>Businesses</h1>
@@ -405,6 +405,6 @@ export default function BusinessesPage() {
           </section>
         </>
       ) : null}
-    </main>
+    </div>
   );
 }

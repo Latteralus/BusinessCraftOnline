@@ -186,7 +186,7 @@ export default function BankingPage() {
   }
 
   return (
-    <main>
+    <div className="anim">
       <header className="lc-page-header">
         <div>
           <h1>Banking</h1>
@@ -415,6 +415,6 @@ export default function BankingPage() {
           </section>
         </>
       ) : null}
-    </main>
+    </div>
   );
 }

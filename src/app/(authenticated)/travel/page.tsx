@@ -154,7 +154,7 @@ export default function TravelPage() {
   }
 
   return (
-    <main>
+    <div className="anim">
       <header className="lc-page-header">
         <div>
           <h1>Travel</h1>
@@ -268,6 +268,6 @@ export default function TravelPage() {
           </section>
         </>
       ) : null}
-    </main>
+    </div>
   );
 }
