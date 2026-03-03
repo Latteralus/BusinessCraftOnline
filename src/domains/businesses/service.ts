@@ -336,6 +336,52 @@ export async function purchaseUpgrade(
   };
 }
 
+export async function getBusinessFinanceSummary(
+  client: QueryClient,
+  playerId: string,
+  businessId: string
+) {
+  const balance = await getBusinessBalance(client, playerId, businessId);
+
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+
+  const [marketListingsRes, recentTransactionsRes] = await Promise.all([
+    client
+      .from("market_listings")
+      .select("quantity, unit_price")
+      .eq("source_business_id", businessId)
+      .eq("status", "active"),
+    client
+      .from("market_transactions")
+      .select("quantity, net_total")
+      .eq("seller_business_id", businessId)
+      .gte("created_at", yesterday)
+  ]);
+
+  let totalValueOnMarket = 0;
+  if (marketListingsRes.data) {
+    for (const listing of marketListingsRes.data) {
+      totalValueOnMarket += Number(listing.quantity) * Number(listing.unit_price);
+    }
+  }
+
+  let itemsSold24h = 0;
+  let revenue24h = 0;
+  if (recentTransactionsRes.data) {
+    for (const tx of recentTransactionsRes.data) {
+      itemsSold24h += Number(tx.quantity);
+      revenue24h += Number(tx.net_total);
+    }
+  }
+
+  return {
+    balance,
+    totalValueOnMarket,
+    itemsSold24h,
+    revenue24h
+  };
+}
 export async function getBusinessSummary(
   client: QueryClient,
   playerId: string

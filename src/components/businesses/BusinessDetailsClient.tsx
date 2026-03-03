@@ -9,7 +9,7 @@ import type { EmployeeAssignment, Employee } from "@/domains/employees";
 import type { UpgradeDefinition } from "@/domains/upgrades";
 import { calculateUpgradePreview } from "@/domains/upgrades";
 
-type TabType = "overview" | "operations" | "employees" | "inventory" | "upgrades";
+type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades";
 
 type Props = {
   business: Business;
@@ -19,10 +19,11 @@ type Props = {
   upgrades: BusinessUpgrade[];
   employees: (Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] })[];
   upgradeDefinitions?: UpgradeDefinition[];
+  financeSummary?: { balance: number; totalValueOnMarket: number; itemsSold24h: number; revenue24h: number } | null;
   initialTab?: string;
 };
 
-export default function BusinessDetailsClient({ business, production, manufacturing, inventory, upgrades, employees, upgradeDefinitions = [], initialTab }: Props) {
+export default function BusinessDetailsClient({ business, production, manufacturing, inventory, upgrades, employees, upgradeDefinitions = [], financeSummary, initialTab }: Props) {
   const router = useRouter();
   
   const defaultTab = (initialTab as TabType) || "overview";
@@ -35,7 +36,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
   const [actionPrice, setActionPrice] = useState(1);
 
   useEffect(() => {
-    if (initialTab && ["overview", "operations", "employees", "inventory", "upgrades"].includes(initialTab)) {
+    if (initialTab && ["overview", "finance", "operations", "employees", "inventory", "upgrades"].includes(initialTab)) {
       setActiveTab(initialTab as TabType);
     }
   }, [initialTab]);

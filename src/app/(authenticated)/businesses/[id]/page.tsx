@@ -1,5 +1,5 @@
 import { getCharacter } from "@/domains/auth-character";
-import { getBusinessById, getBusinessUpgrades } from "@/domains/businesses";
+import { getBusinessById, getBusinessUpgrades, getBusinessFinanceSummary } from "@/domains/businesses";
 import { getCityById } from "@/domains/cities-travel";
 import { getProductionStatus, getManufacturingStatus } from "@/domains/production";
 import { getBusinessInventory } from "@/domains/inventory";
@@ -41,14 +41,15 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
     "oil_well",
   ].includes(business.type);
 
-  const [city, production, manufacturing, inventory, upgrades, employeesRes, upgradeDefinitions] = await Promise.all([
+  const [city, production, manufacturing, inventory, upgrades, employeesRes, upgradeDefinitions, financeSummary] = await Promise.all([
     getCityById(supabase, business.city_id).catch(() => null),
     isExtraction ? getProductionStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
     !isExtraction ? getManufacturingStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
     getBusinessInventory(supabase, user.id, business.id).catch(() => []),
     getBusinessUpgrades(supabase, user.id, business.id).catch(() => []),
     supabase.from("employees").select("*, employee_assignments(*, business:businesses(*))").eq("player_id", user.id).order("created_at", { ascending: false }),
-    getUpgradeDefinitionsForBusinessType(supabase, business.type as BusinessType).catch(() => [])
+    getUpgradeDefinitionsForBusinessType(supabase, business.type as BusinessType).catch(() => []),
+    getBusinessFinanceSummary(supabase, user.id, business.id).catch(() => null)
   ]);
 
   const employees = employeesRes.data || [];
@@ -85,6 +86,7 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
         upgrades={upgrades}
         employees={employees as any}
         upgradeDefinitions={upgradeDefinitions}
+        financeSummary={financeSummary}
         initialTab={searchParams.tab}
       />
     </>

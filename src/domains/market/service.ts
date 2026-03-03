@@ -231,6 +231,41 @@ async function settleSaleAccounting(
 
   if (ledgerError) throw ledgerError;
 
+  if (buyerType === "player") {
+    if (buyerBusinessId) {
+      const { error: buyerLedgerError } = await client.from("business_accounts").insert({
+        business_id: buyerBusinessId,
+        amount: gross,
+        entry_type: "debit",
+        category: "market_purchase",
+        reference_id: listing.id,
+        description: `Market purchase: ${soldQuantity}x ${listing.item_key}`,
+      });
+      if (buyerLedgerError) throw buyerLedgerError;
+    } else if (buyerPlayerId) {
+      const { data: bankAccounts, error: accountsError } = await client
+        .from("bank_accounts")
+        .select("id")
+        .eq("player_id", buyerPlayerId)
+        .eq("account_type", "checking")
+        .maybeSingle();
+
+      if (accountsError) throw accountsError;
+
+      if (bankAccounts) {
+        const { error: personalLedgerError } = await client.from("transactions").insert({
+          account_id: bankAccounts.id,
+          amount: gross,
+          direction: "debit",
+          transaction_type: "market_purchase",
+          reference_id: listing.id,
+          description: `Market purchase: ${soldQuantity}x ${listing.item_key}`,
+        });
+        if (personalLedgerError) throw personalLedgerError;
+      }
+    }
+  }
+
   const { data: txRow, error: txError } = await client
     .from("market_transactions")
     .insert({
