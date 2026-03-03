@@ -30,7 +30,7 @@ function toNumber(value: number | string | null | undefined): number {
   return 0;
 }
 
-function normalizeListing(row: MarketListing): MarketListing {
+function normalizeListing(row: MarketListing & { business?: { name: string } }): MarketListing {
   return {
     ...row,
     quality: Number(row.quality),
@@ -266,7 +266,7 @@ export async function getMarketListings(
   playerId: string,
   filter: MarketListingFilter = {}
 ): Promise<MarketListing[]> {
-  let query = client.from("market_listings").select("*").order("created_at", { ascending: false });
+  let query = client.from("market_listings").select("*, business:businesses(name)").order("created_at", { ascending: false });
 
   if (filter.ownOnly) {
     query = query.eq("owner_player_id", playerId);

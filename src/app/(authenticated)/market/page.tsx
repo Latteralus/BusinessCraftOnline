@@ -341,6 +341,9 @@ export default function MarketPage() {
                   {listing.item_key} (Q{listing.quality})
                 </strong>
                 <span>
+                  Listed by: {listing.business?.name ?? "Unknown Business"}
+                </span>
+                <span>
                   Quantity: {listing.quantity} | Price: ${listing.unit_price.toFixed(2)} | Status: {listing.status}
                 </span>
 
