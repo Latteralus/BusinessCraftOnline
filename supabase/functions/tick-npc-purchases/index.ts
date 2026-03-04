@@ -78,7 +78,7 @@ const NPC_PRICE_CEILINGS: Record<string, number> = {
   gravel: 0.8,
   crude_oil: 1.6,
   raw_wood: 1.8,
-  water: 0.25,
+  water: 2.5,
   wheat: 3.0,
   potato: 2.2,
   corn: 2.0,
