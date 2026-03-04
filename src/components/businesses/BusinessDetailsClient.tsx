@@ -178,6 +178,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
         body: JSON.stringify({
           firstName: randomFirstName,
           lastName: randomLastName,
+          businessId: business.id,
           employeeType,
           specialtySkillKey: employeeType === "specialist" ? "logistics" : undefined,
         }),

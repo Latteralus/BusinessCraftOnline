@@ -5,6 +5,7 @@ import type {
   LoanSummary,
   TransactionEntry,
 } from "@/domains/banking";
+import type { BusinessWithBalance } from "@/domains/businesses";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -19,6 +20,11 @@ type LoanResponse = {
 
 type TransactionsResponse = {
   entries: TransactionEntry[];
+};
+
+type BusinessesResponse = {
+  businesses: BusinessWithBalance[];
+  error?: string;
 };
 
 const ACCOUNT_LABELS: Record<string, string> = {
@@ -40,6 +46,7 @@ export default function BankingPage() {
   const [accounts, setAccounts] = useState<BankAccountWithBalance[]>([]);
   const [loanData, setLoanData] = useState<LoanResponse | null>(null);
   const [transactions, setTransactions] = useState<TransactionEntry[]>([]);
+  const [businesses, setBusinesses] = useState<BusinessWithBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +54,11 @@ export default function BankingPage() {
   const [toAccountId, setToAccountId] = useState("");
   const [transferAmount, setTransferAmount] = useState("");
   const [transferSubmitting, setTransferSubmitting] = useState(false);
+  const [personalBusinessDirection, setPersonalBusinessDirection] = useState<"to_business" | "from_business">("to_business");
+  const [personalBusinessAccountId, setPersonalBusinessAccountId] = useState("");
+  const [personalBusinessId, setPersonalBusinessId] = useState("");
+  const [personalBusinessAmount, setPersonalBusinessAmount] = useState("");
+  const [personalBusinessSubmitting, setPersonalBusinessSubmitting] = useState(false);
 
   const [loanPrincipal, setLoanPrincipal] = useState("");
   const [loanSubmitting, setLoanSubmitting] = useState(false);
@@ -58,15 +70,17 @@ export default function BankingPage() {
     setLoading(true);
     setError(null);
 
-    const [accountsRes, loanRes, txRes] = await Promise.all([
+    const [accountsRes, loanRes, txRes, businessesRes] = await Promise.all([
       fetch("/api/banking/accounts", { cache: "no-store" }),
       fetch("/api/banking/loan", { cache: "no-store" }),
       fetch("/api/banking/transactions?limit=30", { cache: "no-store" }),
+      fetch("/api/businesses", { cache: "no-store" }),
     ]);
 
     const accountsJson = (await accountsRes.json()) as AccountsResponse & { error?: string };
     const loanJson = (await loanRes.json()) as LoanResponse & { error?: string };
     const txJson = (await txRes.json()) as TransactionsResponse & { error?: string };
+    const businessesJson = (await businessesRes.json()) as BusinessesResponse;
 
     if (!accountsRes.ok) {
       setError(accountsJson.error ?? "Failed to load accounts.");
@@ -86,15 +100,26 @@ export default function BankingPage() {
       return;
     }
 
+    if (!businessesRes.ok) {
+      setError(businessesJson.error ?? "Failed to load businesses.");
+      setLoading(false);
+      return;
+    }
+
     setAccounts(accountsJson.accounts ?? []);
     setLoanData(loanJson);
     setTransactions(txJson.entries ?? []);
+    setBusinesses(businessesJson.businesses ?? []);
 
     const checking = (accountsJson.accounts ?? []).find(
       (account) => account.account_type === "checking"
     );
     if (checking) {
       setFromAccountId((current) => current || checking.id);
+      setPersonalBusinessAccountId((current) => current || checking.id);
+    }
+    if ((businessesJson.businesses ?? []).length > 0) {
+      setPersonalBusinessId((current) => current || businessesJson.businesses[0].id);
     }
 
     setLoading(false);
@@ -133,6 +158,34 @@ export default function BankingPage() {
     }
 
     setTransferAmount("");
+    await loadData();
+  }
+
+  async function submitPersonalBusinessTransfer() {
+    if (personalBusinessSubmitting) return;
+    setPersonalBusinessSubmitting(true);
+    setError(null);
+
+    const response = await fetch("/api/banking/business-transfer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        personalAccountId: personalBusinessAccountId,
+        businessId: personalBusinessId,
+        amount: Number(personalBusinessAmount),
+        direction: personalBusinessDirection,
+      }),
+    });
+
+    const data = await response.json();
+    setPersonalBusinessSubmitting(false);
+
+    if (!response.ok) {
+      setError(data.error ?? "Transfer failed.");
+      return;
+    }
+
+    setPersonalBusinessAmount("");
     await loadData();
   }
 
@@ -275,6 +328,74 @@ export default function BankingPage() {
                 disabled={!fromAccountId || !toAccountId || Number(transferAmount) <= 0 || transferSubmitting}
               >
                 {transferSubmitting ? "Transferring..." : "Submit Transfer"}
+              </button>
+            </div>
+          </section>
+
+          <section>
+            <h2 style={{ marginTop: 0 }}>Transfer Between Personal and Business Funds</h2>
+            <div style={{ display: "grid", gap: 8, maxWidth: 560 }}>
+              <label>
+                Direction
+                <select
+                  value={personalBusinessDirection}
+                  onChange={(event) => setPersonalBusinessDirection(event.target.value as "to_business" | "from_business")}
+                  title="Transfer direction"
+                >
+                  <option value="to_business">Personal → Business</option>
+                  <option value="from_business">Business → Personal</option>
+                </select>
+              </label>
+
+              <label>
+                Personal Account
+                <select
+                  value={personalBusinessAccountId}
+                  onChange={(event) => setPersonalBusinessAccountId(event.target.value)}
+                  title="Personal account"
+                >
+                  <option value="">Select account</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {ACCOUNT_LABELS[account.account_type] ?? account.account_type} ({formatCurrency(account.balance)})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Business
+                <select
+                  value={personalBusinessId}
+                  onChange={(event) => setPersonalBusinessId(event.target.value)}
+                  title="Business"
+                >
+                  <option value="">Select business</option>
+                  {businesses.map((business) => (
+                    <option key={business.id} value={business.id}>
+                      {business.name} ({formatCurrency(business.balance)})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Amount
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={personalBusinessAmount}
+                  onChange={(event) => setPersonalBusinessAmount(event.target.value)}
+                  placeholder="0.00"
+                />
+              </label>
+
+              <button
+                onClick={submitPersonalBusinessTransfer}
+                disabled={!personalBusinessAccountId || !personalBusinessId || Number(personalBusinessAmount) <= 0 || personalBusinessSubmitting}
+              >
+                {personalBusinessSubmitting ? "Transferring..." : "Submit Transfer"}
               </button>
             </div>
           </section>

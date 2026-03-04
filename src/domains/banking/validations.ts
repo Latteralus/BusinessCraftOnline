@@ -25,6 +25,16 @@ export const transferBetweenOwnAccountsSchema = z
     path: ["toAccountId"],
   });
 
+export const transferBetweenPersonalAndBusinessSchema = z.object({
+  personalAccountId: z.uuid("Personal account id is invalid."),
+  businessId: z.uuid("Business id is invalid."),
+  amount: z
+    .number({ error: "Transfer amount must be a number." })
+    .positive("Transfer amount must be greater than zero."),
+  direction: z.enum(["to_business", "from_business"]),
+  description: z.string().trim().max(160).optional(),
+});
+
 export const transactionHistoryFilterSchema = z.object({
   accountId: z.uuid("Account id is invalid.").optional(),
   direction: transactionDirectionSchema.optional(),
@@ -58,6 +68,9 @@ export const bankAccountTypeFilterSchema = z.object({
 
 export type TransferBetweenOwnAccountsInput = z.infer<
   typeof transferBetweenOwnAccountsSchema
+>;
+export type TransferBetweenPersonalAndBusinessInput = z.infer<
+  typeof transferBetweenPersonalAndBusinessSchema
 >;
 export type TransactionHistoryFilterInput = z.infer<
   typeof transactionHistoryFilterSchema

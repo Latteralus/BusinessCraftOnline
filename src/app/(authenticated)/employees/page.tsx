@@ -54,6 +54,7 @@ export default function EmployeesPage() {
   const [success, setSuccess] = useState<string | null>(null);
 
   const [employeeType, setEmployeeType] = useState<EmployeeType>("temp");
+  const [hireBusinessId, setHireBusinessId] = useState("");
   const [specialtySkillKey, setSpecialtySkillKey] = useState("");
   const [hiring, setHiring] = useState(false);
 
@@ -93,7 +94,11 @@ export default function EmployeesPage() {
 
     setEmployees(employeesJson.employees ?? []);
     setSummary(employeesJson.summary ?? null);
-    setBusinesses((businessesJson.businesses ?? []).map((business) => ({ id: business.id, name: business.name })));
+    const mappedBusinesses = (businessesJson.businesses ?? []).map((business) => ({ id: business.id, name: business.name }));
+    setBusinesses(mappedBusinesses);
+    if (mappedBusinesses.length > 0) {
+      setHireBusinessId((current) => current || mappedBusinesses[0].id);
+    }
     setLoading(false);
   }
 
@@ -116,6 +121,7 @@ export default function EmployeesPage() {
       body: JSON.stringify({
         firstName: randomFirstName,
         lastName: randomLastName,
+        businessId: hireBusinessId,
         employeeType,
         specialtySkillKey: employeeType === "specialist" ? specialtySkillKey || undefined : undefined,
       }),
@@ -259,6 +265,21 @@ export default function EmployeesPage() {
             <h2 style={{ marginTop: 0 }}>Hire Employee</h2>
             <div style={{ display: "grid", gap: 8, maxWidth: 560 }}>
               <label>
+                Hiring Business
+                <select
+                  value={hireBusinessId}
+                  onChange={(event) => setHireBusinessId(event.target.value)}
+                >
+                  <option value="">Select business</option>
+                  {businesses.map((business) => (
+                    <option key={business.id} value={business.id}>
+                      {business.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
                 Employee Type
                 <select
                   value={employeeType}
@@ -287,6 +308,7 @@ export default function EmployeesPage() {
                 onClick={submitHire}
                 disabled={
                   hiring ||
+                  !hireBusinessId ||
                   (employeeType === "specialist" && !specialtySkillKey.trim())
                 }
               >

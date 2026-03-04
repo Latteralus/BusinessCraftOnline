@@ -55,6 +55,14 @@ export type TransferBetweenOwnAccountsInput = {
   description?: string;
 };
 
+export type TransferBetweenPersonalAndBusinessInput = {
+  personalAccountId: string;
+  businessId: string;
+  amount: number;
+  direction: "to_business" | "from_business";
+  description?: string;
+};
+
 export type TransactionHistoryFilter = {
   accountId?: string;
   direction?: TransactionDirection;

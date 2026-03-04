@@ -20,6 +20,7 @@ import type {
   TransactionEntry,
   TransactionHistoryFilter,
   TransferBetweenOwnAccountsInput,
+  TransferBetweenPersonalAndBusinessInput,
 } from "./types";
 
 type QueryClient = {
@@ -207,6 +208,24 @@ export async function transferBetweenOwnAccounts(
     p_from_account_id: input.fromAccountId,
     p_to_account_id: input.toAccountId,
     p_amount: input.amount,
+    p_description: input.description ?? null,
+  });
+
+  if (error) throw error;
+  return { transferId: String(data) };
+}
+
+export async function transferBetweenPersonalAndBusiness(
+  client: QueryClient,
+  playerId: string,
+  input: TransferBetweenPersonalAndBusinessInput
+): Promise<{ transferId: string }> {
+  const { data, error } = await client.rpc("transfer_between_personal_and_business", {
+    p_player_id: playerId,
+    p_personal_account_id: input.personalAccountId,
+    p_business_id: input.businessId,
+    p_amount: input.amount,
+    p_direction: input.direction,
     p_description: input.description ?? null,
   });
 
