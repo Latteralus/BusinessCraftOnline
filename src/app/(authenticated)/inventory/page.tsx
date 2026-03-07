@@ -6,6 +6,8 @@ import type {
   ShippingQueueItem,
 } from "@/domains/inventory";
 import type { BankAccountWithBalance } from "@/domains/banking";
+import type { BusinessWithBalance } from "@/domains/businesses";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -20,6 +22,16 @@ type InventoryResponse = {
 
 type BankingAccountsResponse = {
   accounts: BankAccountWithBalance[];
+  error?: string;
+};
+
+type BusinessesResponse = {
+  businesses: BusinessWithBalance[];
+  error?: string;
+};
+
+type CitiesResponse = {
+  cities: Array<{ id: string; name: string }>;
   error?: string;
 };
 
@@ -40,6 +52,7 @@ export default function InventoryPage() {
   const [businessInventory, setBusinessInventory] = useState<BusinessInventoryItem[]>([]);
   const [shippingQueue, setShippingQueue] = useState<ShippingQueueItem[]>([]);
   const [accounts, setAccounts] = useState<BankAccountWithBalance[]>([]);
+  const [businesses, setBusinesses] = useState<BusinessWithBalance[]>([]);
   const [businessNamesById, setBusinessNamesById] = useState<Record<string, string>>({});
   const [cityNamesById, setCityNamesById] = useState<Record<string, string>>({});
 
@@ -47,7 +60,6 @@ export default function InventoryPage() {
   const [sourceBusinessId, setSourceBusinessId] = useState("");
   const [destinationType, setDestinationType] = useState<"personal" | "business">("business");
   const [destinationBusinessId, setDestinationBusinessId] = useState("");
-  const [destinationCityId, setDestinationCityId] = useState("");
   const [itemKey, setItemKey] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [quality, setQuality] = useState("40");
@@ -58,63 +70,102 @@ export default function InventoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  async function loadData() {
-    setLoading(true);
+  async function loadData(showLoading = true) {
+    if (showLoading) {
+      setLoading(true);
+    }
     setError(null);
 
-    const [inventoryRes, accountsRes] = await Promise.all([
+    const [inventoryRes, accountsRes, businessesRes, citiesRes] = await Promise.all([
       fetch("/api/inventory", { cache: "no-store" }),
       fetch("/api/banking/accounts", { cache: "no-store" }),
+      fetch("/api/businesses", { cache: "no-store" }),
+      fetch("/api/cities", { cache: "no-store" }),
     ]);
 
     const inventoryJson = (await inventoryRes.json()) as InventoryResponse;
     const accountsJson = (await accountsRes.json()) as BankingAccountsResponse;
+    const businessesJson = (await businessesRes.json()) as BusinessesResponse;
+    const citiesJson = (await citiesRes.json()) as CitiesResponse;
 
     if (!inventoryRes.ok) {
       setError(inventoryJson.error ?? "Failed to load inventory.");
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
       return;
     }
 
     if (!accountsRes.ok) {
       setError(accountsJson.error ?? "Failed to load bank accounts.");
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (!businessesRes.ok) {
+      setError(businessesJson.error ?? "Failed to load businesses.");
+      if (showLoading) {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (!citiesRes.ok) {
+      setError(citiesJson.error ?? "Failed to load cities.");
+      if (showLoading) {
+        setLoading(false);
+      }
       return;
     }
 
     setPersonalInventory(inventoryJson.personalInventory ?? []);
     setBusinessInventory(inventoryJson.businessInventory ?? []);
     setShippingQueue(inventoryJson.shippingQueue ?? []);
-    setBusinessNamesById(inventoryJson.businessNamesById ?? {});
-    setCityNamesById(inventoryJson.cityNamesById ?? {});
+    const businessNameMap: Record<string, string> = { ...(inventoryJson.businessNamesById ?? {}) };
+    for (const business of businessesJson.businesses ?? []) {
+      businessNameMap[business.id] = business.name;
+    }
+    setBusinessNamesById(businessNameMap);
+    const cityNameMap: Record<string, string> = { ...(inventoryJson.cityNamesById ?? {}) };
+    for (const city of citiesJson.cities ?? []) {
+      cityNameMap[city.id] = city.name;
+    }
+    setCityNamesById(cityNameMap);
     setAccounts(accountsJson.accounts ?? []);
+    setBusinesses(businessesJson.businesses ?? []);
 
     const checking = (accountsJson.accounts ?? []).find((account) => account.account_type === "checking");
     if (checking) {
       setFundingAccountId((current) => current || checking.id);
     }
 
-    setLoading(false);
+    if (businessesJson.businesses && businessesJson.businesses.length > 0) {
+      setSourceBusinessId((current) => current || businessesJson.businesses[0].id);
+      setDestinationBusinessId((current) => current || businessesJson.businesses[0].id);
+    }
+
+    if (showLoading) {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void loadData();
   }, []);
 
-  const businessOptions = useMemo(() => {
-    const uniqueBusiness = new Map<string, string>();
+  useAutoRefresh(() => loadData(false), { intervalMs: 10000, enabled: !loading });
 
-    for (const row of businessInventory) {
-      if (!uniqueBusiness.has(row.business_id)) {
-        uniqueBusiness.set(row.business_id, row.city_id);
-      }
-    }
-
-    return Array.from(uniqueBusiness.entries()).map(([businessId, cityId]) => ({
-      businessId,
-      cityId,
-    }));
-  }, [businessInventory]);
+  const businessOptions = useMemo(
+    () =>
+      businesses.map((business) => ({
+        businessId: business.id,
+        businessName: business.name,
+        cityId: business.city_id,
+      })),
+    [businesses]
+  );
 
   async function submitTransfer() {
     if (submitting) return;
@@ -123,6 +174,9 @@ export default function InventoryPage() {
     setSuccess(null);
 
     const selectedSource = businessOptions.find((option) => option.businessId === sourceBusinessId);
+    const selectedDestination = businessOptions.find(
+      (option) => option.businessId === destinationBusinessId
+    );
 
     const response = await fetch("/api/inventory/transfer", {
       method: "POST",
@@ -133,7 +187,7 @@ export default function InventoryPage() {
         sourceCityId: sourceType === "business" ? selectedSource?.cityId : undefined,
         destinationType,
         destinationBusinessId: destinationType === "business" ? destinationBusinessId : undefined,
-        destinationCityId: destinationType === "business" ? destinationCityId : undefined,
+        destinationCityId: destinationType === "business" ? selectedDestination?.cityId : undefined,
         itemKey: itemKey.trim(),
         quantity: Number(quantity),
         quality: Number(quality),
@@ -209,14 +263,14 @@ export default function InventoryPage() {
                     value={sourceBusinessId}
                     onChange={(event) => setSourceBusinessId(event.target.value)}
                   >
-                    <option value="">Select business</option>
-                    {businessOptions.map((option) => (
-                      <option key={option.businessId} value={option.businessId}>
-                        {option.businessId}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                      <option value="">Select business</option>
+                      {businessOptions.map((option) => (
+                        <option key={option.businessId} value={option.businessId}>
+                          {option.businessName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
               ) : null}
 
               <label>
@@ -241,20 +295,22 @@ export default function InventoryPage() {
                       <option value="">Select business</option>
                       {businessOptions.map((option) => (
                         <option key={option.businessId} value={option.businessId}>
-                          {option.businessId}
+                          {option.businessName}
                         </option>
                       ))}
                     </select>
                   </label>
-
-                  <label>
-                    Destination City Id
-                    <input
-                      value={destinationCityId}
-                      onChange={(event) => setDestinationCityId(event.target.value)}
-                      placeholder="destination city uuid"
-                    />
-                  </label>
+                  <p style={{ margin: 0, color: "#94a3b8" }}>
+                    Destination City:{" "}
+                    {(() => {
+                      const selected = businessOptions.find(
+                        (option) => option.businessId === destinationBusinessId
+                      );
+                      return selected
+                        ? cityNamesById[selected.cityId] ?? selected.cityId
+                        : "Select destination business";
+                    })()}
+                  </p>
                 </>
               ) : null}
 
@@ -359,7 +415,9 @@ export default function InventoryPage() {
                   <div key={row.id} style={{ border: "1px solid #334155", borderRadius: 6, padding: 8 }}>
                     <strong>{row.item_key}</strong> · Qty {row.quantity} · {formatCurrency(row.cost)} · {row.status}
                     <div style={{ color: "#94a3b8", fontSize: 13 }}>
-                      {row.from_city_id} → {row.to_city_id} · arrives {formatDate(row.arrives_at)}
+                      {cityNamesById[row.from_city_id] ?? row.from_city_id} →{" "}
+                      {cityNamesById[row.to_city_id] ?? row.to_city_id} · arrives{" "}
+                      {formatDate(row.arrives_at)}
                     </div>
                   </div>
                 ))}

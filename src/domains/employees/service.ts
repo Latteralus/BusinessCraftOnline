@@ -1,4 +1,5 @@
 import {
+  BASE_WAGE_PER_HOUR,
   calculateHourlyWage,
   HIRE_COSTS,
   EMPLOYEE_SKILL_KEYS,
@@ -36,6 +37,7 @@ function normalizeEmployee(row: Employee): Employee {
   return {
     ...row,
     hire_cost: toNumber(row.hire_cost),
+    wage_per_hour: toNumber(row.wage_per_hour),
   };
 }
 
@@ -186,12 +188,15 @@ export async function hireEmployee(
     .from("employees")
     .insert({
       player_id: playerId,
+      employer_business_id: input.businessId,
       first_name: input.firstName,
       last_name: input.lastName,
       employee_type: employeeType,
       status: "available",
       specialty_skill_key: input.specialtySkillKey ?? null,
       hire_cost: hireCost,
+      wage_per_hour: BASE_WAGE_PER_HOUR[employeeType],
+      last_wage_charged_at: null,
       shift_ends_at: null,
     })
     .select("*")
@@ -273,6 +278,8 @@ export async function assignEmployee(
   const { data: updatedEmployeeRow, error: updateEmployeeError } = await client
     .from("employees")
     .update({
+      employer_business_id: input.businessId,
+      wage_per_hour: wagePerHour,
       status: "assigned",
       shift_ends_at: nextShiftEndsAt,
       updated_at: new Date().toISOString(),

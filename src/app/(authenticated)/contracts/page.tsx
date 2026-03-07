@@ -1,7 +1,9 @@
 "use client";
 
+import { NPC_PRICE_CEILINGS } from "@/config/items";
 import type { BusinessWithBalance } from "@/domains/businesses";
 import type { Contract, ContractStatus } from "@/domains/contracts";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -30,10 +32,10 @@ export default function ContractsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [businessId, setBusinessId] = useState("");
-  const [title, setTitle] = useState("Supply Agreement");
-  const [itemKey, setItemKey] = useState("iron_bar");
-  const [requiredQuantity, setRequiredQuantity] = useState(10);
-  const [unitPrice, setUnitPrice] = useState(5);
+  const [title, setTitle] = useState("");
+  const [itemKey, setItemKey] = useState(Object.keys(NPC_PRICE_CEILINGS)[0] ?? "");
+  const [requiredQuantity, setRequiredQuantity] = useState(1);
+  const [unitPrice, setUnitPrice] = useState(0.01);
 
   async function loadBusinesses() {
     const response = await fetch("/api/businesses", { cache: "no-store" });
@@ -52,23 +54,28 @@ export default function ContractsPage() {
     setContracts(payload.contracts ?? []);
   }
 
-  useEffect(() => {
-    async function init() {
+  async function loadData(showLoading = true) {
+    if (showLoading) {
       setLoading(true);
-      setError(null);
-      try {
-        await loadBusinesses();
-        await loadContracts();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load contracts page.");
-      } finally {
+    }
+    setError(null);
+    try {
+      await Promise.all([loadBusinesses(), loadContracts()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load contracts page.");
+    } finally {
+      if (showLoading) {
         setLoading(false);
       }
     }
+  }
 
-    void init();
+  useEffect(() => {
+    void loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  
+  useAutoRefresh(() => loadData(false), { intervalMs: 10000, enabled: !loading });
 
   async function createContract() {
     if (!businessId || busy) return;
@@ -78,7 +85,13 @@ export default function ContractsPage() {
     const response = await fetch("/api/contracts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ businessId, title, itemKey, requiredQuantity, unitPrice }),
+      body: JSON.stringify({
+        businessId,
+        title: title.trim(),
+        itemKey,
+        requiredQuantity,
+        unitPrice,
+      }),
     });
 
     const payload = (await response.json()) as ContractResponse;
@@ -115,7 +128,7 @@ export default function ContractsPage() {
         <div>
           <h1>Contracts</h1>
           <p>
-            Phase 11 contracts: create, accept, fulfill, and cancel supply agreements.
+            Create, accept, fulfill, and cancel supply agreements.
           </p>
         </div>
         <div style={{ alignSelf: "center" }}>
@@ -149,7 +162,13 @@ export default function ContractsPage() {
 
             <label>
               Item Key
-              <input value={itemKey} onChange={(event) => setItemKey(event.target.value)} />
+              <select value={itemKey} onChange={(event) => setItemKey(event.target.value)}>
+                {Object.keys(NPC_PRICE_CEILINGS).map((key) => (
+                  <option key={key} value={key}>
+                    {key}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label>
@@ -173,7 +192,7 @@ export default function ContractsPage() {
               />
             </label>
 
-            <button onClick={() => void createContract()} disabled={busy || !businessId}>
+            <button onClick={() => void createContract()} disabled={busy || !businessId || !title.trim()}>
               Create Contract
             </button>
           </div>

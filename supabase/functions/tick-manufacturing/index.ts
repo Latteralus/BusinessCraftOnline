@@ -175,12 +175,11 @@ Deno.serve(async () => {
 
     const { data: employee } = await supabase
       .from("employees")
-      .select("id, shift_ends_at, status")
+      .select("id, status")
       .eq("id", assignment.employee_id)
       .maybeSingle();
 
-    const shiftEnded = !employee?.shift_ends_at || new Date(employee.shift_ends_at).getTime() <= Date.now();
-    if (!employee || shiftEnded || employee.status === "fired") {
+    if (!employee || employee.status === "fired" || employee.status === "unpaid") {
       await supabase
         .from("manufacturing_jobs")
         .update({ worker_assigned: false, updated_at: new Date().toISOString() })

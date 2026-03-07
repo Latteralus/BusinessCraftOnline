@@ -10,7 +10,6 @@ import { addBusinessAccountEntry, getBusinessBalance, getBusinessById } from "@/
 import { HIRE_COSTS } from "@/config/employees";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 export async function GET(request: Request) {
   const supabase = createSupabaseServerClient();
@@ -63,7 +62,6 @@ export async function POST(request: Request) {
 
   const payload = await request.json().catch(() => null);
   const parsed = hireEmployeeSchema.safeParse(payload);
-  const businessIdParsed = z.object({ businessId: z.uuid("Business id is invalid.") }).safeParse(payload);
 
   if (!parsed.success) {
     return NextResponse.json(
@@ -72,15 +70,8 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!businessIdParsed.success) {
-    return NextResponse.json(
-      { error: businessIdParsed.error.issues[0]?.message ?? "Business id is required." },
-      { status: 400 }
-    );
-  }
-
   try {
-    const businessId = businessIdParsed.data.businessId;
+    const businessId = parsed.data.businessId;
     const business = await getBusinessById(supabase, user.id, businessId);
     if (!business) {
       return NextResponse.json({ error: "Business not found." }, { status: 404 });

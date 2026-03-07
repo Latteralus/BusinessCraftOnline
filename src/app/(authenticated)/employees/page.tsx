@@ -7,6 +7,7 @@ import type {
   EmployeeSummary,
   EmployeeType,
 } from "@/domains/employees";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -68,8 +69,10 @@ export default function EmployeesPage() {
     [employees]
   );
 
-  async function loadData() {
-    setLoading(true);
+  async function loadData(showLoading = true) {
+    if (showLoading) {
+      setLoading(true);
+    }
     setError(null);
 
     const [employeesRes, businessesRes] = await Promise.all([
@@ -82,13 +85,17 @@ export default function EmployeesPage() {
 
     if (!employeesRes.ok) {
       setError(employeesJson.error ?? "Failed to fetch employees.");
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
       return;
     }
 
     if (!businessesRes.ok) {
       setError(businessesJson.error ?? "Failed to fetch businesses.");
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
       return;
     }
 
@@ -99,12 +106,16 @@ export default function EmployeesPage() {
     if (mappedBusinesses.length > 0) {
       setHireBusinessId((current) => current || mappedBusinesses[0].id);
     }
-    setLoading(false);
+    if (showLoading) {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void loadData();
   }, []);
+  
+  useAutoRefresh(() => loadData(false), { intervalMs: 10000, enabled: !loading });
 
   async function submitHire() {
     if (hiring) return;

@@ -119,6 +119,13 @@ export async function getBusinessBalance(
   const business = await getBusinessById(client, playerId, businessId);
   if (!business) throw new Error("Business not found.");
 
+  return getBusinessBalanceById(client, businessId);
+}
+
+async function getBusinessBalanceById(
+  client: QueryClient,
+  businessId: string
+): Promise<number> {
   const { data, error } = await client.rpc("get_business_account_balance", {
     p_business_id: businessId,
   });
@@ -137,7 +144,7 @@ export async function getBusinessesWithBalances(
   const withBalances = await Promise.all(
     businesses.map(async (business) => ({
       ...business,
-      balance: await getBusinessBalance(client, playerId, business.id),
+      balance: await getBusinessBalanceById(client, business.id),
     }))
   );
 
@@ -387,6 +394,12 @@ export async function getBusinessSummary(
   playerId: string
 ): Promise<BusinessSummary> {
   const businesses = await getBusinessesWithBalances(client, playerId);
+  return summarizeBusinessesWithBalances(businesses);
+}
+
+export function summarizeBusinessesWithBalances(
+  businesses: BusinessWithBalance[]
+): BusinessSummary {
   const totalBusinessBalance = businesses.reduce((sum, business) => sum + business.balance, 0);
 
   const producingTypesOwned = new Set(

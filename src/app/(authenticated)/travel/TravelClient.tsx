@@ -1,6 +1,7 @@
 "use client";
 
 import type { City, TravelLog, TravelQuote } from "@/domains/cities-travel";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -47,6 +48,13 @@ export default function TravelClient({ cities, travelState }: Props) {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useAutoRefresh(
+    () => {
+      router.refresh();
+    },
+    { intervalMs: 5000, enabled: Boolean(travelState.activeTravel) }
+  );
 
   const selectedCity = useMemo(
     () => cities.find((city) => city.id === selectedCityId) ?? null,

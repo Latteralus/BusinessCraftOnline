@@ -416,116 +416,25 @@ export async function buyMarketListing(
   playerId: string,
   input: BuyMarketListingInput
 ): Promise<{ listing: MarketListing; transaction: MarketTransaction }> {
-  const listing = await getListing(client, input.listingId);
-  if (listing.status !== "active") throw new Error("Listing is not active.");
-  if (listing.owner_player_id === playerId) throw new Error("Cannot buy your own listing.");
-  if (input.quantity > listing.quantity) throw new Error("Requested quantity exceeds listing availability.");
+  const { data, error } = await client.rpc("execute_market_purchase", {
+    p_listing_id: input.listingId,
+    p_quantity: input.quantity,
+    p_buyer_business_id: input.buyerBusinessId,
+  });
+  if (error) throw error;
 
-  let buyerBusiness: { id: string; city_id: string } | null = null;
-  if (input.buyerBusinessId) {
-    const business = await ensureOwnedBusiness(client, playerId, input.buyerBusinessId);
-    buyerBusiness = { id: business.id, city_id: business.city_id };
+  const result =
+    data && typeof data === "object"
+      ? (data as { listing?: MarketListing; transaction?: MarketTransaction })
+      : null;
+
+  if (!result?.listing || !result.transaction) {
+    throw new Error("Market purchase did not return listing and transaction.");
   }
-
-  const soldQuantity = input.quantity;
-  await applySourceInventorySale(client, listing, soldQuantity);
-
-  const nextQty = listing.quantity - soldQuantity;
-  const nextReserved = Math.max(0, listing.reserved_quantity - soldQuantity);
-  const nextStatus = nextQty <= 0 ? "filled" : "active";
-  const now = new Date().toISOString();
-
-  const { data: updatedRow, error: listingError } = await client
-    .from("market_listings")
-    .update({
-      quantity: Math.max(0, nextQty),
-      reserved_quantity: Math.max(0, nextReserved),
-      status: nextStatus,
-      filled_at: nextStatus === "filled" ? now : null,
-      updated_at: now,
-    })
-    .eq("id", listing.id)
-    .select("*")
-    .single();
-  if (listingError) throw listingError;
-
-  if (buyerBusiness) {
-    const { data: targetBusinessRow, error: targetBusinessError } = await client
-      .from("business_inventory")
-      .select("id, quantity")
-      .eq("owner_player_id", playerId)
-      .eq("business_id", buyerBusiness.id)
-      .eq("item_key", listing.item_key)
-      .eq("quality", listing.quality)
-      .maybeSingle();
-
-    if (targetBusinessError) throw targetBusinessError;
-
-    if (!targetBusinessRow) {
-      const { error: insertError } = await client.from("business_inventory").insert({
-        owner_player_id: playerId,
-        business_id: buyerBusiness.id,
-        city_id: buyerBusiness.city_id,
-        item_key: listing.item_key,
-        quality: listing.quality,
-        quantity: soldQuantity,
-        reserved_quantity: 0,
-      });
-      if (insertError) throw insertError;
-    } else {
-      const { error: updateError } = await client
-        .from("business_inventory")
-        .update({
-          quantity: toNumber(targetBusinessRow.quantity) + soldQuantity,
-          updated_at: now,
-        })
-        .eq("id", targetBusinessRow.id);
-      if (updateError) throw updateError;
-    }
-  } else {
-    const { data: personalRow, error: personalError } = await client
-      .from("personal_inventory")
-      .select("id, quantity")
-      .eq("player_id", playerId)
-      .eq("item_key", listing.item_key)
-      .eq("quality", listing.quality)
-      .maybeSingle();
-
-    if (personalError) throw personalError;
-
-    if (!personalRow) {
-      const { error: insertError } = await client.from("personal_inventory").insert({
-        player_id: playerId,
-        item_key: listing.item_key,
-        quality: listing.quality,
-        quantity: soldQuantity,
-      });
-      if (insertError) throw insertError;
-    } else {
-      const { error: updateError } = await client
-        .from("personal_inventory")
-        .update({
-          quantity: toNumber(personalRow.quantity) + soldQuantity,
-          updated_at: now,
-        })
-        .eq("id", personalRow.id);
-      if (updateError) throw updateError;
-    }
-  }
-
-  const transaction = await settleSaleAccounting(
-    client,
-    listing,
-    soldQuantity,
-    "player",
-    playerId,
-    buyerBusiness?.id ?? null,
-    undefined
-  );
 
   return {
-    listing: normalizeListing(updatedRow as MarketListing),
-    transaction,
+    listing: normalizeListing(result.listing),
+    transaction: normalizeTransaction(result.transaction),
   };
 }
 

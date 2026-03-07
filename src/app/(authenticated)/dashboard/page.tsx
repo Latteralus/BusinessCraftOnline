@@ -15,6 +15,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { DashboardClock } from "@/components/dashboard/DashboardClock";
+import { PageAutoRefresh } from "@/components/realtime/PageAutoRefresh";
 
 async function logout() {
   "use server";
@@ -34,6 +35,20 @@ function formatTimeAgo(value: string): string {
   if (diffHours < 24) return `${diffHours}h ago`;
   const diffDays = Math.floor(diffHours / 24);
   return `${diffDays}d ago`;
+}
+
+function toTitleLabel(value: string): string {
+  return value
+    .split("_")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(" ");
+}
+
+function getProgressPercent(lastTickAt: string | null | undefined, intervalSeconds: number, running: boolean): number {
+  if (!running || !lastTickAt || intervalSeconds <= 0) return 0;
+  const elapsedMs = Date.now() - new Date(lastTickAt).getTime();
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return 0;
+  return Math.max(0, Math.min(100, (elapsedMs / (intervalSeconds * 1000)) * 100));
 }
 
 export default async function DashboardPage() {
@@ -102,52 +117,67 @@ export default async function DashboardPage() {
       .lte("arrives_at", new Date().toISOString()),
     supabase
       .from("manufacturing_jobs")
-      .select("*, business:businesses!inner(name, type, player_id)")
+      .select("id, business_id, status, active_recipe_key, worker_assigned, last_tick_at, updated_at, business:businesses!inner(name, type, player_id)")
       .eq("businesses.player_id", user.id)
-      .eq("status", "active")
-      .limit(1),
+      .order("updated_at", { ascending: false })
+      .limit(10),
     supabase
       .from("extraction_slots")
-      .select("*, business:businesses!inner(name, type, player_id)")
+      .select("id, business_id, slot_number, employee_id, status, tool_item_key, last_extracted_at, updated_at, business:businesses!inner(name, type, player_id)")
       .eq("businesses.player_id", user.id)
-      .eq("status", "active")
-      .limit(1),
+      .order("updated_at", { ascending: false })
+      .limit(20),
   ]);
 
-  const activeMfgJob = mfgRes.data?.[0];
-  const activeExtSlot = extRes.data?.[0];
+  const mfgJobs = (mfgRes.data ?? []) as Array<any>;
+  const extSlots = (extRes.data ?? []) as Array<any>;
+  const activeMfgJob = mfgJobs.find((job) => job.status === "active" && job.active_recipe_key && job.worker_assigned);
+  const fallbackMfgJob = mfgJobs.find((job) => job.active_recipe_key);
+  const activeExtSlot = extSlots.find((slot) => slot.status === "active" && slot.employee_id);
+  const fallbackExtSlot = extSlots.find((slot) => slot.employee_id || slot.status !== "idle");
   let activeOperation = null;
 
   try {
-    if (activeMfgJob || activeExtSlot) {
-      const activeBizId = activeMfgJob ? activeMfgJob.business_id : activeExtSlot.business_id;
+    const chosenMfg = activeMfgJob ?? fallbackMfgJob ?? null;
+    const chosenExt = chosenMfg ? null : activeExtSlot ?? fallbackExtSlot ?? null;
+
+    if (chosenMfg || chosenExt) {
+      const activeBizId = chosenMfg ? chosenMfg.business_id : chosenExt.business_id;
       const { data: upgrades } = await supabase
         .from("business_upgrades")
         .select("*")
         .eq("business_id", activeBizId);
 
-      if (activeMfgJob) {
-        const recipe = getManufacturingRecipeByKey(activeMfgJob.active_recipe_key);
+      if (chosenMfg) {
+        const recipe = getManufacturingRecipeByKey(chosenMfg.active_recipe_key);
         const effUpgrade = upgrades?.find((u) => u.upgrade_key === "production_efficiency")?.level || 0;
         const outputQty = Math.floor((recipe?.baseOutputQuantity || 1) * Math.pow(1.1, effUpgrade));
+        const running = chosenMfg.status === "active" && Boolean(chosenMfg.active_recipe_key) && Boolean(chosenMfg.worker_assigned);
         activeOperation = {
           type: "manufacturing",
-          name: activeMfgJob.business?.name || "Unknown Business",
+          name: chosenMfg.business?.name || "Unknown Business",
           businessId: activeBizId,
           detail: recipe ? `${recipe.displayName} x${outputQty}/tick` : "Producing",
+          running,
+          statusLabel: toTitleLabel(chosenMfg.status),
+          progressPercent: getProgressPercent(chosenMfg.last_tick_at, 10 * 60, running),
         };
-      } else if (activeExtSlot) {
-        const type = activeExtSlot.business?.type as keyof typeof EXTRACTION_UPGRADE_KEY_BY_BUSINESS;
+      } else if (chosenExt) {
+        const type = chosenExt.business?.type as keyof typeof EXTRACTION_UPGRADE_KEY_BY_BUSINESS;
         const upgradeKey = EXTRACTION_UPGRADE_KEY_BY_BUSINESS[type] || "extraction_efficiency";
         const effUpgrade = upgrades?.find((u) => u.upgrade_key === upgradeKey)?.level || 0;
         const outputQty = Math.max(1, Math.round(1 * Math.pow(1.1, effUpgrade)));
         const itemKey = type ? EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[type] || "Unknown" : "Unknown";
-        
+        const running = chosenExt.status === "active" && Boolean(chosenExt.employee_id);
+
         activeOperation = {
           type: "extraction",
-          name: activeExtSlot.business?.name || "Unknown Business",
+          name: chosenExt.business?.name || "Unknown Business",
           businessId: activeBizId,
-          detail: `${itemKey.replace(/_/g, " ")} x${outputQty}/tick (Slot #${activeExtSlot.slot_number})`,
+          detail: `${itemKey.replace(/_/g, " ")} x${outputQty}/tick (Slot #${chosenExt.slot_number})`,
+          running,
+          statusLabel: toTitleLabel(chosenExt.status),
+          progressPercent: getProgressPercent(chosenExt.last_extracted_at, 60, running),
         };
       }
     }
@@ -163,6 +193,8 @@ export default async function DashboardPage() {
     bankingSnapshot?.accounts?.find((account) => account.account_type === "checking") ?? null;
   const pocketCashAccount =
     bankingSnapshot?.accounts?.find((account) => account.account_type === "pocket_cash") ?? null;
+  const investmentAccount =
+    bankingSnapshot?.accounts?.find((account) => account.account_type === "investment") ?? null;
 
   const travelRemainingMs = activeTravel
     ? new Date(activeTravel.arrives_at).getTime() - Date.now()
@@ -226,14 +258,15 @@ export default async function DashboardPage() {
     .slice(0, 8);
 
   // Helpers for UI
-  const initials = character.first_name[0] + character.last_name[0];
   const pocketBalance = pocketCashAccount ? pocketCashAccount.balance : 0;
   const checkBalance = checkingAccount ? checkingAccount.balance : 0;
+  const investmentBalance = investmentAccount ? investmentAccount.balance : null;
   const bizBalance = businessSummary?.totalBusinessBalance ?? 0;
   const loanBalance = bankingSnapshot?.activeLoan ? bankingSnapshot.activeLoan.balance_remaining : 0;
 
   return (
     <>
+      <PageAutoRefresh intervalMs={10000} />
       <div className="welcome-strip anim">
           <div className="welcome-left">
             <h1>Good afternoon, {character.first_name}</h1>
@@ -275,8 +308,12 @@ export default async function DashboardPage() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
               Investment Account
             </div>
-            <div className="finance-value">$0.00</div>
-            <div className="finance-sub">Locked</div>
+            <div className="finance-value">
+              {investmentBalance === null ? "N/A" : `$${investmentBalance.toFixed(2)}`}
+            </div>
+            <div className="finance-sub">
+              {investmentBalance === null ? "No account found" : "Available"}
+            </div>
           </div>
 
           <div className="finance-card" style={{ "--card-accent": "var(--accent-red)" } as any}>
@@ -361,13 +398,26 @@ export default async function DashboardPage() {
                       <div className="mfg-recipe" style={{ textTransform: "capitalize" }}>{activeOperation.detail}</div>
                     </div>
                     <div className="mfg-bar-track">
-                      <div className="mfg-bar-fill anim-pulse" style={{ width: "100%", background: "var(--accent-green)" }}></div>
+                      <div
+                        className={`mfg-bar-fill ${activeOperation.running ? "anim-pulse" : ""}`}
+                        style={{
+                          width: `${activeOperation.progressPercent.toFixed(0)}%`,
+                          background: activeOperation.running ? "var(--accent-green)" : "var(--accent-red)",
+                        }}
+                      ></div>
                     </div>
                     <div className="mfg-bottom">
                       <div className="mfg-inputs">
-                        <span className="input-chip input-filled">Status: Active</span>
+                        <span className={`input-chip ${activeOperation.running ? "input-filled" : "input-empty"}`}>
+                          Status: {activeOperation.statusLabel}
+                        </span>
                       </div>
-                      <div className="mfg-countdown" style={{ color: "var(--accent-green)" }}>Running</div>
+                      <div
+                        className="mfg-countdown"
+                        style={{ color: activeOperation.running ? "var(--accent-green)" : "var(--accent-red)" }}
+                      >
+                        {activeOperation.running ? "Running" : "Not Producing"}
+                      </div>
                     </div>
                   </div>
                 </Link>
@@ -495,7 +545,9 @@ export default async function DashboardPage() {
                 <div className="mfg-bar-track" style={{ height: 8 }}>
                   <div className="mfg-bar-fill" style={{ width: "100%", background: "linear-gradient(90deg,var(--gold),#e8b94a)" }}></div>
                 </div>
-                <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: 4 }}>Level Maxed (Example)</div>
+                <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: 4 }}>
+                  Progress to next level is not available in the current mechanics.
+                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>

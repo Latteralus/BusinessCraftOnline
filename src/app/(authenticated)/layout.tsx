@@ -33,13 +33,6 @@ export default async function AuthenticatedLayout({
 
   const initials = character.first_name[0] + character.last_name[0];
 
-  async function handleLogout() {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    await supabase.auth.signOut();
-    redirect("/login");
-  }
-
   return (
     <>
       <Topbar
@@ -47,9 +40,8 @@ export default async function AuthenticatedLayout({
         firstName={character.first_name}
         lastName={character.last_name}
         businessLevel={character.business_level}
-        adEnabledCount={adEnabledCount}
+        notificationsCount={adEnabledCount}
         playerCount={playerCount}
-        onLogout={handleLogout}
       />
       <div className="main-container">
         {children}

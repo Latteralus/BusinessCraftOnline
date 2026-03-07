@@ -2,6 +2,7 @@
 
 import type { BusinessWithBalance } from "@/domains/businesses";
 import type { ManufacturingStatusView } from "@/domains/production";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -108,6 +109,20 @@ export default function ProductionPage() {
     );
   }, [selectedBusinessId]);
 
+  useAutoRefresh(
+    async () => {
+      if (!selectedBusinessId) {
+        return;
+      }
+      try {
+        await Promise.all([loadBusinesses(), loadManufacturingStatus(selectedBusinessId)]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to refresh production status.");
+      }
+    },
+    { intervalMs: 8000, enabled: !loading && Boolean(selectedBusinessId) }
+  );
+
   async function setRecipe(recipeKey: string) {
     if (!selectedBusinessId || !recipeKey || busy) return;
     setBusy(true);
@@ -158,7 +173,7 @@ export default function ProductionPage() {
         <div>
           <h1>Production</h1>
           <p>
-            Phase 9 manufacturing controls: choose recipe, start/stop jobs, and monitor status.
+            Manufacturing controls: choose recipes, start or stop jobs, and monitor status.
           </p>
         </div>
         <div style={{ alignSelf: "center" }}>

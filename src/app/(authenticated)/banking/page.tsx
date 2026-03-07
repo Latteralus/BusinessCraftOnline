@@ -6,6 +6,7 @@ import type {
   TransactionEntry,
 } from "@/domains/banking";
 import type { BusinessWithBalance } from "@/domains/businesses";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -66,8 +67,10 @@ export default function BankingPage() {
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
 
-  async function loadData() {
-    setLoading(true);
+  async function loadData(showLoading = true) {
+    if (showLoading) {
+      setLoading(true);
+    }
     setError(null);
 
     const [accountsRes, loanRes, txRes, businessesRes] = await Promise.all([
@@ -84,25 +87,33 @@ export default function BankingPage() {
 
     if (!accountsRes.ok) {
       setError(accountsJson.error ?? "Failed to load accounts.");
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
       return;
     }
 
     if (!loanRes.ok) {
       setError(loanJson.error ?? "Failed to load loan status.");
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
       return;
     }
 
     if (!txRes.ok) {
       setError(txJson.error ?? "Failed to load transaction history.");
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
       return;
     }
 
     if (!businessesRes.ok) {
       setError(businessesJson.error ?? "Failed to load businesses.");
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
       return;
     }
 
@@ -122,12 +133,16 @@ export default function BankingPage() {
       setPersonalBusinessId((current) => current || businessesJson.businesses[0].id);
     }
 
-    setLoading(false);
+    if (showLoading) {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void loadData();
   }, []);
+  
+  useAutoRefresh(() => loadData(false), { intervalMs: 10000, enabled: !loading });
 
   const checkingAccount = useMemo(
     () => accounts.find((account) => account.account_type === "checking") ?? null,

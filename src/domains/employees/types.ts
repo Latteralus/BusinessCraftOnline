@@ -8,12 +8,15 @@ import type {
 export type Employee = {
   id: string;
   player_id: string;
+  employer_business_id: string | null;
   first_name: string;
   last_name: string;
   employee_type: EmployeeType;
   status: EmployeeStatus;
   specialty_skill_key: EmployeeSkillKey | null;
   hire_cost: number;
+  wage_per_hour: number;
+  last_wage_charged_at: string | null;
   shift_ends_at: string | null;
   created_at: string;
   updated_at: string;
@@ -56,6 +59,7 @@ export type EmployeeSummary = {
 };
 
 export type HireEmployeeInput = {
+  businessId: string;
   firstName: string;
   lastName: string;
   employeeType: EmployeeType;

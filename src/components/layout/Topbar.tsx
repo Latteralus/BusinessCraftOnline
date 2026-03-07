@@ -8,9 +8,8 @@ interface TopbarProps {
   firstName: string;
   lastName: string;
   businessLevel: number;
-  adEnabledCount: number;
+  notificationsCount: number;
   playerCount: number;
-  onLogout: () => void;
 }
 
 export function Topbar({
@@ -18,8 +17,8 @@ export function Topbar({
   firstName,
   lastName,
   businessLevel,
+  notificationsCount,
   playerCount,
-  onLogout,
 }: TopbarProps) {
   const pathname = usePathname();
 
@@ -44,11 +43,10 @@ export function Topbar({
       <div className="topbar-right">
         <div className="icon-btn" title="Messages">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-          <div className="notif-badge">0</div>
         </div>
-        <div className="icon-btn" title="Notifications">
+        <div className="icon-btn" title="Storefront alerts">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-          <div className="notif-badge">0</div>
+          {notificationsCount > 0 ? <div className="notif-badge">{notificationsCount}</div> : null}
         </div>
         <div className="avatar-btn">
           <div className="avatar-circle">{initials}</div>

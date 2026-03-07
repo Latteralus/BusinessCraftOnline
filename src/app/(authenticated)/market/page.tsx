@@ -1,7 +1,9 @@
 "use client";
 
+import { NPC_PRICE_CEILINGS } from "@/config/items";
 import type { BusinessWithBalance } from "@/domains/businesses";
 import type { MarketListing, MarketStorefrontSetting, MarketTransaction } from "@/domains/market";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -31,7 +33,8 @@ export default function MarketPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [sourceBusinessId, setSourceBusinessId] = useState("");
-  const [itemKey, setItemKey] = useState("iron_bar");
+  const [buyerBusinessId, setBuyerBusinessId] = useState("");
+  const [itemKey, setItemKey] = useState(Object.keys(NPC_PRICE_CEILINGS)[0] ?? "");
   const [quality, setQuality] = useState(50);
   const [quantity, setQuantity] = useState(5);
   const [unitPrice, setUnitPrice] = useState(5);
@@ -91,6 +94,9 @@ export default function MarketPage() {
     if (!sourceBusinessId && payload.businesses?.length) {
       setSourceBusinessId(payload.businesses[0].id);
     }
+    if (!buyerBusinessId && payload.businesses?.length) {
+      setBuyerBusinessId(payload.businesses[0].id);
+    }
   }
 
   async function loadListings() {
@@ -120,24 +126,28 @@ export default function MarketPage() {
     }
   }
 
-  useEffect(() => {
-    async function init() {
+  async function loadData(showLoading = true) {
+    if (showLoading) {
       setLoading(true);
-      setError(null);
-      try {
-        await loadBusinesses();
-        await loadListings();
-        await loadStorefrontSettings();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to initialize market page.");
-      } finally {
+    }
+    setError(null);
+    try {
+      await Promise.all([loadBusinesses(), loadListings(), loadStorefrontSettings()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to initialize market page.");
+    } finally {
+      if (showLoading) {
         setLoading(false);
       }
     }
+  }
 
-    void init();
+  useEffect(() => {
+    void loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  
+  useAutoRefresh(() => loadData(false), { intervalMs: 8000, enabled: !loading });
 
   useEffect(() => {
     const selected = sourceBusinessId ? storefrontByBusinessId[sourceBusinessId] : null;
@@ -194,6 +204,10 @@ export default function MarketPage() {
 
   async function buyListing(listingId: string) {
     if (busy) return;
+    if (!buyerBusinessId) {
+      setError("Select a buyer business.");
+      return;
+    }
     const requestedQuantity = Math.max(1, buyQuantityByListingId[listingId] ?? 1);
 
     setBusy(true);
@@ -201,7 +215,7 @@ export default function MarketPage() {
     const response = await fetch(`/api/market/${listingId}/buy`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ quantity: requestedQuantity }),
+      body: JSON.stringify({ quantity: requestedQuantity, buyerBusinessId }),
     });
 
     const payload = (await response.json()) as { error?: string };
@@ -250,7 +264,7 @@ export default function MarketPage() {
         <div>
           <h1>Market</h1>
           <p>
-            Phase 12 market listings: publish inventory, buy listings, and feed NPC demand from active listings.
+            Publish inventory listings, buy items, and configure storefront demand for NPC shoppers.
           </p>
         </div>
         <div style={{ alignSelf: "center" }}>
@@ -329,7 +343,13 @@ export default function MarketPage() {
             </label>
             <label>
               Item Key
-              <input value={itemKey} onChange={(event) => setItemKey(event.target.value)} />
+              <select value={itemKey} onChange={(event) => setItemKey(event.target.value)}>
+                {Object.keys(NPC_PRICE_CEILINGS).map((key) => (
+                  <option key={key} value={key}>
+                    {key}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               Quality
@@ -370,6 +390,19 @@ export default function MarketPage() {
       {!loading ? (
         <section>
           <h2 style={{ marginTop: 0 }}>Active Listings</h2>
+          <div style={{ display: "grid", gap: 8, maxWidth: 620, marginBottom: 12 }}>
+            <label>
+              Buyer Business
+              <select value={buyerBusinessId} onChange={(event) => setBuyerBusinessId(event.target.value)}>
+                <option value="">Select business</option>
+                {businesses.map((business) => (
+                  <option key={business.id} value={business.id}>
+                    {business.name} ({business.type})
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           {ownListings.length === 0 ? <p>No active listings found.</p> : null}
           <div style={{ display: "grid", gap: 8 }}>
             {ownListings.map((listing) => (
@@ -381,7 +414,8 @@ export default function MarketPage() {
                   {listing.item_key} (Q{listing.quality})
                 </strong>
                 <span>
-                  Listed by: {listing.business?.name ?? "Unknown Business"}
+                  Listed by:{" "}
+                  {listing.business?.name ?? `Business ${listing.source_business_id.slice(0, 8)}`}
                 </span>
                 <span>
                   Quantity: {listing.quantity} | Price: ${listing.unit_price.toFixed(2)} | Status: {listing.status}

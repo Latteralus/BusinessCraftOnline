@@ -10,6 +10,7 @@ export {
   getBusinessesWithBalances,
   getPlayerBusinesses,
   purchaseUpgrade,
+  summarizeBusinessesWithBalances,
 } from "./service";
 
 export {

@@ -187,7 +187,7 @@ export type CancelMarketListingInput = {
 export type BuyMarketListingInput = {
   listingId: string;
   quantity: number;
-  buyerBusinessId?: string;
+  buyerBusinessId: string;
 };
 
 export type RecordNpcPurchaseInput = {

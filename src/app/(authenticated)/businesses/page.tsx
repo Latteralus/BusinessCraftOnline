@@ -6,6 +6,7 @@ import type {
   BusinessSummary,
 } from "@/domains/businesses";
 import type { UpgradeDefinition, UpgradePreview } from "@/domains/upgrades";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -74,8 +75,10 @@ export default function BusinessesPage() {
   const [upgradePreview, setUpgradePreview] = useState<UpgradePreview | null>(null);
   const [upgrading, setUpgrading] = useState(false);
 
-  async function loadData() {
-    setLoading(true);
+  async function loadData(showLoading = true) {
+    if (showLoading) {
+      setLoading(true);
+    }
     setError(null);
 
     const [businessesRes, citiesRes, travelRes, definitionsRes] = await Promise.all([
@@ -96,25 +99,33 @@ export default function BusinessesPage() {
 
     if (!businessesRes.ok) {
       setError(businessesJson.error ?? "Failed to fetch businesses.");
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
       return;
     }
 
     if (!citiesRes.ok) {
       setError(citiesJson.error ?? "Failed to fetch cities.");
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
       return;
     }
 
     if (!travelRes.ok) {
       setError(travelJson.error ?? "Failed to fetch travel state.");
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
       return;
     }
 
     if (!definitionsRes.ok) {
       setError(definitionsJson.error ?? "Failed to fetch upgrade definitions.");
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
       return;
     }
 
@@ -128,12 +139,16 @@ export default function BusinessesPage() {
       setCreateCityId(travelJson.currentCity.id);
     }
 
-    setLoading(false);
+    if (showLoading) {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void loadData();
   }, []);
+  
+  useAutoRefresh(() => loadData(false), { intervalMs: 10000, enabled: !loading });
 
   const selectedBusiness = useMemo(
     () => businesses.find((business) => business.id === upgradeBusinessId) ?? null,

@@ -49,7 +49,7 @@ export const buyMarketListingSchema = z.object({
     .number({ error: "Quantity must be a number." })
     .int("Quantity must be an integer.")
     .min(1, "Quantity must be at least 1."),
-  buyerBusinessId: z.uuid("Buyer business id is invalid.").optional(),
+  buyerBusinessId: z.uuid("Buyer business id is invalid."),
 });
 
 export const marketStorefrontFilterSchema = z.object({

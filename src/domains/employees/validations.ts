@@ -18,6 +18,7 @@ export const employeeListFilterSchema = z.object({
 
 export const hireEmployeeSchema = z
   .object({
+    businessId: z.uuid("Business id is invalid."),
     firstName: z
       .string({ error: "First name is required." })
       .trim()

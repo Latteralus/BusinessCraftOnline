@@ -3,7 +3,7 @@ import {
   createBusiness,
   createBusinessSchema,
   getBusinessesWithBalances,
-  getBusinessSummary,
+  summarizeBusinessesWithBalances,
 } from "@/domains/businesses";
 import { getCharacter } from "@/domains/auth-character";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -34,10 +34,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    const [businesses, summary] = await Promise.all([
-      getBusinessesWithBalances(supabase, user.id, parsed.data),
-      getBusinessSummary(supabase, user.id),
-    ]);
+    const businesses = await getBusinessesWithBalances(supabase, user.id, parsed.data);
+    const summary = summarizeBusinessesWithBalances(businesses);
 
     return NextResponse.json({ businesses, summary });
   } catch (error) {

@@ -170,7 +170,7 @@ Deno.serve(async () => {
     const [{ data: employee }, { data: assignment }] = await Promise.all([
       supabase
         .from("employees")
-        .select("id, shift_ends_at, status")
+        .select("id, status")
         .eq("id", slot.employee_id)
         .maybeSingle(),
       supabase
@@ -182,12 +182,11 @@ Deno.serve(async () => {
         .maybeSingle(),
     ]);
 
-    const shiftEnded = !employee?.shift_ends_at || new Date(employee.shift_ends_at).getTime() <= Date.now();
     const assignmentMismatch =
       !assignment ||
       (assignment.slot_number !== null && Number(assignment.slot_number) !== Number(slot.slot_number));
 
-    if (shiftEnded || assignmentMismatch || employee?.status === "fired") {
+    if (!employee || assignmentMismatch || employee.status === "fired" || employee.status === "unpaid") {
       await failSlot(supabase, slot.id, "resting");
       restingCount += 1;
       continue;

@@ -50,7 +50,7 @@ export const HIRE_COSTS: Record<EmployeeType, number> = {
 };
 
 export const BASE_WAGE_PER_HOUR: Record<EmployeeType, number> = {
-  temp: 12,
+  temp: 15,
   part_time: 10,
   full_time: 9,
   specialist: 14,
