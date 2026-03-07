@@ -12,8 +12,10 @@ import {
 } from "@/domains/market";
 import { EXTRACTION_OUTPUT_ITEM_BY_BUSINESS, EXTRACTION_UPGRADE_KEY_BY_BUSINESS, getManufacturingRecipeByKey } from "@/config/production";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { CUSTOM_SESSION_COOKIE_NAME } from "@/lib/session";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { DashboardClock } from "@/components/dashboard/DashboardClock";
 import { PageAutoRefresh } from "@/components/realtime/PageAutoRefresh";
 
@@ -22,6 +24,7 @@ async function logout() {
 
   const supabase = createSupabaseServerClient();
   await supabase.auth.signOut();
+  cookies().delete(CUSTOM_SESSION_COOKIE_NAME);
   redirect("/login");
 }
 

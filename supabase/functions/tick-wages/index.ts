@@ -1,13 +1,7 @@
 // @ts-nocheck
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createServiceClientFromEnv, toNumber, writeTickRunLog } from "../_shared/tick-runtime.ts";
 
 const WAGE_CHARGE_INTERVAL_MS = 60 * 60 * 1000;
-
-function toNumber(value: number | string | null | undefined): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value);
-  return 0;
-}
 
 function shouldCharge(lastChargedAt: string | null | undefined, nowMs: number): boolean {
   if (!lastChargedAt) return true;
@@ -16,45 +10,14 @@ function shouldCharge(lastChargedAt: string | null | undefined, nowMs: number): 
   return nowMs - lastMs >= WAGE_CHARGE_INTERVAL_MS;
 }
 
-async function writeTickRunLog(
-  supabase: ReturnType<typeof createClient>,
-  input: {
-    status: "ok" | "error";
-    startedAtIso: string;
-    finishedAtIso: string;
-    durationMs: number;
-    processedCount: number;
-    metrics?: Record<string, unknown>;
-    errorMessage?: string | null;
-  }
-) {
-  await supabase.from("tick_run_logs").insert({
-    tick_name: "tick-wages",
-    status: input.status,
-    started_at: input.startedAtIso,
-    finished_at: input.finishedAtIso,
-    duration_ms: Math.max(0, Math.floor(input.durationMs)),
-    processed_count: Math.max(0, Math.floor(input.processedCount)),
-    metrics: input.metrics ?? {},
-    error_message: input.errorMessage ?? null,
-  });
-}
-
 Deno.serve(async () => {
   const startedAt = new Date();
   const startedAtIso = startedAt.toISOString();
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  let supabase;
 
-  if (!supabaseUrl || !serviceRoleKey) {
-    return new Response(
-      JSON.stringify({ ok: false, error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
   try {
+    supabase = createServiceClientFromEnv();
+
     const now = new Date();
     const nowIso = now.toISOString();
     const nowMs = now.getTime();
@@ -107,9 +70,7 @@ Deno.serve(async () => {
         p_business_id: employee.employer_business_id,
       });
 
-      if (balanceError) {
-        continue;
-      }
+      if (balanceError) continue;
 
       const balance = toNumber(balanceValue);
 
@@ -167,6 +128,7 @@ Deno.serve(async () => {
     };
 
     await writeTickRunLog(supabase, {
+      tickName: "tick-wages",
       status: "ok",
       startedAtIso,
       finishedAtIso,
@@ -183,15 +145,21 @@ Deno.serve(async () => {
     const finishedAtIso = new Date().toISOString();
     const message = error instanceof Error ? error.message : "tick-wages failed";
 
-    await writeTickRunLog(supabase, {
-      status: "error",
-      startedAtIso,
-      finishedAtIso,
-      durationMs: new Date(finishedAtIso).getTime() - startedAt.getTime(),
-      processedCount: 0,
-      metrics: {},
-      errorMessage: message,
-    });
+    try {
+      const logger = supabase ?? createServiceClientFromEnv();
+      await writeTickRunLog(logger, {
+        tickName: "tick-wages",
+        status: "error",
+        startedAtIso,
+        finishedAtIso,
+        durationMs: new Date(finishedAtIso).getTime() - startedAt.getTime(),
+        processedCount: 0,
+        metrics: {},
+        errorMessage: message,
+      });
+    } catch {
+      // Ignore secondary log failures in error path.
+    }
 
     return new Response(JSON.stringify({ ok: false, error: message }), {
       status: 500,

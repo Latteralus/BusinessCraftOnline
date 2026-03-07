@@ -9,8 +9,10 @@ import {
   type ExtractionBusinessType,
   type ManufacturingBusinessType,
 } from "@/config/production";
-import { getBusinessById, getBusinessUpgrades } from "@/domains/businesses";
+import { getBusinessUpgrades } from "@/domains/businesses";
+import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
 import { getEmployeeAssignment, getEmployeeById } from "@/domains/employees";
+import type { QueryClient } from "@/lib/db/query-client";
 import type {
   AssignExtractionSlotInput,
   ExtractionSlot,
@@ -27,11 +29,6 @@ import type {
   ToolDurability,
   UnassignExtractionSlotInput,
 } from "./types";
-
-type QueryClient = {
-  from: (table: string) => any;
-  rpc: (fn: string, args?: Record<string, unknown>) => any;
-};
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
@@ -69,11 +66,13 @@ async function ensureOwnedExtractionBusiness(
   playerId: string,
   businessId: string
 ): Promise<{ id: string; player_id: string; city_id: string; type: ExtractionBusinessType }> {
-  const business = await getBusinessById(client, playerId, businessId);
-  if (!business) throw new Error("Business not found.");
-  if (!isExtractionBusinessType(business.type)) {
-    throw new Error(`Business type '${business.type}' does not support extraction slots.`);
-  }
+  const business = await ensureOwnedBusinessType(
+    client,
+    playerId,
+    businessId,
+    isExtractionBusinessType,
+    (type) => `Business type '${type}' does not support extraction slots.`
+  );
 
   return {
     id: business.id,
@@ -88,11 +87,13 @@ async function ensureOwnedManufacturingBusiness(
   playerId: string,
   businessId: string
 ): Promise<{ id: string; player_id: string; city_id: string; type: ManufacturingBusinessType }> {
-  const business = await getBusinessById(client, playerId, businessId);
-  if (!business) throw new Error("Business not found.");
-  if (!isManufacturingBusinessType(business.type)) {
-    throw new Error(`Business type '${business.type}' does not support manufacturing jobs.`);
-  }
+  const business = await ensureOwnedBusinessType(
+    client,
+    playerId,
+    businessId,
+    isManufacturingBusinessType,
+    (type) => `Business type '${type}' does not support manufacturing jobs.`
+  );
 
   return {
     id: business.id,

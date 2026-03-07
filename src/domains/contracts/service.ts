@@ -1,4 +1,5 @@
-import { getBusinessById } from "@/domains/businesses";
+import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
+import type { QueryClient } from "@/lib/db/query-client";
 import type {
   AcceptContractInput,
   CancelContractInput,
@@ -7,11 +8,6 @@ import type {
   CreateContractInput,
   FulfillContractInput,
 } from "./types";
-
-type QueryClient = {
-  from: (table: string) => any;
-  rpc: (fn: string, args?: Record<string, unknown>) => any;
-};
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
@@ -26,12 +22,6 @@ function normalizeContract(row: Contract): Contract {
     delivered_quantity: Number(row.delivered_quantity),
     unit_price: toNumber(row.unit_price),
   };
-}
-
-async function ensureOwnedBusiness(client: QueryClient, playerId: string, businessId: string) {
-  const business = await getBusinessById(client, playerId, businessId);
-  if (!business) throw new Error("Business not found.");
-  return business;
 }
 
 async function getContractOrThrow(client: QueryClient, playerId: string, contractId: string): Promise<Contract> {

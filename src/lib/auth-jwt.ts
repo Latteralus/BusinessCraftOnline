@@ -1,4 +1,5 @@
 import { SignJWT, jwtVerify } from "jose";
+import { CUSTOM_SESSION_TTL_SECONDS } from "./session";
 
 const getJwtSecret = () => {
   const secret = process.env.SUPABASE_JWT_SECRET;
@@ -20,7 +21,7 @@ export async function signCustomJwt(playerId: string): Promise<string> {
   })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuedAt()
-    .setExpirationTime("7d") // Set token to expire in 7 days
+    .setExpirationTime(`${CUSTOM_SESSION_TTL_SECONDS}s`)
     .sign(secret);
 
   return token;

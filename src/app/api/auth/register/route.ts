@@ -1,5 +1,9 @@
 import { registerSchema } from "@/domains/auth-character";
 import { signCustomJwt } from "@/lib/auth-jwt";
+import {
+  CUSTOM_SESSION_COOKIE_NAME,
+  CUSTOM_SESSION_TTL_SECONDS,
+} from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -38,11 +42,12 @@ export async function POST(request: Request) {
     const token = await signCustomJwt(newPlayerId);
 
     // Set as an HttpOnly cookie so the client sends it automatically
-    cookies().set("custom_session", token, {
+    cookies().set(CUSTOM_SESSION_COOKIE_NAME, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      sameSite: "lax",
+      maxAge: CUSTOM_SESSION_TTL_SECONDS,
     });
 
     return NextResponse.json({

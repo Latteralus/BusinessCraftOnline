@@ -6,18 +6,18 @@ import {
   summarizeBusinessesWithBalances,
 } from "@/domains/businesses";
 import { getCharacter } from "@/domains/auth-character";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import {
+  badRequest,
+  fail,
+  parseJsonBody,
+  requireAuthedUser,
+} from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+  const auth = await requireAuthedUser();
+  if (!auth.ok) return auth.response;
+  const { supabase, user } = auth;
 
   const url = new URL(request.url);
   const rawFilters = {
@@ -27,10 +27,7 @@ export async function GET(request: Request) {
 
   const parsed = businessListFilterSchema.safeParse(rawFilters);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid filters." },
-      { status: 400 }
-    );
+    return badRequest(parsed.error.issues[0]?.message ?? "Invalid filters.");
   }
 
   try {
@@ -39,39 +36,25 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ businesses, summary });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch businesses." },
-      { status: 500 }
-    );
+    return fail(error, "Failed to fetch businesses.", 500);
   }
 }
 
 export async function POST(request: Request) {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const auth = await requireAuthedUser();
+  if (!auth.ok) return auth.response;
+  const { supabase, user } = auth;
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  const payload = await request.json().catch(() => null);
-  const parsed = createBusinessSchema.safeParse(payload);
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid business creation payload." },
-      { status: 400 }
-    );
-  }
+  const parsed = await parseJsonBody(
+    request,
+    createBusinessSchema,
+    "Invalid business creation payload."
+  );
+  if (!parsed.ok) return parsed.response;
 
   const character = await getCharacter(supabase, user.id);
   if (!character?.current_city_id) {
-    return NextResponse.json(
-      { error: "Character city is required before creating a business." },
-      { status: 400 }
-    );
+    return badRequest("Character city is required before creating a business.");
   }
 
   try {
@@ -84,9 +67,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ business }, { status: 201 });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to create business." },
-      { status: 400 }
-    );
+    return fail(error, "Failed to create business.");
   }
 }

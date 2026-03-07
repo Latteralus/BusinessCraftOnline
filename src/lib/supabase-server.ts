@@ -1,10 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { verifyCustomJwt } from "./auth-jwt";
+import { CUSTOM_SESSION_COOKIE_NAME } from "./session";
 
 export function createSupabaseServerClient() {
   const cookieStore = cookies();
-  const customToken = cookieStore.get("custom_session")?.value;
+  const customToken = cookieStore.get(CUSTOM_SESSION_COOKIE_NAME)?.value;
 
   const headers: Record<string, string> = {};
   if (customToken) {

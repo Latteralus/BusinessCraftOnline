@@ -1,5 +1,9 @@
 import { getCharacter, loginSchema } from "@/domains/auth-character";
 import { signCustomJwt } from "@/lib/auth-jwt";
+import {
+  CUSTOM_SESSION_COOKIE_NAME,
+  CUSTOM_SESSION_TTL_SECONDS,
+} from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -36,11 +40,12 @@ export async function POST(request: Request) {
     // they are already in the DB. We just sign a token.
     const token = await signCustomJwt(playerId);
 
-    cookies().set("custom_session", token, {
+    cookies().set(CUSTOM_SESSION_COOKIE_NAME, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: 60 * 60 * 24 * 7,
+      sameSite: "lax",
+      maxAge: CUSTOM_SESSION_TTL_SECONDS,
     });
 
     // Check if character exists using the newly minted JWT by injecting it

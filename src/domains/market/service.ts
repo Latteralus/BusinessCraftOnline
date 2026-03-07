@@ -1,5 +1,6 @@
 import { MARKET_TRANSACTION_FEE } from "@/config/market";
-import { getBusinessById } from "@/domains/businesses";
+import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
+import type { QueryClient } from "@/lib/db/query-client";
 import type {
   AdminEconomySummary,
   BuyMarketListingInput,
@@ -18,11 +19,6 @@ import type {
   TickRunLog,
   UpdateMarketStorefrontSettingsInput,
 } from "./types";
-
-type QueryClient = {
-  from: (table: string) => any;
-  rpc: (fn: string, args?: Record<string, unknown>) => any;
-};
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
@@ -97,12 +93,6 @@ function normalizeStorefrontSnapshot(
     traffic_multiplier: toNumber(row.traffic_multiplier),
     demand_multiplier: toNumber(row.demand_multiplier),
   };
-}
-
-async function ensureOwnedBusiness(client: QueryClient, playerId: string, businessId: string) {
-  const business = await getBusinessById(client, playerId, businessId);
-  if (!business) throw new Error("Business not found.");
-  return business;
 }
 
 async function getOwnedListing(client: QueryClient, playerId: string, listingId: string): Promise<MarketListing> {

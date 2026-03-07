@@ -1,16 +1,12 @@
 import {
   calculateTravelQuote,
   cancelTravel,
-  completeTravel,
   getActiveTravel,
   getCityById,
   startTravel,
   startTravelSchema,
 } from "@/domains/cities-travel";
-import {
-  getCharacter,
-  updateCharacterCity,
-} from "@/domains/auth-character";
+import { getCharacter } from "@/domains/auth-character";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
 
@@ -36,9 +32,26 @@ export async function GET() {
   let activeTravel = await getActiveTravel(supabase, user.id);
 
   if (activeTravel && hasArrived(activeTravel.arrives_at)) {
-    activeTravel = await completeTravel(supabase, user.id, activeTravel.id);
-    await updateCharacterCity(supabase, user.id, activeTravel.to_city_id);
-    activeTravel = null;
+    const { data: completion, error: completionError } = await supabase.rpc(
+      "execute_complete_active_travel_if_due"
+    );
+    if (completionError) {
+      return NextResponse.json(
+        { error: completionError.message || "Failed to complete travel arrival." },
+        { status: 500 }
+      );
+    }
+
+    const completedTravel =
+      completion && typeof completion === "object" && "travel" in completion
+        ? ((completion as { travel?: unknown }).travel as Record<string, unknown> | null)
+        : null;
+
+    if (completedTravel) {
+      activeTravel = null;
+    } else {
+      activeTravel = await getActiveTravel(supabase, user.id);
+    }
   }
 
   const freshCharacter = await getCharacter(supabase, user.id);
@@ -146,4 +159,3 @@ export async function DELETE() {
   const cancelledTravel = await cancelTravel(supabase, user.id, activeTravel.id);
   return NextResponse.json({ travel: cancelledTravel });
 }
-

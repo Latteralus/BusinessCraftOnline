@@ -9,6 +9,8 @@ import {
   type EmployeeStatus,
   type EmployeeType,
 } from "@/config/employees";
+import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
+import type { QueryClient } from "@/lib/db/query-client";
 import type {
   AssignEmployeeInput,
   Employee,
@@ -22,10 +24,6 @@ import type {
   ReactivateEmployeeInput,
   UnassignEmployeeInput,
 } from "./types";
-
-type QueryClient = {
-  from: (table: string) => any;
-};
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
@@ -66,15 +64,7 @@ async function ensureBusinessBelongsToPlayer(
   playerId: string,
   businessId: string
 ): Promise<void> {
-  const { data, error } = await client
-    .from("businesses")
-    .select("id")
-    .eq("id", businessId)
-    .eq("player_id", playerId)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) throw new Error("Business not found.");
+  await ensureOwnedBusiness(client, playerId, businessId);
 }
 
 export async function getPlayerEmployees(

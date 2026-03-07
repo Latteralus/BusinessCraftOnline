@@ -1,4 +1,5 @@
-import { createServerClient } from "@supabase/ssr";
+import { verifyCustomJwt } from "@/lib/auth-jwt";
+import { CUSTOM_SESSION_COOKIE_NAME } from "@/lib/session";
 import { NextResponse, type NextRequest } from "next/server";
 
 const AUTH_PATHS = ["/login", "/register"];
@@ -14,40 +15,15 @@ const PROTECTED_PATHS = [
   "/contracts",
   "/market",
 ];
-type CookieToSet = {
-  name: string;
-  value: string;
-  options?: Record<string, unknown>;
-};
-
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({
+  const response = NextResponse.next({
     request: {
       headers: request.headers,
     },
   });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet: CookieToSet[]) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set(name, value);
-            response.cookies.set(name, value, options as any);
-          });
-        },
-      },
-    }
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const customToken = request.cookies.get(CUSTOM_SESSION_COOKIE_NAME)?.value;
+  const payload = customToken ? await verifyCustomJwt(customToken) : null;
+  const isAuthenticated = Boolean(payload?.sub);
 
   const pathname = request.nextUrl.pathname;
   const isAuthPath = AUTH_PATHS.some((path) => pathname.startsWith(path));
@@ -55,14 +31,22 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith(path)
   );
 
-  if (!user && isProtectedPath) {
+  if (!isAuthenticated && isProtectedPath) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);
-    return NextResponse.redirect(loginUrl);
+    const redirectResponse = NextResponse.redirect(loginUrl);
+    if (customToken) {
+      redirectResponse.cookies.delete(CUSTOM_SESSION_COOKIE_NAME);
+    }
+    return redirectResponse;
   }
 
-  if (user && isAuthPath) {
+  if (isAuthenticated && isAuthPath) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
+  if (customToken && !isAuthenticated) {
+    response.cookies.delete(CUSTOM_SESSION_COOKIE_NAME);
   }
 
   return response;

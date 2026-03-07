@@ -1,5 +1,6 @@
 import { SHIPPING_COST_PER_UNIT_BY_TIER } from "@/config/cities";
 import { calculateTravelQuote, getCityById } from "@/domains/cities-travel";
+import { toNumber } from "@/lib/core/number";
 import type {
   BusinessInventoryItem,
   PersonalInventoryItem,
@@ -10,25 +11,8 @@ import type {
 
 type QueryClient = {
   from: (table: string) => any;
+  rpc: (fn: string, args?: Record<string, unknown>) => any;
 };
-
-function toNumber(value: number | string | null | undefined): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value);
-  return 0;
-}
-
-function shippingDestinationId(playerId: string, input: TransferItemsInput): string {
-  if (input.destinationType === "personal") {
-    return playerId;
-  }
-
-  if (!input.destinationBusinessId) {
-    throw new Error("Destination business id is required for business destination.");
-  }
-
-  return input.destinationBusinessId;
-}
 
 function normalizePersonalRow(row: PersonalInventoryItem): PersonalInventoryItem {
   return {
@@ -108,189 +92,6 @@ export async function getShippingQueue(
   return ((data as ShippingQueueItem[]) ?? []).map(normalizeShippingRow);
 }
 
-async function decreasePersonalInventory(
-  client: QueryClient,
-  playerId: string,
-  itemKey: string,
-  quality: number,
-  quantity: number
-) {
-  const { data, error } = await client
-    .from("personal_inventory")
-    .select("*")
-    .eq("player_id", playerId)
-    .eq("item_key", itemKey)
-    .eq("quality", quality)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) throw new Error("Source personal inventory item not found.");
-
-  const row = normalizePersonalRow(data as PersonalInventoryItem);
-  if (row.quantity < quantity) {
-    throw new Error("Insufficient quantity in personal inventory.");
-  }
-
-  const remaining = row.quantity - quantity;
-
-  if (remaining <= 0) {
-    const { error: deleteError } = await client
-      .from("personal_inventory")
-      .delete()
-      .eq("id", row.id)
-      .eq("player_id", playerId);
-
-    if (deleteError) throw deleteError;
-    return;
-  }
-
-  const { error: updateError } = await client
-    .from("personal_inventory")
-    .update({ quantity: remaining, updated_at: new Date().toISOString() })
-    .eq("id", row.id)
-    .eq("player_id", playerId);
-
-  if (updateError) throw updateError;
-}
-
-async function increasePersonalInventory(
-  client: QueryClient,
-  playerId: string,
-  itemKey: string,
-  quality: number,
-  quantity: number
-) {
-  const { data, error } = await client
-    .from("personal_inventory")
-    .select("*")
-    .eq("player_id", playerId)
-    .eq("item_key", itemKey)
-    .eq("quality", quality)
-    .maybeSingle();
-
-  if (error) throw error;
-
-  if (!data) {
-    const { error: insertError } = await client.from("personal_inventory").insert({
-      player_id: playerId,
-      item_key: itemKey,
-      quantity,
-      quality,
-    });
-
-    if (insertError) throw insertError;
-    return;
-  }
-
-  const row = normalizePersonalRow(data as PersonalInventoryItem);
-  const { error: updateError } = await client
-    .from("personal_inventory")
-    .update({ quantity: row.quantity + quantity, updated_at: new Date().toISOString() })
-    .eq("id", row.id)
-    .eq("player_id", playerId);
-
-  if (updateError) throw updateError;
-}
-
-async function decreaseBusinessInventory(
-  client: QueryClient,
-  playerId: string,
-  businessId: string,
-  itemKey: string,
-  quality: number,
-  quantity: number
-) {
-  const { data, error } = await client
-    .from("business_inventory")
-    .select("*")
-    .eq("owner_player_id", playerId)
-    .eq("business_id", businessId)
-    .eq("item_key", itemKey)
-    .eq("quality", quality)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) throw new Error("Source business inventory item not found.");
-
-  const row = normalizeBusinessRow(data as BusinessInventoryItem);
-  const available = row.quantity - row.reserved_quantity;
-
-  if (available < quantity) {
-    throw new Error("Insufficient available quantity in business inventory.");
-  }
-
-  const remaining = row.quantity - quantity;
-
-  if (remaining <= 0) {
-    const { error: deleteError } = await client
-      .from("business_inventory")
-      .delete()
-      .eq("id", row.id)
-      .eq("owner_player_id", playerId);
-
-    if (deleteError) throw deleteError;
-    return;
-  }
-
-  const reservedAfter = Math.min(row.reserved_quantity, remaining);
-  const { error: updateError } = await client
-    .from("business_inventory")
-    .update({
-      quantity: remaining,
-      reserved_quantity: reservedAfter,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", row.id)
-    .eq("owner_player_id", playerId);
-
-  if (updateError) throw updateError;
-}
-
-async function increaseBusinessInventory(
-  client: QueryClient,
-  playerId: string,
-  businessId: string,
-  cityId: string,
-  itemKey: string,
-  quality: number,
-  quantity: number
-) {
-  const { data, error } = await client
-    .from("business_inventory")
-    .select("*")
-    .eq("owner_player_id", playerId)
-    .eq("business_id", businessId)
-    .eq("item_key", itemKey)
-    .eq("quality", quality)
-    .maybeSingle();
-
-  if (error) throw error;
-
-  if (!data) {
-    const { error: insertError } = await client.from("business_inventory").insert({
-      owner_player_id: playerId,
-      business_id: businessId,
-      city_id: cityId,
-      item_key: itemKey,
-      quantity,
-      quality,
-      reserved_quantity: 0,
-    });
-
-    if (insertError) throw insertError;
-    return;
-  }
-
-  const row = normalizeBusinessRow(data as BusinessInventoryItem);
-  const { error: updateError } = await client
-    .from("business_inventory")
-    .update({ quantity: row.quantity + quantity, updated_at: new Date().toISOString() })
-    .eq("id", row.id)
-    .eq("owner_player_id", playerId);
-
-  if (updateError) throw updateError;
-}
-
 async function resolveShippingPlan(client: QueryClient, input: TransferItemsInput) {
   if (!input.sourceCityId || !input.destinationCityId) {
     throw new Error("Source and destination city ids are required for shipping decisions.");
@@ -330,84 +131,37 @@ export async function transferItems(
 ): Promise<TransferOutcome> {
   const shippingPlan = await resolveShippingPlan(client, input);
 
-  const sourceBusinessId = input.sourceBusinessId;
-  const destinationBusinessId = input.destinationBusinessId;
-
-  if (input.sourceType === "personal") {
-    await decreasePersonalInventory(client, playerId, input.itemKey, input.quality, input.quantity);
-  } else {
-    if (!sourceBusinessId) {
-      throw new Error("Source business id is required for business source.");
-    }
-
-    await decreaseBusinessInventory(
-      client,
-      playerId,
-      sourceBusinessId,
-      input.itemKey,
-      input.quality,
-      input.quantity
-    );
-  }
-
-  if (shippingPlan.transferType === "same_city") {
-    if (input.destinationType === "personal") {
-      await increasePersonalInventory(client, playerId, input.itemKey, input.quality, input.quantity);
-    } else {
-      if (!destinationBusinessId || !input.destinationCityId) {
-        throw new Error("Destination business and city are required for business destination.");
-      }
-
-      await increaseBusinessInventory(
-        client,
-        playerId,
-        destinationBusinessId,
-        input.destinationCityId,
-        input.itemKey,
-        input.quality,
-        input.quantity
-      );
-    }
-
-    return {
-      transferType: "same_city",
-      shippingQueueItem: null,
-      shippingCost: 0,
-      shippingMinutes: 0,
-    };
-  }
-
-  if (!input.sourceCityId || !input.destinationCityId) {
-    throw new Error("Source and destination city ids are required for cross-city shipping.");
-  }
-
-  const dispatchedAt = new Date();
-  const arrivesAt = new Date(dispatchedAt.getTime() + shippingPlan.shippingMinutes * 60_000);
-
-  const { data, error } = await client
-    .from("shipping_queue")
-    .insert({
-      owner_player_id: playerId,
-      from_city_id: input.sourceCityId,
-      to_city_id: input.destinationCityId,
-      item_key: input.itemKey,
-      quantity: input.quantity,
-      cost: shippingPlan.shippingCost,
-      dispatched_at: dispatchedAt.toISOString(),
-      arrives_at: arrivesAt.toISOString(),
-      destination_type: input.destinationType,
-      destination_id: shippingDestinationId(playerId, input),
-      status: "in_transit",
-    })
-    .select("*")
-    .single();
+  const { data, error } = await client.rpc("execute_inventory_transfer", {
+    p_source_type: input.sourceType,
+    p_source_business_id: input.sourceBusinessId ?? null,
+    p_source_city_id: input.sourceCityId ?? null,
+    p_destination_type: input.destinationType,
+    p_destination_business_id: input.destinationBusinessId ?? null,
+    p_destination_city_id: input.destinationCityId ?? null,
+    p_item_key: input.itemKey,
+    p_quality: input.quality,
+    p_quantity: input.quantity,
+    p_shipping_cost: shippingPlan.shippingCost,
+    p_shipping_minutes: shippingPlan.shippingMinutes,
+  });
 
   if (error) throw error;
 
+  const result = data as {
+    transferType?: "same_city" | "shipping";
+    shippingQueueItem?: ShippingQueueItem | null;
+    shippingCost?: number;
+    shippingMinutes?: number;
+  } | null;
+
+  if (!result?.transferType) {
+    throw new Error("Transfer did not return a valid result.");
+  }
+
   return {
-    transferType: "shipping",
-    shippingQueueItem: normalizeShippingRow(data as ShippingQueueItem),
-    shippingCost: shippingPlan.shippingCost,
-    shippingMinutes: shippingPlan.shippingMinutes,
+    transferType: result.transferType,
+    shippingQueueItem: result.shippingQueueItem ? normalizeShippingRow(result.shippingQueueItem) : null,
+    shippingCost: toNumber(result.shippingCost),
+    shippingMinutes: toNumber(result.shippingMinutes),
   };
 }

@@ -1,105 +1,28 @@
 // @ts-nocheck
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  NPC_CATEGORY_INTEREST_WEIGHTS,
+  NPC_DEMAND_CURVE,
+  NPC_PRICE_BAND_PERCENT,
+  NPC_PRICE_CEILINGS,
+  NPC_SHOPPERS_PER_SUBTICK_BASE,
+  NPC_SHOPPER_TIERS,
+  NPC_SUBTICKS_PER_TICK,
+  NPC_SUBTICK_SECONDS,
+  NPC_SUBTICK_VARIANCE,
+  STOREFRONT_AD_BUDGET_FOR_MAX_EFFECT,
+  STOREFRONT_AD_MAX_TRAFFIC_BOOST,
+  STOREFRONT_TRAFFIC_MULTIPLIER_MAX,
+  STOREFRONT_TRAFFIC_MULTIPLIER_MIN,
+} from "../../../shared/economy.ts";
 
 const STORE_TYPES = ["general_store", "specialty_store"] as const;
-const MARKET_TRANSACTION_FEE = 0.03;
-const NPC_SUBTICK_SECONDS = 30;
-const NPC_SUBTICKS_PER_TICK = 20;
-const NPC_SHOPPERS_PER_SUBTICK_BASE = 18;
-const NPC_SUBTICK_VARIANCE = 0.3;
-const NPC_PRICE_BAND_PERCENT = 0.05;
-const STOREFRONT_TRAFFIC_MULTIPLIER_MIN = 0.5;
-const STOREFRONT_TRAFFIC_MULTIPLIER_MAX = 3;
-const STOREFRONT_AD_BUDGET_FOR_MAX_EFFECT = 200;
-const STOREFRONT_AD_MAX_TRAFFIC_BOOST = 1;
-
-const NPC_DEMAND_CURVE = [
-  { startHour: 0, endHour: 5, multiplier: 0.3 },
-  { startHour: 6, endHour: 8, multiplier: 0.6 },
-  { startHour: 9, endHour: 11, multiplier: 1.0 },
-  { startHour: 12, endHour: 13, multiplier: 1.3 },
-  { startHour: 14, endHour: 16, multiplier: 0.85 },
-  { startHour: 17, endHour: 20, multiplier: 1.15 },
-  { startHour: 21, endHour: 23, multiplier: 0.5 },
-] as const;
-
-const NPC_SHOPPER_TIERS = [
-  {
-    key: "small",
-    label: "Small",
-    spawnWeight: 0.65,
-    budgetMin: 5,
-    budgetMax: 40,
-    maxItemsMin: 1,
-    maxItemsMax: 5,
-  },
-  {
-    key: "medium",
-    label: "Medium",
-    spawnWeight: 0.28,
-    budgetMin: 40,
-    budgetMax: 100,
-    maxItemsMin: 5,
-    maxItemsMax: 15,
-  },
-  {
-    key: "large",
-    label: "Large",
-    spawnWeight: 0.07,
-    budgetMin: 100,
-    budgetMax: 200,
-    maxItemsMin: 15,
-    maxItemsMax: 25,
-  },
-] as const;
-
-const NPC_CATEGORY_INTEREST_WEIGHTS: Record<string, number> = {
-  water: 1.4,
-  iron_ore: 1.3,
-  flour: 1.3,
-  chips: 1.2,
-  wheat: 1.1,
-  wood_plank: 1.1,
-  iron_bar: 1.1,
-  red_wine: 1.0,
-  chair: 0.9,
-  pickaxe: 0.8,
-  axe: 0.8,
-  drill_bit: 0.7,
-};
+const NPC_CATEGORY_INTEREST_WEIGHT_BY_ITEM = Object.fromEntries(
+  NPC_CATEGORY_INTEREST_WEIGHTS.map((entry) => [entry.itemKey, entry.weight])
+) as Record<string, number>;
 
 const SHOPPER_NAME_PREFIXES = ["Alex", "Jordan", "Taylor", "Morgan", "Casey", "Riley", "Jamie"];
 const SHOPPER_NAME_SUFFIXES = ["Stone", "Reed", "Baker", "Cole", "Hayes", "Fox", "Shaw"];
-
-const NPC_PRICE_CEILINGS: Record<string, number> = {
-  iron_ore: 2.0,
-  coal: 1.5,
-  copper_ore: 2.8,
-  gravel: 0.8,
-  crude_oil: 1.6,
-  raw_wood: 1.8,
-  water: 2.5,
-  wheat: 3.0,
-  potato: 2.2,
-  corn: 2.0,
-  red_grape: 2.5,
-  seeds: 0.8,
-  wood_plank: 1.2,
-  wood_handle: 5.5,
-  iron_bar: 5.0,
-  steel_bar: 8.0,
-  steel_beam: 35.0,
-  pickaxe: 28.0,
-  axe: 24.0,
-  drill_bit: 45.0,
-  chair: 45.0,
-  table: 120.0,
-  flour: 0.8,
-  chips: 0.7,
-  red_wine: 8.0,
-  whiskey: 10.0,
-  corn_whiskey: 9.0,
-};
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
@@ -125,14 +48,6 @@ function estimateStoreUnitPrice(
   const qualityFactor = 0.55 + (clampedQuality / 100) * 0.4;
   const variance = randBetweenWithRng(rng, 0.92, 1.08);
   return round2(Math.max(0.01, ceiling * qualityFactor * variance));
-}
-
-function calcListingAttempts(level: number): number {
-  return Math.max(1, Math.min(8, 1 + Math.floor(level * 0.6)));
-}
-
-function randBetween(min: number, max: number): number {
-  return min + Math.random() * (max - min);
 }
 
 function randBetweenWithRng(rng: () => number, min: number, max: number): number {
@@ -610,7 +525,7 @@ Deno.serve(async () => {
         const itemKeys = Array.from(new Set(activeRows.map((row) => String(row.item_key))));
         const targetItemKey = pickWeighted(
           itemKeys,
-          (key) => NPC_CATEGORY_INTEREST_WEIGHTS[key] ?? 0.5,
+          (key) => NPC_CATEGORY_INTEREST_WEIGHT_BY_ITEM[key] ?? 0.5,
           seededRng
         );
 
