@@ -78,8 +78,22 @@ export default function BusinessDetailsClient({ business, production, manufactur
     }
   }, [initialTab]);
 
-  const getAssignmentForBusiness = (employee: Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] }) =>
-    employee.employee_assignments?.find((assignment) => assignment.business_id === business.id);
+  const getAssignments = (
+    employee: Employee & {
+      employee_assignments?: (EmployeeAssignment & { business: Business })[] | (EmployeeAssignment & { business: Business }) | null;
+    }
+  ): (EmployeeAssignment & { business: Business })[] => {
+    const raw = employee.employee_assignments;
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === "object") return [raw];
+    return [];
+  };
+
+  const getAssignmentForBusiness = (
+    employee: Employee & {
+      employee_assignments?: (EmployeeAssignment & { business: Business })[] | (EmployeeAssignment & { business: Business }) | null;
+    }
+  ) => getAssignments(employee).find((assignment) => assignment.business_id === business.id);
 
   // Employees tied to this business either by active assignment row or employer business ownership.
   const thisBusinessEmployees = employees.filter(
@@ -624,7 +638,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
             {employees && employees.length > 0 ? (
               <div style={{ display: "grid", gap: 12 }}>
                 {employees.map((e) => {
-                  const assignment = getAssignmentForBusiness(e) ?? e.employee_assignments?.[0];
+                  const assignment = getAssignmentForBusiness(e) ?? getAssignments(e)[0];
                   return (
                     <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 12, background: "var(--bg-primary)", borderRadius: 8, flexWrap: "wrap", gap: 12 }}>
                       <div>
