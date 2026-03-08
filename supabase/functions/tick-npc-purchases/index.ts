@@ -174,6 +174,7 @@ async function settleStoreInventorySale(
     quantity: number | string;
     reserved_quantity: number | string;
     city_id: string;
+    business_name?: string;
   },
   unitPrice: number,
   soldQty: number,
@@ -228,7 +229,9 @@ async function settleStoreInventorySale(
     buyer_player_id: null,
     buyer_type: "npc",
     seller_business_id: inventoryRow.business_id,
+    seller_business_name: inventoryRow.business_name ?? "Unknown Business",
     buyer_business_id: null,
+    buyer_business_name: null,
     city_id: inventoryRow.city_id,
     item_key: inventoryRow.item_key,
     quality: Math.max(1, Math.min(100, toNumber(inventoryRow.quality))),
@@ -345,7 +348,7 @@ Deno.serve(async () => {
     const { data: stores, error: storesError } =
       await supabase
         .from("businesses")
-        .select("id, player_id, type, city_id")
+        .select("id, name, player_id, type, city_id")
         .in("type", [...STORE_TYPES]);
 
     if (storesError) {
@@ -464,6 +467,7 @@ Deno.serve(async () => {
     const availableRows = (inventoryRows ?? [])
       .map((row) => ({
         ...row,
+        business_name: String(store.name ?? "Unknown Business"),
         unit_price: estimateStoreUnitPrice(
           String(row.item_key),
           Number(row.quality),

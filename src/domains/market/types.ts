@@ -29,7 +29,9 @@ export type MarketTransaction = {
   buyer_player_id: string | null;
   buyer_type: "player" | "npc";
   seller_business_id: string;
+  seller_business_name: string | null;
   buyer_business_id: string | null;
+  buyer_business_name: string | null;
   city_id: string;
   item_key: string;
   quality: number;

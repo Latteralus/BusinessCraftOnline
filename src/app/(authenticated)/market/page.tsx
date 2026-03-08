@@ -76,7 +76,9 @@ export default function MarketPage() {
       line: `[${toTime(tx.created_at)}] ${
         tx.buyer_type === "npc" ? tx.shopper_name ?? "NPC shopper" : "A player"
       } bought ${tx.quantity} ${tx.item_key.replace(/_/g, " ")} from ${
-        businessNameById.get(tx.seller_business_id) ?? `business ${tx.seller_business_id.slice(0, 8)}`
+        tx.seller_business_name ??
+        businessNameById.get(tx.seller_business_id) ??
+        `business ${tx.seller_business_id.slice(0, 8)}`
       }`,
     }));
 

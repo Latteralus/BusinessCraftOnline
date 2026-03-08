@@ -26,6 +26,7 @@ declare
   v_fee numeric(14, 2);
   v_net numeric(14, 2);
   v_buyer_balance numeric;
+  v_seller_business_name text;
   v_tx public.market_transactions%rowtype;
 begin
   if v_buyer_player_id is null then
@@ -75,6 +76,12 @@ begin
   v_gross := round((v_listing.unit_price * p_quantity)::numeric, 2);
   v_fee := round((v_gross * 0.03)::numeric, 2);
   v_net := round((v_gross - v_fee)::numeric, 2);
+  v_seller_business_name := null;
+
+  select name
+  into v_seller_business_name
+  from public.businesses
+  where id = v_listing.source_business_id;
 
   select public.get_business_account_balance(p_buyer_business_id)
   into v_buyer_balance;
@@ -208,7 +215,9 @@ begin
     buyer_player_id,
     buyer_type,
     seller_business_id,
+    seller_business_name,
     buyer_business_id,
+    buyer_business_name,
     city_id,
     item_key,
     quality,
@@ -224,7 +233,9 @@ begin
     v_buyer_player_id,
     'player',
     v_listing.source_business_id,
+    coalesce(v_seller_business_name, 'Unknown Business'),
     p_buyer_business_id,
+    coalesce(v_buyer_business.name, 'Unknown Business'),
     v_listing.city_id,
     v_listing.item_key,
     v_listing.quality,
@@ -244,4 +255,3 @@ end;
 $$;
 
 grant execute on function public.execute_market_purchase(uuid, integer, uuid) to authenticated;
-

@@ -166,10 +166,11 @@ Deno.serve(async () => {
       .maybeSingle();
 
     if (!assignment) {
-      await supabase
+      const { error: workerFlagError } = await supabase
         .from("manufacturing_jobs")
         .update({ worker_assigned: false, updated_at: new Date().toISOString() })
         .eq("id", job.id);
+      if (workerFlagError) throw workerFlagError;
       continue;
     }
 
@@ -180,10 +181,11 @@ Deno.serve(async () => {
       .maybeSingle();
 
     if (!employee || employee.status === "fired" || employee.status === "unpaid") {
-      await supabase
+      const { error: workerFlagError } = await supabase
         .from("manufacturing_jobs")
         .update({ worker_assigned: false, updated_at: new Date().toISOString() })
         .eq("id", job.id);
+      if (workerFlagError) throw workerFlagError;
       continue;
     }
 
@@ -211,10 +213,11 @@ Deno.serve(async () => {
     }
 
     if (!canProduce) {
-      await supabase
+      const { error: workerFlagError } = await supabase
         .from("manufacturing_jobs")
         .update({ worker_assigned: true, updated_at: new Date().toISOString() })
         .eq("id", job.id);
+      if (workerFlagError) throw workerFlagError;
       continue;
     }
 
@@ -224,10 +227,11 @@ Deno.serve(async () => {
       const nextQty = row.quantity - input.quantity;
 
       if (nextQty <= 0) {
-        await supabase.from("business_inventory").delete().eq("id", row.id);
+        const { error: deleteError } = await supabase.from("business_inventory").delete().eq("id", row.id);
+        if (deleteError) throw deleteError;
       } else {
         const nextReserved = Math.min(row.reserved_quantity, nextQty);
-        await supabase
+        const { error: updateError } = await supabase
           .from("business_inventory")
           .update({
             quantity: nextQty,
@@ -235,6 +239,7 @@ Deno.serve(async () => {
             updated_at: new Date().toISOString(),
           })
           .eq("id", row.id);
+        if (updateError) throw updateError;
       }
     }
 
@@ -273,31 +278,15 @@ Deno.serve(async () => {
       Math.min(100, Math.round(skillLevel * 0.8 + qualityLevel * 5 + (Math.random() * 10 - 5)))
     );
 
-    const { data: existingOutput } = await supabase
-      .from("business_inventory")
-      .select("id, quantity")
-      .eq("owner_player_id", business.player_id)
-      .eq("business_id", business.id)
-      .eq("item_key", recipeOutput.itemKey)
-      .eq("quality", quality)
-      .maybeSingle();
-
-    if (!existingOutput) {
-      await supabase.from("business_inventory").insert({
-        owner_player_id: business.player_id,
-        business_id: business.id,
-        city_id: business.city_id,
-        item_key: recipeOutput.itemKey,
-        quantity: outputQty,
-        quality,
-        reserved_quantity: 0,
-      });
-    } else {
-      await supabase
-        .from("business_inventory")
-        .update({ quantity: Number(existingOutput.quantity) + outputQty, updated_at: new Date().toISOString() })
-        .eq("id", existingOutput.id);
-    }
+    const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
+      p_owner_player_id: business.player_id,
+      p_business_id: business.id,
+      p_city_id: business.city_id,
+      p_item_key: recipeOutput.itemKey,
+      p_quality: quality,
+      p_quantity: outputQty,
+    });
+    if (addInventoryError) throw addInventoryError;
 
     if (skill) {
       let nextXp = Number(skill.xp) + XP_PER_TICK;
@@ -307,13 +296,14 @@ Deno.serve(async () => {
         nextLevel += 1;
       }
 
-      await supabase
+      const { error: skillUpdateError } = await supabase
         .from("employee_skills")
         .update({ level: nextLevel, xp: nextXp, updated_at: new Date().toISOString() })
         .eq("id", skill.id);
+      if (skillUpdateError) throw skillUpdateError;
     }
 
-    await supabase
+    const { error: jobUpdateError } = await supabase
       .from("manufacturing_jobs")
       .update({
         worker_assigned: true,
@@ -321,6 +311,7 @@ Deno.serve(async () => {
         updated_at: new Date().toISOString(),
       })
       .eq("id", job.id);
+    if (jobUpdateError) throw jobUpdateError;
 
     processed += 1;
     producedTotal += outputQty;
@@ -336,10 +327,11 @@ Deno.serve(async () => {
     .lt("expires_at", nowIso);
 
   for (const contract of expiredContracts ?? []) {
-    await supabase
+    const { error: expireError } = await supabase
       .from("contracts")
       .update({ status: "expired", updated_at: nowIso })
       .eq("id", contract.id);
+    if (expireError) throw expireError;
     contractsExpired += 1;
   }
 
@@ -351,10 +343,11 @@ Deno.serve(async () => {
 
   for (const contract of activeContracts ?? []) {
     if (contract.due_at && new Date(contract.due_at).getTime() <= Date.now()) {
-      await supabase
+      const { error: expireError } = await supabase
         .from("contracts")
         .update({ status: "expired", updated_at: nowIso })
         .eq("id", contract.id);
+      if (expireError) throw expireError;
       contractsExpired += 1;
       continue;
     }
@@ -386,16 +379,17 @@ Deno.serve(async () => {
     );
 
     if (!consumed) {
-      await supabase
+      const { error: inProgressError } = await supabase
         .from("contracts")
         .update({ status: "in_progress", updated_at: nowIso })
         .eq("id", contract.id);
+      if (inProgressError) throw inProgressError;
       continue;
     }
 
     const payout = Number((requiredQty * toNumber(contract.unit_price)).toFixed(2));
 
-    await supabase.from("business_accounts").insert({
+    const { error: payoutError } = await supabase.from("business_accounts").insert({
       business_id: contract.business_id,
       amount: payout,
       entry_type: "credit",
@@ -403,8 +397,9 @@ Deno.serve(async () => {
       reference_id: contract.id,
       description: `Contract payout: ${requiredQty}x ${contract.item_key}`,
     });
+    if (payoutError) throw payoutError;
 
-    await supabase
+    const { error: fulfillError } = await supabase
       .from("contracts")
       .update({
         delivered_quantity: toNumber(contract.required_quantity),
@@ -413,6 +408,7 @@ Deno.serve(async () => {
         updated_at: nowIso,
       })
       .eq("id", contract.id);
+    if (fulfillError) throw fulfillError;
 
     contractsFulfilled += 1;
   }

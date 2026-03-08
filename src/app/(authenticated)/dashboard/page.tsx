@@ -1,6 +1,6 @@
 import { getCharacter, getPlayer } from "@/domains/auth-character";
 import { getBankingSnapshot } from "@/domains/banking";
-import { getBusinessSummary } from "@/domains/businesses";
+import { getBusinessesWithBalances, getBusinessSummary } from "@/domains/businesses";
 import { getActiveTravel, getCityById } from "@/domains/cities-travel";
 import { getEmployeeSummary } from "@/domains/employees";
 import {
@@ -10,7 +10,7 @@ import {
   getStorefrontPerformanceSummary,
   getTickHealthSummary,
 } from "@/domains/market";
-import { EXTRACTION_OUTPUT_ITEM_BY_BUSINESS, EXTRACTION_UPGRADE_KEY_BY_BUSINESS, getManufacturingRecipeByKey } from "@/config/production";
+import { EXTRACTION_OUTPUT_ITEM_BY_BUSINESS, getManufacturingRecipeByKey } from "@/config/production";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { CUSTOM_SESSION_COOKIE_NAME } from "@/lib/session";
 import Link from "next/link";
@@ -54,6 +54,17 @@ function getProgressPercent(lastTickAt: string | null | undefined, intervalSecon
   return Math.max(0, Math.min(100, (elapsedMs / (intervalSeconds * 1000)) * 100));
 }
 
+function getBusinessIcon(type: string): string {
+  if (type.includes("mine")) return "⛏️";
+  if (type.includes("farm")) return "🌾";
+  if (type.includes("water")) return "💧";
+  if (type.includes("store")) return "🏪";
+  if (type.includes("factory")) return "🏭";
+  if (type.includes("workshop")) return "🛠️";
+  if (type.includes("well")) return "🛢️";
+  return "🏢";
+}
+
 export default async function DashboardPage() {
   const supabase = createSupabaseServerClient();
   const {
@@ -86,14 +97,9 @@ export default async function DashboardPage() {
 
   const bankingSnapshot = await getBankingSnapshot(supabase, user.id).catch(() => null);
   const businessSummary = await getBusinessSummary(supabase, user.id).catch(() => null);
+  const businessesWithBalances = await getBusinessesWithBalances(supabase, user.id).catch(() => []);
   const employeeSummary = await getEmployeeSummary(supabase, user.id).catch(() => null);
-  const marketTransactions = await getMarketTransactions(supabase, user.id, 12).catch(() => []);
-  const { data: postedListings } = await supabase
-    .from("market_listings")
-    .select("id, source_business_id, item_key, quantity, unit_price, created_at")
-    .eq("owner_player_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(12);
+  const marketTransactions = await getMarketTransactions(supabase, user.id, 20).catch(() => []);
   const storefrontSettings = await getMarketStorefrontSettings(supabase, user.id).catch(() => []);
   const tickHealth = await getTickHealthSummary(supabase, 24).catch(() => null);
   const storefrontPerformance = await getStorefrontPerformanceSummary(supabase, user.id, 24).catch(() => null);
@@ -134,59 +140,42 @@ export default async function DashboardPage() {
 
   const mfgJobs = (mfgRes.data ?? []) as Array<any>;
   const extSlots = (extRes.data ?? []) as Array<any>;
-  const activeMfgJob = mfgJobs.find((job) => job.status === "active" && job.active_recipe_key && job.worker_assigned);
-  const fallbackMfgJob = mfgJobs.find((job) => job.active_recipe_key);
-  const activeExtSlot = extSlots.find((slot) => slot.status === "active" && slot.employee_id);
-  const fallbackExtSlot = extSlots.find((slot) => slot.employee_id || slot.status !== "idle");
-  let activeOperation = null;
-
-  try {
-    const chosenMfg = activeMfgJob ?? fallbackMfgJob ?? null;
-    const chosenExt = chosenMfg ? null : activeExtSlot ?? fallbackExtSlot ?? null;
-
-    if (chosenMfg || chosenExt) {
-      const activeBizId = chosenMfg ? chosenMfg.business_id : chosenExt.business_id;
-      const { data: upgrades } = await supabase
-        .from("business_upgrades")
-        .select("*")
-        .eq("business_id", activeBizId);
-
-      if (chosenMfg) {
-        const recipe = getManufacturingRecipeByKey(chosenMfg.active_recipe_key);
-        const effUpgrade = upgrades?.find((u) => u.upgrade_key === "production_efficiency")?.level || 0;
-        const outputQty = Math.floor((recipe?.baseOutputQuantity || 1) * Math.pow(1.1, effUpgrade));
-        const running = chosenMfg.status === "active" && Boolean(chosenMfg.active_recipe_key) && Boolean(chosenMfg.worker_assigned);
-        activeOperation = {
-          type: "manufacturing",
-          name: chosenMfg.business?.name || "Unknown Business",
-          businessId: activeBizId,
-          detail: recipe ? `${recipe.displayName} x${outputQty}/tick` : "Producing",
+  const activeOperations = [
+    ...mfgJobs
+      .filter((job) => Boolean(job.active_recipe_key) || job.status === "active")
+      .map((job) => {
+        const recipe = job.active_recipe_key ? getManufacturingRecipeByKey(job.active_recipe_key) : null;
+        const running = job.status === "active" && Boolean(job.active_recipe_key) && Boolean(job.worker_assigned);
+        return {
+          id: `mfg-${job.id}`,
+          businessId: String(job.business_id),
+          name: job.business?.name || "Unknown Business",
+          detail: recipe ? recipe.displayName : "Manufacturing",
           running,
-          statusLabel: toTitleLabel(chosenMfg.status),
-          progressPercent: getProgressPercent(chosenMfg.last_tick_at, 10 * 60, running),
+          statusLabel: toTitleLabel(String(job.status)),
+          progressPercent: getProgressPercent(job.last_tick_at, 10 * 60, running),
+          createdAt: String(job.updated_at ?? job.last_tick_at ?? new Date(0).toISOString()),
         };
-      } else if (chosenExt) {
-        const type = chosenExt.business?.type as keyof typeof EXTRACTION_UPGRADE_KEY_BY_BUSINESS;
-        const upgradeKey = EXTRACTION_UPGRADE_KEY_BY_BUSINESS[type] || "extraction_efficiency";
-        const effUpgrade = upgrades?.find((u) => u.upgrade_key === upgradeKey)?.level || 0;
-        const outputQty = Math.max(1, Math.round(1 * Math.pow(1.1, effUpgrade)));
+      }),
+    ...extSlots
+      .filter((slot) => slot.status !== "idle" || Boolean(slot.employee_id))
+      .map((slot) => {
+        const type = slot.business?.type as keyof typeof EXTRACTION_OUTPUT_ITEM_BY_BUSINESS;
         const itemKey = type ? EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[type] || "Unknown" : "Unknown";
-        const running = chosenExt.status === "active" && Boolean(chosenExt.employee_id);
-
-        activeOperation = {
-          type: "extraction",
-          name: chosenExt.business?.name || "Unknown Business",
-          businessId: activeBizId,
-          detail: `${itemKey.replace(/_/g, " ")} x${outputQty}/tick (Slot #${chosenExt.slot_number})`,
+        const running = slot.status === "active" && Boolean(slot.employee_id);
+        return {
+          id: `ext-${slot.id}`,
+          businessId: String(slot.business_id),
+          name: slot.business?.name || "Unknown Business",
+          detail: `${String(itemKey).replace(/_/g, " ")} (Slot #${slot.slot_number})`,
           running,
-          statusLabel: toTitleLabel(chosenExt.status),
-          progressPercent: getProgressPercent(chosenExt.last_extracted_at, 60, running),
+          statusLabel: toTitleLabel(String(slot.status)),
+          progressPercent: getProgressPercent(slot.last_extracted_at, 60, running),
+          createdAt: String(slot.updated_at ?? slot.last_extracted_at ?? new Date(0).toISOString()),
         };
-      }
-    }
-  } catch (err) {
-    console.error("Error computing active operation:", err);
-  }
+      }),
+  ]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const inTransitShippingCount = res1?.count ?? 0;
   const dueShippingCount = res2?.count ?? 0;
@@ -215,7 +204,6 @@ export default async function DashboardPage() {
 
   const feedBusinessIds = Array.from(
     new Set([
-      ...(postedListings ?? []).map((row) => String(row.source_business_id)),
       ...marketTransactions.map((tx) => tx.seller_business_id),
       ...marketTransactions.map((tx) => tx.buyer_business_id).filter((id): id is string => Boolean(id)),
     ])
@@ -228,37 +216,31 @@ export default async function DashboardPage() {
 
   const businessNameById = new Map(((feedBusinesses as Array<{ id: string; name: string }>) ?? []).map((b) => [b.id, b.name]));
 
-  const marketFeed = [
-    ...((postedListings ?? []).map((row) => {
-      const businessName =
-        businessNameById.get(String(row.source_business_id)) ?? `Business ${String(row.source_business_id).slice(0, 8)}`;
-      const itemName = String(row.item_key).replace(/_/g, " ");
-      return {
-        id: `listing-${row.id}`,
-        createdAt: String(row.created_at),
-        line: `[${formatTimeAgo(String(row.created_at))}] ${businessName} posted ${row.quantity} ${itemName} at $${Number(
-          row.unit_price
-        ).toFixed(2)}`,
-      };
-    }) ?? []),
-    ...marketTransactions.map((tx) => {
+  const marketFeed = marketTransactions
+    .map((tx) => {
       const itemName = tx.item_key.replace(/_/g, " ");
-      const sellerName = businessNameById.get(tx.seller_business_id) ?? `Business ${tx.seller_business_id.slice(0, 8)}`;
+      const sellerName =
+        tx.seller_business_name ??
+        businessNameById.get(tx.seller_business_id) ??
+        `Business ${tx.seller_business_id.slice(0, 8)}`;
       const buyerName =
         tx.buyer_type === "npc"
           ? tx.shopper_name ?? "NPC shopper"
           : tx.buyer_business_id
-          ? businessNameById.get(tx.buyer_business_id) ?? `Business ${tx.buyer_business_id.slice(0, 8)}`
+          ? tx.buyer_business_name ??
+            businessNameById.get(tx.buyer_business_id) ??
+            `Business ${tx.buyer_business_id.slice(0, 8)}`
           : "A player";
       return {
         id: `tx-${tx.id}`,
         createdAt: tx.created_at,
         line: `[${formatTimeAgo(tx.created_at)}] ${buyerName} bought ${tx.quantity} ${itemName} from ${sellerName}`,
       };
-    }),
-  ]
+    })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 8);
+    .slice(0, 5);
+
+  const businessList = [...businessesWithBalances].sort((a, b) => b.balance - a.balance);
 
   // Helpers for UI
   const pocketBalance = pocketCashAccount ? pocketCashAccount.balance : 0;
@@ -365,19 +347,23 @@ export default async function DashboardPage() {
               </div>
               <Link href="/businesses" className="card-action">View All →</Link>
             </div>
-            <div className="card-body">
-              {businessSummary?.topBusiness ? (
-                <Link href={`/businesses/${businessSummary.topBusiness.id}`} className="biz-item" style={{ textDecoration: 'none' }}>
-                  <div className="biz-icon" style={{ background: "var(--accent-amber-dim)", color: "var(--accent-amber)" }}>⛏️</div>
-                  <div className="biz-info">
-                    <div className="biz-name">{businessSummary.topBusiness.name}</div>
-                    <div className="biz-meta">Top Earning Business</div>
-                  </div>
-                  <div className="biz-status">
-                    <span className="status-badge status-producing">Producing</span>
-                    <span className="biz-profit">${businessSummary.topBusiness.balance.toFixed(2)}</span>
-                  </div>
-                </Link>
+            <div className="card-body card-body-scroll">
+              {businessList.length > 0 ? (
+                businessList.map((business) => (
+                  <Link href={`/businesses/${business.id}`} key={business.id} className="biz-item" style={{ textDecoration: "none" }}>
+                    <div className="biz-icon" style={{ background: "var(--accent-amber-dim)", color: "var(--accent-amber)" }}>
+                      {getBusinessIcon(business.type)}
+                    </div>
+                    <div className="biz-info">
+                      <div className="biz-name">{business.name}</div>
+                      <div className="biz-meta">{business.type.replace(/_/g, " ")}</div>
+                    </div>
+                    <div className="biz-status">
+                      <span className="status-badge status-producing">Active</span>
+                      <span className="biz-profit">${business.balance.toFixed(2)}</span>
+                    </div>
+                  </Link>
+                ))
               ) : (
                 <p style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>No active businesses yet.</p>
               )}
@@ -392,38 +378,44 @@ export default async function DashboardPage() {
               </div>
               <Link href="/businesses" className="card-action">Manage →</Link>
             </div>
-            <div className="card-body">
-              {activeOperation ? (
-                <Link href={`/businesses/${activeOperation.businessId}?tab=operations`} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
-                  <div className="mfg-item" style={{ cursor: "pointer", transition: "transform 0.2s" }}>
-                    <div className="mfg-top">
-                      <div className="mfg-name">{activeOperation.name}</div>
-                      <div className="mfg-recipe" style={{ textTransform: "capitalize" }}>{activeOperation.detail}</div>
-                    </div>
-                    <div className="mfg-bar-track">
-                      <div
-                        className={`mfg-bar-fill ${activeOperation.running ? "anim-pulse" : ""}`}
-                        style={{
-                          width: `${activeOperation.progressPercent.toFixed(0)}%`,
-                          background: activeOperation.running ? "var(--accent-green)" : "var(--accent-red)",
-                        }}
-                      ></div>
-                    </div>
-                    <div className="mfg-bottom">
-                      <div className="mfg-inputs">
-                        <span className={`input-chip ${activeOperation.running ? "input-filled" : "input-empty"}`}>
-                          Status: {activeOperation.statusLabel}
-                        </span>
+            <div className="card-body card-body-scroll">
+              {activeOperations.length > 0 ? (
+                activeOperations.map((op) => (
+                  <Link
+                    href={`/businesses/${op.businessId}?tab=operations`}
+                    key={op.id}
+                    style={{ textDecoration: "none", color: "inherit", display: "block" }}
+                  >
+                    <div className="mfg-item" style={{ cursor: "pointer", transition: "transform 0.2s" }}>
+                      <div className="mfg-top">
+                        <div className="mfg-name">{op.name}</div>
+                        <div className="mfg-recipe" style={{ textTransform: "capitalize" }}>{op.detail}</div>
                       </div>
-                      <div
-                        className="mfg-countdown"
-                        style={{ color: activeOperation.running ? "var(--accent-green)" : "var(--accent-red)" }}
-                      >
-                        {activeOperation.running ? "Running" : "Not Producing"}
+                      <div className="mfg-bar-track">
+                        <div
+                          className={`mfg-bar-fill ${op.running ? "anim-pulse" : ""}`}
+                          style={{
+                            width: `${op.progressPercent.toFixed(0)}%`,
+                            background: op.running ? "var(--accent-green)" : "var(--accent-red)",
+                          }}
+                        ></div>
+                      </div>
+                      <div className="mfg-bottom">
+                        <div className="mfg-inputs">
+                          <span className={`input-chip ${op.running ? "input-filled" : "input-empty"}`}>
+                            Status: {op.statusLabel}
+                          </span>
+                        </div>
+                        <div
+                          className="mfg-countdown"
+                          style={{ color: op.running ? "var(--accent-green)" : "var(--accent-red)" }}
+                        >
+                          {op.running ? "Running" : "Not Producing"}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </Link>
+                  </Link>
+                ))
               ) : (
                 <div className="mfg-item" style={{ opacity: 0.5 }}>
                   <div className="mfg-top">

@@ -624,6 +624,10 @@ th {
   }
   .card-action:hover { border-color: var(--border-medium); color: var(--text-secondary); }
   .card-body { padding: 14px 18px 16px; }
+  .card-body-scroll {
+    max-height: 320px;
+    overflow-y: auto;
+  }
 
   /* ───── BUSINESSES CARD ───── */
   .biz-item {

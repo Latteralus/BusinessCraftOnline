@@ -95,6 +95,12 @@ function normalizeStorefrontSnapshot(
   };
 }
 
+async function getBusinessNameSafe(client: QueryClient, businessId: string | null | undefined): Promise<string | null> {
+  if (!businessId) return null;
+  const { data } = await client.from("businesses").select("name").eq("id", businessId).maybeSingle();
+  return data?.name ? String(data.name) : null;
+}
+
 async function getOwnedListing(client: QueryClient, playerId: string, listingId: string): Promise<MarketListing> {
   const { data, error } = await client
     .from("market_listings")
@@ -199,6 +205,8 @@ async function settleSaleAccounting(
   const gross = Number((listing.unit_price * soldQuantity).toFixed(2));
   const fee = Number((gross * MARKET_TRANSACTION_FEE).toFixed(2));
   const net = Number((gross - fee).toFixed(2));
+  const sellerBusinessName = await getBusinessNameSafe(client, listing.source_business_id);
+  const buyerBusinessName = buyerType === "player" ? await getBusinessNameSafe(client, buyerBusinessId) : null;
 
   const { error: ledgerError } = await client.from("business_accounts").insert([
     {
@@ -264,7 +272,9 @@ async function settleSaleAccounting(
       buyer_player_id: buyerPlayerId,
       buyer_type: buyerType,
       seller_business_id: listing.source_business_id,
+      seller_business_name: sellerBusinessName,
       buyer_business_id: buyerBusinessId,
+      buyer_business_name: buyerBusinessName,
       city_id: listing.city_id,
       item_key: listing.item_key,
       quality: listing.quality,

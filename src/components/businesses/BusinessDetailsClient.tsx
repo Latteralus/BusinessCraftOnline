@@ -78,12 +78,20 @@ export default function BusinessDetailsClient({ business, production, manufactur
     }
   }, [initialTab]);
 
-  // Find employees that are assigned to this business as production workers
-  // but are not currently assigned to any slot.
-  const thisBusinessEmployees = employees.filter(e => e.employee_assignments?.[0]?.business_id === business.id);
+  const getAssignmentForBusiness = (employee: Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] }) =>
+    employee.employee_assignments?.find((assignment) => assignment.business_id === business.id);
+
+  // Employees tied to this business either by active assignment row or employer business ownership.
+  const thisBusinessEmployees = employees.filter(
+    (employee) =>
+      Boolean(getAssignmentForBusiness(employee)) || employee.employer_business_id === business.id
+  );
   const availableEmployees = employees.filter(e => e.status === "available");
   const availableWorkersForSlots = thisBusinessEmployees
-    .filter(e => e.employee_assignments?.[0]?.role === "production" && !production?.slots?.some(s => s.employee_id === e.id));
+    .filter((employee) => {
+      const assignment = getAssignmentForBusiness(employee);
+      return assignment?.role === "production" && !production?.slots?.some((slot) => slot.employee_id === employee.id);
+    });
 
   async function assignSlot(slotId: string) {
     const employeeId = assignSelections[slotId];
@@ -600,18 +608,23 @@ export default function BusinessDetailsClient({ business, production, manufactur
               </div>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                 <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Total Wages Per Tick</div>
-                <div>${employees.reduce((sum, e) => sum + (e.employee_assignments?.[0]?.wage_per_hour || 0), 0).toFixed(2)}</div>
+                <div>${employees.reduce((sum, employee) => sum + (employee.wage_per_hour || 0), 0).toFixed(2)}</div>
               </div>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                 <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>This Business Wages Per Tick</div>
-                <div>${thisBusinessEmployees.reduce((sum, e) => sum + (e.employee_assignments?.[0]?.wage_per_hour || 0), 0).toFixed(2)}</div>
+                <div>
+                  $
+                  {thisBusinessEmployees
+                    .reduce((sum, employee) => sum + (getAssignmentForBusiness(employee)?.wage_per_hour ?? employee.wage_per_hour ?? 0), 0)
+                    .toFixed(2)}
+                </div>
               </div>
             </div>
 
             {employees && employees.length > 0 ? (
               <div style={{ display: "grid", gap: 12 }}>
                 {employees.map((e) => {
-                  const assignment = e.employee_assignments?.[0];
+                  const assignment = getAssignmentForBusiness(e) ?? e.employee_assignments?.[0];
                   return (
                     <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 12, background: "var(--bg-primary)", borderRadius: 8, flexWrap: "wrap", gap: 12 }}>
                       <div>

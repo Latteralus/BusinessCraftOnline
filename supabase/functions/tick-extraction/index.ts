@@ -56,10 +56,11 @@ async function failSlot(
   slotId: string,
   status: "idle" | "resting" | "tool_broken"
 ) {
-  await supabase
+  const { error } = await supabase
     .from("extraction_slots")
     .update({ status, updated_at: new Date().toISOString() })
     .eq("id", slotId);
+  if (error) throw error;
 }
 
 async function consumeFarmInputs(
@@ -92,22 +93,26 @@ async function consumeFarmInputs(
 
   const nextWater = Number(water.quantity) - 1;
   if (nextWater <= 0) {
-    await supabase.from("business_inventory").delete().eq("id", water.id);
+    const { error } = await supabase.from("business_inventory").delete().eq("id", water.id);
+    if (error) throw error;
   } else {
-    await supabase
+    const { error } = await supabase
       .from("business_inventory")
       .update({ quantity: nextWater, updated_at: new Date().toISOString() })
       .eq("id", water.id);
+    if (error) throw error;
   }
 
   const nextSeeds = Number(seeds.quantity) - 1;
   if (nextSeeds <= 0) {
-    await supabase.from("business_inventory").delete().eq("id", seeds.id);
+    const { error } = await supabase.from("business_inventory").delete().eq("id", seeds.id);
+    if (error) throw error;
   } else {
-    await supabase
+    const { error } = await supabase
       .from("business_inventory")
       .update({ quantity: nextSeeds, updated_at: new Date().toISOString() })
       .eq("id", seeds.id);
+    if (error) throw error;
   }
 
   return true;
@@ -213,10 +218,11 @@ Deno.serve(async () => {
       }
 
       const nextUses = Number(tool.uses_remaining) - 1;
-      await supabase
+      const { error: toolUpdateError } = await supabase
         .from("tool_durability")
         .update({ uses_remaining: nextUses, updated_at: new Date().toISOString() })
         .eq("id", tool.id);
+      if (toolUpdateError) throw toolUpdateError;
 
       if (nextUses <= 0) {
         await failSlot(supabase, slot.id, "tool_broken");
@@ -243,31 +249,15 @@ Deno.serve(async () => {
     const level = upgrade ? Number(upgrade.level) : 0;
     const units = Math.max(1, Math.round(1 * Math.pow(GAIN_MULTIPLIER, Math.max(level, 0))));
 
-    const { data: existingOutput } = await supabase
-      .from("business_inventory")
-      .select("id, quantity")
-      .eq("owner_player_id", typedBusiness.player_id)
-      .eq("business_id", typedBusiness.id)
-      .eq("item_key", outputItem)
-      .eq("quality", 40)
-      .maybeSingle();
-
-    if (!existingOutput) {
-      await supabase.from("business_inventory").insert({
-        owner_player_id: typedBusiness.player_id,
-        business_id: typedBusiness.id,
-        city_id: typedBusiness.city_id,
-        item_key: outputItem,
-        quantity: units,
-        quality: 40,
-        reserved_quantity: 0,
-      });
-    } else {
-      await supabase
-        .from("business_inventory")
-        .update({ quantity: Number(existingOutput.quantity) + units, updated_at: new Date().toISOString() })
-        .eq("id", existingOutput.id);
-    }
+    const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
+      p_owner_player_id: typedBusiness.player_id,
+      p_business_id: typedBusiness.id,
+      p_city_id: typedBusiness.city_id,
+      p_item_key: outputItem,
+      p_quality: 40,
+      p_quantity: units,
+    });
+    if (addInventoryError) throw addInventoryError;
 
     const skillKey = SKILL_BY_TYPE[typedBusiness.type] ?? "logistics";
     const { data: skill } = await supabase
@@ -285,16 +275,18 @@ Deno.serve(async () => {
         nextLevel += 1;
       }
 
-      await supabase
+      const { error: skillUpdateError } = await supabase
         .from("employee_skills")
         .update({ level: nextLevel, xp: nextXp, updated_at: new Date().toISOString() })
         .eq("id", skill.id);
+      if (skillUpdateError) throw skillUpdateError;
     }
 
-    await supabase
+    const { error: slotUpdateError } = await supabase
       .from("extraction_slots")
       .update({ last_extracted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq("id", slot.id);
+    if (slotUpdateError) throw slotUpdateError;
 
     processed += 1;
     producedTotal += units;
