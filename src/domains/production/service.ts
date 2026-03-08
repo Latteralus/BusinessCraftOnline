@@ -11,7 +11,7 @@ import {
 } from "@/config/production";
 import { getBusinessUpgrades } from "@/domains/businesses";
 import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
-import { getEmployeeAssignment, getEmployeeById } from "@/domains/employees";
+import { getEmployeeAssignment, getEmployeeById, getEmployeeStatusFromShift } from "@/domains/employees";
 import type { QueryClient } from "@/lib/db/query-client";
 import type {
   AssignExtractionSlotInput,
@@ -279,11 +279,37 @@ export async function assignExtractionSlot(
   const employee = await getEmployeeById(client, playerId, input.employeeId);
   if (!employee) throw new Error("Employee not found.");
   if (employee.status === "fired") throw new Error("Cannot assign a fired employee.");
+  if (getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) !== "assigned") {
+    throw new Error("Employee must be active before slot assignment.");
+  }
 
   const assignment = await getEmployeeAssignment(client, playerId, employee.id);
   if (!assignment || assignment.business_id !== slot.business_id) {
     throw new Error("Employee must be assigned to this business before slot assignment.");
   }
+  if (assignment.role !== "production") {
+    throw new Error("Employee must be assigned with production role before slot assignment.");
+  }
+
+  const { data: existingSlot, error: existingSlotError } = await client
+    .from("extraction_slots")
+    .select("id")
+    .eq("employee_id", employee.id)
+    .neq("id", slot.id)
+    .maybeSingle();
+  if (existingSlotError) throw existingSlotError;
+  if (existingSlot) {
+    throw new Error("Employee is already assigned to another production slot.");
+  }
+
+  const { error: assignmentUpdateError } = await client
+    .from("employee_assignments")
+    .update({
+      slot_number: slot.slot_number,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", assignment.id);
+  if (assignmentUpdateError) throw assignmentUpdateError;
 
   const { data, error } = await client
     .from("extraction_slots")
@@ -305,6 +331,20 @@ export async function unassignExtractionSlot(
   input: UnassignExtractionSlotInput
 ): Promise<ExtractionSlot> {
   const slot = await getSlotByIdForPlayer(client, playerId, input.slotId);
+
+  if (slot.employee_id) {
+    const assignment = await getEmployeeAssignment(client, playerId, slot.employee_id);
+    if (assignment && assignment.business_id === slot.business_id && assignment.slot_number === slot.slot_number) {
+      const { error: assignmentUpdateError } = await client
+        .from("employee_assignments")
+        .update({
+          slot_number: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", assignment.id);
+      if (assignmentUpdateError) throw assignmentUpdateError;
+    }
+  }
 
   const { data, error } = await client
     .from("extraction_slots")
@@ -393,6 +433,25 @@ export async function setExtractionSlotStatus(
 
   if (input.status === "active" && !slot.employee_id) {
     throw new Error("Cannot activate a slot without an assigned employee.");
+  }
+
+  if (input.status === "active" && slot.employee_id) {
+    const [employee, assignment] = await Promise.all([
+      getEmployeeById(client, playerId, slot.employee_id),
+      getEmployeeAssignment(client, playerId, slot.employee_id),
+    ]);
+
+    if (!employee) {
+      throw new Error("Cannot activate slot because assigned employee could not be found.");
+    }
+
+    if (getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) !== "assigned") {
+      throw new Error("Cannot activate slot with a resting or unavailable employee.");
+    }
+
+    if (!assignment || assignment.business_id !== slot.business_id || assignment.role !== "production") {
+      throw new Error("Cannot activate slot unless employee has a production assignment in this business.");
+    }
   }
 
   if (input.status === "active" && EXTRACTION_BUSINESS_TYPES.includes(slot.business_type)) {

@@ -67,6 +67,19 @@ async function ensureBusinessBelongsToPlayer(
   await ensureOwnedBusiness(client, playerId, businessId);
 }
 
+async function clearEmployeeExtractionSlots(client: QueryClient, employeeId: string): Promise<void> {
+  const { error } = await client
+    .from("extraction_slots")
+    .update({
+      employee_id: null,
+      status: "idle",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("employee_id", employeeId);
+
+  if (error) throw error;
+}
+
 export async function getPlayerEmployees(
   client: QueryClient,
   playerId: string,
@@ -346,6 +359,7 @@ export async function unassignEmployee(
     .eq("employee_id", employee.id);
 
   if (deleteAssignmentError) throw deleteAssignmentError;
+  await clearEmployeeExtractionSlots(client, employee.id);
 
   const { data: updatedEmployeeRow, error: updateEmployeeError } = await client
     .from("employees")
@@ -388,6 +402,8 @@ export async function fireEmployee(
 
     if (deleteAssignmentError) throw deleteAssignmentError;
   }
+
+  await clearEmployeeExtractionSlots(client, employee.id);
 
   const { error: deleteSkillsError } = await client
     .from("employee_skills")

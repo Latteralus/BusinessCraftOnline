@@ -2,7 +2,7 @@ import { getCharacter, getPlayer } from "@/domains/auth-character";
 import { getBankingSnapshot } from "@/domains/banking";
 import { getBusinessesWithBalances, getBusinessSummary } from "@/domains/businesses";
 import { getActiveTravel, getCityById } from "@/domains/cities-travel";
-import { getEmployeeSummary } from "@/domains/employees";
+import { getEmployeeStatusFromShift, getEmployeeSummary } from "@/domains/employees";
 import {
   getAdminEconomySummary,
   getMarketStorefrontSettings,
@@ -141,6 +141,29 @@ export default async function DashboardPage() {
 
   const mfgJobs = (mfgRes.data ?? []) as Array<any>;
   const extSlots = (extRes.data ?? []) as Array<any>;
+  const extractionEmployeeIds = Array.from(
+    new Set(extSlots.map((slot) => slot.employee_id).filter((id): id is string => Boolean(id)))
+  );
+  const extractionBusinessIds = Array.from(
+    new Set(extSlots.map((slot) => slot.business_id).filter((id): id is string => Boolean(id)))
+  );
+  const [employeeRowsRes, assignmentRowsRes] = extractionEmployeeIds.length
+    ? await Promise.all([
+        supabase
+          .from("employees")
+          .select("id, status, shift_ends_at")
+          .in("id", extractionEmployeeIds),
+        supabase
+          .from("employee_assignments")
+          .select("employee_id, business_id, role, slot_number")
+          .in("employee_id", extractionEmployeeIds)
+          .in("business_id", extractionBusinessIds),
+      ])
+    : [{ data: [] as Array<any> }, { data: [] as Array<any> }];
+  const employeeById = new Map(((employeeRowsRes.data ?? []) as Array<any>).map((row) => [String(row.id), row]));
+  const assignmentByEmployeeAndBusiness = new Map(
+    ((assignmentRowsRes.data ?? []) as Array<any>).map((row) => [`${String(row.employee_id)}:${String(row.business_id)}`, row])
+  );
   const activeOperations = [
     ...mfgJobs
       .filter((job) => Boolean(job.active_recipe_key) || job.status === "active")
@@ -163,7 +186,22 @@ export default async function DashboardPage() {
       .map((slot) => {
         const type = slot.business?.type as keyof typeof EXTRACTION_OUTPUT_ITEM_BY_BUSINESS;
         const itemKey = type ? EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[type] || "Unknown" : "Unknown";
-        const running = slot.status === "active" && Boolean(slot.employee_id);
+        const employee = slot.employee_id ? employeeById.get(String(slot.employee_id)) : null;
+        const assignment = slot.employee_id
+          ? assignmentByEmployeeAndBusiness.get(`${String(slot.employee_id)}:${String(slot.business_id)}`)
+          : null;
+        const employeeEffectiveStatus = employee
+          ? getEmployeeStatusFromShift(employee.status, employee.shift_ends_at)
+          : null;
+        const assignmentMatchesSlot =
+          assignment &&
+          assignment.role === "production" &&
+          (assignment.slot_number === null || Number(assignment.slot_number) === Number(slot.slot_number));
+        const running =
+          slot.status === "active" &&
+          Boolean(slot.employee_id) &&
+          Boolean(assignmentMatchesSlot) &&
+          employeeEffectiveStatus === "assigned";
         return {
           id: `ext-${slot.id}`,
           businessId: String(slot.business_id),

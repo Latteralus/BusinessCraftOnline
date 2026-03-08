@@ -110,6 +110,14 @@ Deno.serve(async () => {
         .eq("player_id", employee.player_id);
 
       await supabase.from("employee_assignments").delete().eq("employee_id", employee.id);
+      await supabase
+        .from("extraction_slots")
+        .update({
+          employee_id: null,
+          status: "idle",
+          updated_at: nowIso,
+        })
+        .eq("employee_id", employee.id);
 
       unpaidTransitions += 1;
     }
