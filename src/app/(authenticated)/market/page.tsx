@@ -3,6 +3,7 @@
 import { NPC_PRICE_CEILINGS } from "@/config/items";
 import type { BusinessWithBalance } from "@/domains/businesses";
 import type { MarketListing, MarketStorefrontSetting, MarketTransaction } from "@/domains/market";
+import { formatMarketTransactionLine } from "@/domains/market/feed";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -67,19 +68,17 @@ export default function MarketPage() {
       line: `[${toTime(listing.created_at)}] ${listing.business?.name ?? "A business"} posted ${listing.quantity} ${listing.item_key.replace(
         /_/g,
         " "
-      )} at $${listing.unit_price.toFixed(2)}`,
+      )} at $${listing.unit_price.toFixed(2)} each for $${(listing.quantity * listing.unit_price).toFixed(2)}`,
     }));
 
     const transactionEvents = transactions.map((tx) => ({
       id: `tx-${tx.id}`,
       createdAt: tx.created_at,
-      line: `[${toTime(tx.created_at)}] ${
-        tx.buyer_type === "npc" ? tx.shopper_name ?? "NPC shopper" : "A player"
-      } bought ${tx.quantity} ${tx.item_key.replace(/_/g, " ")} from ${
-        tx.seller_business_name ??
-        businessNameById.get(tx.seller_business_id) ??
-        `business ${tx.seller_business_id.slice(0, 8)}`
-      }`,
+      line: formatMarketTransactionLine({
+        transaction: tx,
+        businessNameById,
+        formatTimestamp: toTime,
+      }),
     }));
 
     return [...listingEvents, ...transactionEvents]

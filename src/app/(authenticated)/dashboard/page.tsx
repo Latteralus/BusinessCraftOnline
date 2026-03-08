@@ -10,6 +10,7 @@ import {
   getStorefrontPerformanceSummary,
   getTickHealthSummary,
 } from "@/domains/market";
+import { formatMarketTransactionLine } from "@/domains/market/feed";
 import { EXTRACTION_OUTPUT_ITEM_BY_BUSINESS, getManufacturingRecipeByKey } from "@/config/production";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { CUSTOM_SESSION_COOKIE_NAME } from "@/lib/session";
@@ -218,23 +219,14 @@ export default async function DashboardPage() {
 
   const marketFeed = marketTransactions
     .map((tx) => {
-      const itemName = tx.item_key.replace(/_/g, " ");
-      const sellerName =
-        tx.seller_business_name ??
-        businessNameById.get(tx.seller_business_id) ??
-        `Business ${tx.seller_business_id.slice(0, 8)}`;
-      const buyerName =
-        tx.buyer_type === "npc"
-          ? tx.shopper_name ?? "NPC shopper"
-          : tx.buyer_business_id
-          ? tx.buyer_business_name ??
-            businessNameById.get(tx.buyer_business_id) ??
-            `Business ${tx.buyer_business_id.slice(0, 8)}`
-          : "A player";
       return {
         id: `tx-${tx.id}`,
         createdAt: tx.created_at,
-        line: `[${formatTimeAgo(tx.created_at)}] ${buyerName} bought ${tx.quantity} ${itemName} from ${sellerName}`,
+        line: formatMarketTransactionLine({
+          transaction: tx,
+          businessNameById,
+          formatTimestamp: formatTimeAgo,
+        }),
       };
     })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
