@@ -1,6 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { WAGE_TICK_MINUTES } from "@/config/employees";
+
+function formatCountdownToInterval(now: Date, intervalMinutes: number): string {
+  const intervalMs = intervalMinutes * 60 * 1000;
+  const nextBoundaryMs = Math.ceil(now.getTime() / intervalMs) * intervalMs;
+  const remainingMs = Math.max(0, nextBoundaryMs - now.getTime());
+  const remainingTotalSeconds = Math.floor(remainingMs / 1000);
+  const minutes = Math.floor(remainingTotalSeconds / 60);
+  const seconds = remainingTotalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
 
 export function DashboardClock() {
   const [now, setNow] = useState<Date | null>(null);
@@ -26,7 +37,7 @@ export function DashboardClock() {
         </div>
         <div className="date">Loading...</div>
         <div className="next-tick-label">
-          <span className="dot"></span> Mfg tick in <span id="tickTimer">...</span>
+          <span className="dot"></span> Wage Tick in <span id="tickTimer">...</span>
         </div>
       </div>
     );
@@ -39,14 +50,7 @@ export function DashboardClock() {
     second: "2-digit",
   });
 
-  // Calculate next 10-minute tick from the user's local clock.
-  const currentMinutes = now.getMinutes();
-  const currentSeconds = now.getSeconds();
-  
-  const minutesToNextTick = 9 - (currentMinutes % 10);
-  const secondsToNextTick = 59 - currentSeconds;
-  
-  const formattedCountdown = `${minutesToNextTick}:${secondsToNextTick.toString().padStart(2, "0")}`;
+  const formattedCountdown = formatCountdownToInterval(now, WAGE_TICK_MINUTES);
 
   return (
     <div className="game-clock">
@@ -55,7 +59,7 @@ export function DashboardClock() {
       </div>
       <div className="date">Dashboard Active</div>
       <div className="next-tick-label">
-        <span className="dot" style={{ animation: "pulse 2s infinite" }}></span> Mfg tick in{" "}
+        <span className="dot" style={{ animation: "pulse 2s infinite" }}></span> Wage Tick in{" "}
         <span id="tickTimer">{formattedCountdown}</span>
       </div>
     </div>

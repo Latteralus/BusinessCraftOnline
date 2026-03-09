@@ -52,6 +52,8 @@ export const BASE_WAGE_PER_HOUR: Record<EmployeeType, number> = {
   specialist: 14,
 };
 
+export const WAGE_TICK_MINUTES = 15;
+
 export const STARTING_SKILL_LEVEL_BY_TYPE: Record<EmployeeType, number> = {
   temp: 1,
   part_time: 6,
