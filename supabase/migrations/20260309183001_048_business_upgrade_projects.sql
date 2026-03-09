@@ -112,16 +112,16 @@ insert into public.upgrade_definitions (
 )
 values
   ('extraction_efficiency', 'Extraction Efficiency', 'Improves extraction output per tick.', array['mine', 'water_company', 'logging_camp', 'oil_well'], 900, 1.35, 1.08, 1.05, 'Output multiplier', true, null),
-  ('worker_capacity', 'Worker Capacity', 'Adds production positions and floor capacity.', array['mine', 'farm', 'water_company', 'logging_camp', 'oil_well', 'sawmill', 'metalworking_factory', 'food_processing_plant', 'winery_distillery', 'carpentry_workshop'], 2200, 1.40, 1, 1, 'Additional worker slots', false, 6),
+  ('worker_capacity', 'Worker Capacity', 'Adds production positions and floor capacity.', array['mine', 'farm', 'water_company', 'logging_camp', 'oil_well', 'sawmill', 'metalworking_factory', 'food_processing_plant', 'winery_distillery', 'carpentry_workshop'], 2200, 1.40, 1, 1.10, 'Additional worker slots', false, 6),
   ('tool_durability', 'Tool Durability', 'Extends tool lifetime before breakage.', array['mine', 'logging_camp', 'oil_well'], 1650, 1.35, 1.10, 1.04, 'Tool durability multiplier', true, null),
-  ('ore_quality', 'Ore Quality', 'Improves mined material quality.', array['mine'], 1300, 1.35, 4, 1, 'Quality bonus', true, null),
+  ('ore_quality', 'Ore Quality', 'Improves mined material quality.', array['mine'], 1300, 1.35, 4, 1.10, 'Quality bonus', true, null),
   ('crop_yield', 'Crop Yield', 'Improves farm output per cycle.', array['farm'], 700, 1.32, 1.08, 1.05, 'Output multiplier', true, null),
   ('water_efficiency', 'Water Efficiency', 'Reduces water consumed by the farm.', array['farm'], 900, 1.35, 0.92, 1.08, 'Water use multiplier', true, null),
   ('production_efficiency', 'Production Efficiency', 'Increases manufacturing output quantity.', array['sawmill', 'metalworking_factory', 'food_processing_plant', 'winery_distillery', 'carpentry_workshop'], 1000, 1.35, 1.08, 1.05, 'Output multiplier', true, null),
-  ('equipment_quality', 'Equipment Quality', 'Raises output quality for manufacturing.', array['sawmill', 'metalworking_factory', 'food_processing_plant', 'winery_distillery', 'carpentry_workshop'], 1500, 1.35, 4, 1, 'Quality bonus', true, null),
+  ('equipment_quality', 'Equipment Quality', 'Raises output quality for manufacturing.', array['sawmill', 'metalworking_factory', 'food_processing_plant', 'winery_distillery', 'carpentry_workshop'], 1500, 1.35, 4, 1.10, 'Quality bonus', true, null),
   ('input_reduction', 'Input Reduction', 'Reduces material wasted in recipes.', array['sawmill', 'metalworking_factory', 'food_processing_plant', 'winery_distillery', 'carpentry_workshop'], 1900, 1.40, 0.96, 1.08, 'Input use multiplier', true, null),
   ('storefront_appeal', 'Storefront Appeal', 'Increases NPC traffic to the store.', array['general_store', 'specialty_store'], 950, 1.35, 1.05, 1.03, 'Traffic multiplier', true, null),
-  ('listing_capacity', 'Listing Capacity', 'Adds more shelf and listing capacity.', array['general_store', 'specialty_store'], 1200, 1.35, 1, 1, 'Additional listings', false, 10),
+  ('listing_capacity', 'Listing Capacity', 'Adds more shelf and listing capacity.', array['general_store', 'specialty_store'], 1200, 1.35, 1, 1.10, 'Additional listings', false, 10),
   ('customer_service', 'Customer Service', 'Improves conversion and pricing resilience.', array['general_store', 'specialty_store'], 1700, 1.35, 1.03, 1.02, 'Conversion multiplier', true, null)
 on conflict (upgrade_key) do update
 set
