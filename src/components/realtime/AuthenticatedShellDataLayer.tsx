@@ -9,8 +9,15 @@ export function AuthenticatedShellDataLayer() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
+    const browserWindow = window as Window &
+      typeof globalThis & {
+        requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+        cancelIdleCallback?: (handle: number) => void;
+      };
     let cancelled = false;
     let cleanup: (() => void) | null = null;
+    let timeoutId: number | null = null;
+    let idleId: number | null = null;
 
     async function connectRealtime() {
       const response = await fetch("/api/realtime-auth");
@@ -92,10 +99,28 @@ export function AuthenticatedShellDataLayer() {
       };
     }
 
-    void connectRealtime();
+    const startRealtime = () => {
+      if (!cancelled) {
+        void connectRealtime();
+      }
+    };
+
+    if (browserWindow.requestIdleCallback) {
+      idleId = browserWindow.requestIdleCallback(() => {
+        timeoutId = browserWindow.setTimeout(startRealtime, 1_500);
+      }, { timeout: 5_000 });
+    } else {
+      timeoutId = browserWindow.setTimeout(startRealtime, 3_000);
+    }
 
     return () => {
       cancelled = true;
+      if (idleId !== null && browserWindow.cancelIdleCallback) {
+        browserWindow.cancelIdleCallback(idleId);
+      }
+      if (timeoutId !== null) {
+        browserWindow.clearTimeout(timeoutId);
+      }
       cleanup?.();
     };
   }, [queryClient]);
