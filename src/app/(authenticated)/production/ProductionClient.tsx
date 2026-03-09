@@ -1,6 +1,6 @@
 "use client";
 
-import type { BusinessWithBalance } from "@/domains/businesses";
+import type { BusinessesResponse, BusinessWithBalance } from "@/domains/businesses";
 import type { ManufacturingStatusView } from "@/domains/production";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import Link from "next/link";
@@ -14,7 +14,6 @@ type Props = {
   };
 };
 
-type BusinessesResponse = { businesses: BusinessWithBalance[]; error?: string };
 type ManufacturingResponse = { status: ManufacturingStatusView; error?: string };
 
 export default function ProductionClient({ initialData }: Props) {

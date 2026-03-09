@@ -1,4 +1,5 @@
 import {
+  type BankingLoanState,
   applyForLoan,
   applyForLoanSchema,
   calculateMaxLoanForBusinessLevel,
@@ -25,10 +26,11 @@ export async function GET() {
 
   try {
     const summary = await getLoanSummary(supabase, user.id, character.business_level);
-    return NextResponse.json({
+    const response: BankingLoanState = {
       summary,
       maxLoanAvailable: calculateMaxLoanForBusinessLevel(character.business_level),
-    });
+    };
+    return NextResponse.json(response);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch loan state." },
@@ -74,4 +76,3 @@ export async function POST(request: Request) {
     );
   }
 }
-

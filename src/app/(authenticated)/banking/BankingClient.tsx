@@ -1,41 +1,33 @@
 "use client";
 
-import type { BankAccountWithBalance, LoanSummary, TransactionEntry } from "@/domains/banking";
-import type { BusinessWithBalance } from "@/domains/businesses";
+import {
+  BANK_ACCOUNT_LABELS,
+  type BankAccountWithBalance,
+  type BankingAccountsResponse,
+  type BankingLoanState,
+  type BankingLoanStateResponse,
+  type BankingTransactionsResponse,
+  type TransactionEntry,
+} from "@/domains/banking";
+import type { BusinessesResponse, BusinessWithBalance } from "@/domains/businesses";
 import { apiGet, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-type LoanResponse = {
-  summary: LoanSummary | null;
-  maxLoanAvailable: number;
-};
-
 type Props = {
   initialData: {
     accounts: BankAccountWithBalance[];
-    loanData: LoanResponse;
+    loanData: BankingLoanState;
     transactions: TransactionEntry[];
     businesses: BusinessWithBalance[];
   };
 };
 
-type AccountsResponse = { accounts: BankAccountWithBalance[]; error?: string };
-type TransactionsResponse = { entries: TransactionEntry[]; error?: string };
-type BusinessesResponse = { businesses: BusinessWithBalance[]; error?: string };
-
-const ACCOUNT_LABELS: Record<string, string> = {
-  pocket_cash: "Pocket Cash",
-  checking: "Checking",
-  savings: "Savings",
-  investment: "Investment",
-};
-
 export default function BankingClient({ initialData }: Props) {
   const [accounts, setAccounts] = useState(initialData.accounts);
-  const [loanData, setLoanData] = useState<LoanResponse | null>(initialData.loanData);
+  const [loanData, setLoanData] = useState<BankingLoanState | null>(initialData.loanData);
   const [transactions, setTransactions] = useState(initialData.transactions);
   const [businesses, setBusinesses] = useState(initialData.businesses);
   const [loading, setLoading] = useState(false);
@@ -66,9 +58,9 @@ export default function BankingClient({ initialData }: Props) {
 
     try {
       const [accountsJson, loanJson, txJson, businessesJson] = await Promise.all([
-        apiGet<AccountsResponse>(apiRoutes.banking.accounts, { fallbackError: "Failed to load accounts." }),
-        apiGet<LoanResponse & { error?: string }>(apiRoutes.banking.loan, { fallbackError: "Failed to load loan status." }),
-        apiGet<TransactionsResponse>(apiRoutes.banking.transactions(30), { fallbackError: "Failed to load transaction history." }),
+        apiGet<BankingAccountsResponse>(apiRoutes.banking.accounts, { fallbackError: "Failed to load accounts." }),
+        apiGet<BankingLoanStateResponse>(apiRoutes.banking.loan, { fallbackError: "Failed to load loan status." }),
+        apiGet<BankingTransactionsResponse>(apiRoutes.banking.transactions(30), { fallbackError: "Failed to load transaction history." }),
         apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." }),
       ]);
 
@@ -204,7 +196,7 @@ export default function BankingClient({ initialData }: Props) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 }}>
           {accounts.map((account) => (
             <div key={account.id} style={{ border: "1px solid #334155", borderRadius: 8, padding: 12 }}>
-              <p style={{ margin: 0, color: "#94a3b8" }}>{ACCOUNT_LABELS[account.account_type] ?? account.account_type}</p>
+              <p style={{ margin: 0, color: "#94a3b8" }}>{BANK_ACCOUNT_LABELS[account.account_type] ?? account.account_type}</p>
               <p style={{ margin: "6px 0 0", fontWeight: 700 }}>{formatCurrency(account.balance)}</p>
             </div>
           ))}
@@ -220,7 +212,7 @@ export default function BankingClient({ initialData }: Props) {
               <option value="">Select account</option>
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
-                  {ACCOUNT_LABELS[account.account_type] ?? account.account_type}
+                  {BANK_ACCOUNT_LABELS[account.account_type] ?? account.account_type}
                 </option>
               ))}
             </select>
@@ -231,7 +223,7 @@ export default function BankingClient({ initialData }: Props) {
               <option value="">Select account</option>
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
-                  {ACCOUNT_LABELS[account.account_type] ?? account.account_type}
+                  {BANK_ACCOUNT_LABELS[account.account_type] ?? account.account_type}
                 </option>
               ))}
             </select>
@@ -262,7 +254,7 @@ export default function BankingClient({ initialData }: Props) {
               <option value="">Select account</option>
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
-                  {ACCOUNT_LABELS[account.account_type] ?? account.account_type} ({formatCurrency(account.balance)})
+                  {BANK_ACCOUNT_LABELS[account.account_type] ?? account.account_type} ({formatCurrency(account.balance)})
                 </option>
               ))}
             </select>

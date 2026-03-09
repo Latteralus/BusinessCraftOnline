@@ -2,8 +2,9 @@
 
 import { NPC_PRICE_CEILINGS } from "@/config/items";
 import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } from "@/domains/inventory";
-import type { BankAccountWithBalance } from "@/domains/banking";
-import type { BusinessWithBalance } from "@/domains/businesses";
+import type { BankAccountWithBalance, BankingAccountsResponse } from "@/domains/banking";
+import type { BusinessesResponse, BusinessWithBalance } from "@/domains/businesses";
+import type { CitiesResponse } from "@/domains/cities-travel";
 import { apiGet, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
@@ -64,21 +65,6 @@ export default function InventoryClient({ initialData }: Props) {
     error?: string;
   };
 
-  type AccountsResponse = {
-    accounts: BankAccountWithBalance[];
-    error?: string;
-  };
-
-  type BusinessesResponse = {
-    businesses: BusinessWithBalance[];
-    error?: string;
-  };
-
-  type CitiesResponse = {
-    cities: Array<{ id: string; name: string }>;
-    error?: string;
-  };
-
   type TransferResponse = {
     transferType?: "shipping" | "instant";
     shippingMinutes?: number;
@@ -93,7 +79,7 @@ export default function InventoryClient({ initialData }: Props) {
     try {
       const [inventoryJson, accountsJson, businessesJson, citiesJson] = await Promise.all([
         apiGet<InventoryResponse>(apiRoutes.inventory.root, { fallbackError: "Failed to load inventory." }),
-        apiGet<AccountsResponse>(apiRoutes.banking.accounts, { fallbackError: "Failed to load bank accounts." }),
+        apiGet<BankingAccountsResponse>(apiRoutes.banking.accounts, { fallbackError: "Failed to load bank accounts." }),
         apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." }),
         apiGet<CitiesResponse>(apiRoutes.cities, { fallbackError: "Failed to load cities." }),
       ]);

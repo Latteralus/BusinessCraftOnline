@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getCharacter, getPlayer } from "@/domains/auth-character";
 import {
+  type BankingLoanState,
   calculateMaxLoanForBusinessLevel,
   getBankingSnapshot,
   getLoanSummary,
@@ -12,7 +13,13 @@ import {
   getBusinessesWithBalances,
   summarizeBusinessesWithBalances,
 } from "@/domains/businesses";
-import { canPurchaseBusiness, getActiveTravel, getCities, getCityById } from "@/domains/cities-travel";
+import {
+  type TravelState,
+  canPurchaseBusiness,
+  getActiveTravel,
+  getCities,
+  getCityById,
+} from "@/domains/cities-travel";
 import { getContracts } from "@/domains/contracts";
 import { getEmployeeSummary, getPlayerEmployees } from "@/domains/employees";
 import { getBusinessInventory, getPersonalInventory, getShippingQueue } from "@/domains/inventory";
@@ -56,16 +63,17 @@ export async function loadBusinessesPageData(userId: string) {
   const character = await getCharacter(supabase, userId).catch(() => null);
   const resolvedCurrentCity =
     character?.current_city_id ? await getCityById(supabase, character.current_city_id).catch(() => null) : currentCity;
+  const travelState: TravelState = {
+    currentCity: resolvedCurrentCity,
+    activeTravel,
+    canPurchaseBusiness: canBuyBusiness,
+  };
 
   return {
     businesses,
     summary: summarizeBusinessesWithBalances(businesses),
     cities,
-    travelState: {
-      currentCity: resolvedCurrentCity,
-      activeTravel: activeTravel ? { id: activeTravel.id } : null,
-      canPurchaseBusiness: canBuyBusiness,
-    },
+    travelState,
     upgradeDefinitions,
   };
 }
@@ -78,13 +86,14 @@ export async function loadBankingPageData(userId: string, businessLevel: number)
     getTransactionHistory(supabase, userId, { limit: 30 }).catch(() => []),
     getBusinessesWithBalances(supabase, userId).catch(() => []),
   ]);
+  const loanData: BankingLoanState = {
+    summary: loanSummary,
+    maxLoanAvailable: calculateMaxLoanForBusinessLevel(businessLevel),
+  };
 
   return {
     accounts: snapshot.accounts ?? [],
-    loanData: {
-      summary: loanSummary,
-      maxLoanAvailable: calculateMaxLoanForBusinessLevel(businessLevel),
-    },
+    loanData,
     transactions,
     businesses,
   };

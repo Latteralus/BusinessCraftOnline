@@ -1,4 +1,6 @@
 import {
+  type BusinessesPayload,
+  type CreateBusinessResponse,
   businessListFilterSchema,
   createBusiness,
   createBusinessSchema,
@@ -33,8 +35,9 @@ export async function GET(request: Request) {
   try {
     const businesses = await getBusinessesWithBalances(supabase, user.id, parsed.data);
     const summary = summarizeBusinessesWithBalances(businesses);
+    const response: BusinessesPayload = { businesses, summary };
 
-    return NextResponse.json({ businesses, summary });
+    return NextResponse.json(response);
   } catch (error) {
     return fail(error, "Failed to fetch businesses.", 500);
   }
@@ -64,8 +67,9 @@ export async function POST(request: Request) {
       character.current_city_id,
       parsed.data
     );
+    const response: CreateBusinessResponse = { business };
 
-    return NextResponse.json({ business }, { status: 201 });
+    return NextResponse.json(response, { status: 201 });
   } catch (error) {
     return fail(error, "Failed to create business.");
   }

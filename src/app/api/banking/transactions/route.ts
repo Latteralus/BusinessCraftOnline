@@ -1,4 +1,8 @@
-import { getTransactionHistory, transactionHistoryFilterSchema } from "@/domains/banking";
+import {
+  getTransactionHistory,
+  transactionHistoryFilterSchema,
+  type BankingTransactionsPayload,
+} from "@/domains/banking";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
 
@@ -29,7 +33,8 @@ export async function GET(request: Request) {
 
   try {
     const entries = await getTransactionHistory(supabase, user.id, parsed.data);
-    return NextResponse.json({ entries });
+    const response: BankingTransactionsPayload = { entries };
+    return NextResponse.json(response);
   } catch (error) {
     return NextResponse.json(
       {
@@ -42,4 +47,3 @@ export async function GET(request: Request) {
     );
   }
 }
-

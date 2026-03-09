@@ -1,4 +1,4 @@
-import { getCities } from "@/domains/cities-travel";
+import { getCities, type CitiesPayload } from "@/domains/cities-travel";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
 
@@ -13,6 +13,6 @@ export async function GET() {
   }
 
   const cities = await getCities(supabase);
-  return NextResponse.json({ cities });
+  const response: CitiesPayload = { cities };
+  return NextResponse.json(response);
 }
-

@@ -20,6 +20,12 @@ export {
 } from "./validations";
 
 export type {
+  BusinessesPayload,
+  BusinessesResponse,
+  CreateBusinessResponse,
+} from "./contracts";
+
+export type {
   Business,
   BusinessAccountEntry,
   BusinessDetail,

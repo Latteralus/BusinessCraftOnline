@@ -101,5 +101,4 @@ export type LoanSummary = {
   loan: Loan;
   currentMinimumDue: number;
   isPaymentOverdue: boolean;
-  maxLoanAvailable: number;
 };

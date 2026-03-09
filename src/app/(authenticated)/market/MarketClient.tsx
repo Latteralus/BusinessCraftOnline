@@ -1,7 +1,7 @@
 "use client";
 
 import { NPC_PRICE_CEILINGS } from "@/config/items";
-import type { BusinessWithBalance } from "@/domains/businesses";
+import type { BusinessesResponse, BusinessWithBalance } from "@/domains/businesses";
 import type { MarketListing, MarketStorefrontSetting, MarketTransaction } from "@/domains/market";
 import { formatMarketTransactionLine } from "@/domains/market/feed";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
@@ -18,11 +18,6 @@ type Props = {
     transactions: MarketTransaction[];
     storefront: MarketStorefrontSetting[];
   };
-};
-
-type BusinessesResponse = {
-  businesses: BusinessWithBalance[];
-  error?: string;
 };
 
 type ListingsResponse = {

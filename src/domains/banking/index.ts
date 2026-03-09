@@ -16,6 +16,8 @@ export {
   transferBetweenOwnAccounts,
 } from "./service";
 
+export { BANK_ACCOUNT_LABELS } from "./contracts";
+
 export {
   applyForLoanSchema,
   bankAccountTypeFilterSchema,
@@ -45,3 +47,13 @@ export type {
   TransferBetweenPersonalAndBusinessInput,
   TransferBetweenOwnAccountsInput,
 } from "./types";
+
+export type {
+  BankingAccountsPayload,
+  BankingAccountsResponse,
+  BankingLoanApplicationResponse,
+  BankingLoanState,
+  BankingLoanStateResponse,
+  BankingTransactionsPayload,
+  BankingTransactionsResponse,
+} from "./contracts";

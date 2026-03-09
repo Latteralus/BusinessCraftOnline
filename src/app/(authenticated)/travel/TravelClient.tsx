@@ -1,21 +1,15 @@
 "use client";
 
-import type { City, TravelLog, TravelQuote } from "@/domains/cities-travel";
+import type { City, TravelQuote, TravelState } from "@/domains/cities-travel";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cancelTravelAction, getTravelQuoteAction, startTravelAction } from "./actions";
 
-type TravelResponse = {
-  currentCity: City | null;
-  activeTravel: TravelLog | null;
-  canPurchaseBusiness: boolean;
-};
-
 type Props = {
   cities: City[];
-  travelState: TravelResponse;
+  travelState: TravelState;
 };
 
 function formatDuration(ms: number) {

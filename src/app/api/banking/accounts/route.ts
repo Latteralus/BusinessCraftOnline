@@ -1,4 +1,4 @@
-import { getBankingSnapshot } from "@/domains/banking";
+import { getBankingSnapshot, type BankingAccountsPayload } from "@/domains/banking";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
 
@@ -14,7 +14,8 @@ export async function GET() {
 
   try {
     const snapshot = await getBankingSnapshot(supabase, user.id);
-    return NextResponse.json(snapshot);
+    const response: BankingAccountsPayload = snapshot;
+    return NextResponse.json(response);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch accounts." },
@@ -22,4 +23,3 @@ export async function GET() {
     );
   }
 }
-

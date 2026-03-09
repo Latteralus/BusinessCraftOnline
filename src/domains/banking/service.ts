@@ -371,7 +371,6 @@ export async function getLoanSummary(
     loan,
     currentMinimumDue: getCurrentWeeklyMinimumDue(loan),
     isPaymentOverdue: isLoanPaymentOverdue(loan),
-    maxLoanAvailable: calculateMaxLoanForBusinessLevel(businessLevel),
   };
 }
 

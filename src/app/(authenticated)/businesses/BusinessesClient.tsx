@@ -2,9 +2,11 @@
 
 import type {
   BusinessType,
+  BusinessesResponse,
   BusinessWithBalance,
   BusinessSummary,
 } from "@/domains/businesses";
+import type { CitiesResponse, City, TravelState, TravelStateResponse } from "@/domains/cities-travel";
 import type { UpgradeDefinition, UpgradePreview } from "@/domains/upgrades";
 import { apiGet, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
@@ -12,31 +14,14 @@ import { formatCurrency, formatLabel } from "@/lib/formatters";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-type TravelResponse = {
-  currentCity: { id: string; name: string; state: string } | null;
-  activeTravel: { id: string } | null;
-  canPurchaseBusiness: boolean;
-};
-
 type Props = {
   initialData: {
     businesses: BusinessWithBalance[];
     summary: BusinessSummary;
-    cities: Array<{ id: string; name: string; state: string }>;
-    travelState: TravelResponse;
+    cities: City[];
+    travelState: TravelState;
     upgradeDefinitions: UpgradeDefinition[];
   };
-};
-
-type BusinessesResponse = {
-  businesses: BusinessWithBalance[];
-  summary: BusinessSummary;
-  error?: string;
-};
-
-type CitiesResponse = {
-  cities: Array<{ id: string; name: string; state: string }>;
-  error?: string;
 };
 
 type UpgradeDefinitionsResponse = {
@@ -67,8 +52,8 @@ const TYPE_LABELS: Record<BusinessType, string> = {
 export default function BusinessesClient({ initialData }: Props) {
   const [businesses, setBusinesses] = useState<BusinessWithBalance[]>(initialData.businesses);
   const [summary, setSummary] = useState<BusinessSummary | null>(initialData.summary);
-  const [cities, setCities] = useState<Array<{ id: string; name: string; state: string }>>(initialData.cities);
-  const [travelState, setTravelState] = useState<TravelResponse | null>(initialData.travelState);
+  const [cities, setCities] = useState<City[]>(initialData.cities);
+  const [travelState, setTravelState] = useState<TravelState | null>(initialData.travelState);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,7 +76,7 @@ export default function BusinessesClient({ initialData }: Props) {
       const [businessesJson, citiesJson, travelJson, definitionsJson] = await Promise.all([
         apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to fetch businesses." }),
         apiGet<CitiesResponse>(apiRoutes.cities, { fallbackError: "Failed to fetch cities." }),
-        apiGet<TravelResponse & { error?: string }>(apiRoutes.travel, { fallbackError: "Failed to fetch travel state." }),
+        apiGet<TravelStateResponse>(apiRoutes.travel, { fallbackError: "Failed to fetch travel state." }),
         apiGet<UpgradeDefinitionsResponse>(apiRoutes.upgrades.root, { fallbackError: "Failed to fetch upgrade definitions." }),
       ]);
 

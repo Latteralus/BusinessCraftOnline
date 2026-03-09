@@ -18,6 +18,15 @@ export {
 export { completeTravelSchema, startTravelSchema } from "./validations";
 
 export type {
+  CancelTravelResponse,
+  CitiesPayload,
+  CitiesResponse,
+  StartTravelResponse,
+  TravelState,
+  TravelStateResponse,
+} from "./contracts";
+
+export type {
   City,
   ShippingQueueItem,
   StartTravelInput,

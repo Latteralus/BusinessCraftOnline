@@ -1,4 +1,7 @@
 import {
+  type CancelTravelResponse,
+  type StartTravelResponse,
+  type TravelState,
   calculateTravelQuote,
   cancelTravel,
   getActiveTravel,
@@ -58,12 +61,13 @@ export async function GET() {
   const currentCity = freshCharacter?.current_city_id
     ? await getCityById(supabase, freshCharacter.current_city_id)
     : null;
-
-  return NextResponse.json({
+  const response: TravelState = {
     currentCity,
     activeTravel,
     canPurchaseBusiness: !activeTravel,
-  });
+  };
+
+  return NextResponse.json(response);
 }
 
 export async function POST(request: Request) {
@@ -137,8 +141,9 @@ export async function POST(request: Request) {
     cost: quote.cost,
     arrivesAt,
   });
+  const response: StartTravelResponse = { travel, quote };
 
-  return NextResponse.json({ travel, quote }, { status: 201 });
+  return NextResponse.json(response, { status: 201 });
 }
 
 export async function DELETE() {
@@ -157,5 +162,6 @@ export async function DELETE() {
   }
 
   const cancelledTravel = await cancelTravel(supabase, user.id, activeTravel.id);
-  return NextResponse.json({ travel: cancelledTravel });
+  const response: CancelTravelResponse = { travel: cancelledTravel };
+  return NextResponse.json(response);
 }
