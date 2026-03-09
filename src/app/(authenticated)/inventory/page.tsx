@@ -1,5 +1,6 @@
 "use client";
 
+import { NPC_PRICE_CEILINGS } from "@/config/items";
 import type {
   BusinessInventoryItem,
   PersonalInventoryItem,
@@ -48,6 +49,7 @@ function formatDate(value: string) {
 }
 
 export default function InventoryPage() {
+  const availableItemKeys = Object.keys(NPC_PRICE_CEILINGS);
   const [personalInventory, setPersonalInventory] = useState<PersonalInventoryItem[]>([]);
   const [businessInventory, setBusinessInventory] = useState<BusinessInventoryItem[]>([]);
   const [shippingQueue, setShippingQueue] = useState<ShippingQueueItem[]>([]);
@@ -60,7 +62,7 @@ export default function InventoryPage() {
   const [sourceBusinessId, setSourceBusinessId] = useState("");
   const [destinationType, setDestinationType] = useState<"personal" | "business">("business");
   const [destinationBusinessId, setDestinationBusinessId] = useState("");
-  const [itemKey, setItemKey] = useState("");
+  const [itemKey, setItemKey] = useState(availableItemKeys[0] ?? "");
   const [quantity, setQuantity] = useState("1");
   const [quality, setQuality] = useState("40");
   const [fundingAccountId, setFundingAccountId] = useState("");
@@ -315,8 +317,14 @@ export default function InventoryPage() {
               ) : null}
 
               <label>
-                Item Key
-                <input value={itemKey} onChange={(event) => setItemKey(event.target.value)} />
+                Item
+                <select value={itemKey} onChange={(event) => setItemKey(event.target.value)}>
+                  {availableItemKeys.map((key) => (
+                    <option key={key} value={key}>
+                      {key}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label>

@@ -10,6 +10,7 @@ import {
   type ExtractionBusinessType,
   type ManufacturingBusinessType,
 } from "@/config/production";
+import { getOperationalProductionWorkerForBusiness, syncManufacturingWorkerAssigned } from "@/domains/_shared/manufacturing-workers";
 import { getBusinessUpgrades } from "@/domains/businesses";
 import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
 import { getEmployeeAssignment, getEmployeeById, getEmployeeStatusFromShift } from "@/domains/employees";
@@ -141,9 +142,11 @@ async function ensureManufacturingJob(
 
   const recipes = getManufacturingRecipesForBusinessType(business.type);
   const activeRecipe = job.active_recipe_key ? getManufacturingRecipeByKey(job.active_recipe_key) : null;
+  const workerAssigned = await syncManufacturingWorkerAssigned(client, business.id);
 
   return {
     ...job,
+    worker_assigned: workerAssigned,
     business_type: business.type,
     recipes,
     active_recipe: activeRecipe,
@@ -247,7 +250,7 @@ export async function getProductionStatus(
     detailed.push({
       ...slot,
       business_type: business.type,
-      employee_status: employee?.status ?? null,
+      employee_status: employee ? getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) : null,
       tool: toolBySlot.get(slot.id) ?? null,
     });
   }
@@ -538,11 +541,17 @@ export async function startManufacturing(
   if (!current.job.active_recipe_key) {
     throw new Error("Set an active recipe before starting manufacturing.");
   }
+  const workerId = await getOperationalProductionWorkerForBusiness(client, input.businessId);
+  if (!workerId) {
+    await syncManufacturingWorkerAssigned(client, input.businessId);
+    throw new Error("Assign an active production worker to this business before starting manufacturing.");
+  }
 
   const { error } = await client
     .from("manufacturing_jobs")
     .update({
       status: "active",
+      worker_assigned: true,
       updated_at: new Date().toISOString(),
     })
     .eq("id", current.job.id);
@@ -562,6 +571,7 @@ export async function stopManufacturing(
     .from("manufacturing_jobs")
     .update({
       status: "idle",
+      worker_assigned: await syncManufacturingWorkerAssigned(client, input.businessId),
       updated_at: new Date().toISOString(),
     })
     .eq("id", current.job.id);

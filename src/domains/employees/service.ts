@@ -9,7 +9,9 @@ import {
   type EmployeeStatus,
   type EmployeeType,
 } from "@/config/employees";
+import { syncManufacturingWorkerAssigned } from "@/domains/_shared/manufacturing-workers";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
+import { getWorkerEffectiveStatus } from "./worker-state";
 import type { QueryClient } from "@/lib/db/query-client";
 import type {
   AssignEmployeeInput,
@@ -294,6 +296,8 @@ export async function assignEmployee(
 
   if (updateEmployeeError) throw updateEmployeeError;
 
+  await syncManufacturingWorkerAssigned(client, input.businessId);
+
   return {
     ...normalizeEmployee(updatedEmployeeRow as Employee),
     assignment: normalizeAssignment(assignmentRow as EmployeeAssignment),
@@ -332,6 +336,8 @@ export async function reactivateEmployee(
 
   if (error) throw error;
 
+  await syncManufacturingWorkerAssigned(client, assignment.business_id);
+
   const skills = await getEmployeeSkills(client, playerId, employee.id);
 
   return {
@@ -351,6 +357,7 @@ export async function unassignEmployee(
 
   const assignment = await getEmployeeAssignment(client, playerId, employee.id);
   if (!assignment) throw new Error("Employee is not assigned.");
+  const assignedBusinessId = assignment.business_id;
 
   const { error: deleteAssignmentError } = await client
     .from("employee_assignments")
@@ -375,6 +382,8 @@ export async function unassignEmployee(
 
   if (updateEmployeeError) throw updateEmployeeError;
 
+  await syncManufacturingWorkerAssigned(client, assignedBusinessId);
+
   const skills = await getEmployeeSkills(client, playerId, employee.id);
 
   return {
@@ -393,6 +402,7 @@ export async function fireEmployee(
   if (!employee) throw new Error("Employee not found.");
 
   const assignment = await getEmployeeAssignment(client, playerId, employee.id);
+  const assignedBusinessId = assignment?.business_id ?? null;
   if (assignment) {
     const { error: deleteAssignmentError } = await client
       .from("employee_assignments")
@@ -420,6 +430,10 @@ export async function fireEmployee(
 
   if (deleteEmployeeError) throw deleteEmployeeError;
 
+  if (assignedBusinessId) {
+    await syncManufacturingWorkerAssigned(client, assignedBusinessId);
+  }
+
   return {
     ...employee,
     status: "fired",
@@ -433,9 +447,7 @@ export function getEmployeeStatusFromShift(
   status: EmployeeStatus,
   shiftEndsAt: string | null
 ): EmployeeStatus {
-  if (status !== "assigned") return status;
-  if (!shiftEndsAt) return "resting";
-  return new Date(shiftEndsAt).getTime() <= Date.now() ? "resting" : "assigned";
+  return getWorkerEffectiveStatus(status, shiftEndsAt);
 }
 
 export async function getEmployeeSummary(

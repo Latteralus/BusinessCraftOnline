@@ -7,6 +7,7 @@ import type { Business, BusinessUpgrade } from "@/domains/businesses";
 import type { ProductionStatus, ManufacturingStatusView } from "@/domains/production";
 import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { EmployeeAssignment, Employee } from "@/domains/employees";
+import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import type { UpgradeDefinition } from "@/domains/upgrades";
 import { calculateUpgradePreview } from "@/domains/upgrades";
 import { BASE_WAGE_PER_HOUR } from "@/config/employees";
@@ -104,7 +105,12 @@ export default function BusinessDetailsClient({ business, production, manufactur
   const availableWorkersForSlots = thisBusinessEmployees
     .filter((employee) => {
       const assignment = getAssignmentForBusiness(employee);
-      return assignment?.role === "production" && !production?.slots?.some((slot) => slot.employee_id === employee.id);
+      const effectiveStatus = getWorkerEffectiveStatus(employee.status, employee.shift_ends_at);
+      return (
+        assignment?.role === "production" &&
+        effectiveStatus === "assigned" &&
+        !production?.slots?.some((slot) => slot.employee_id === employee.id)
+      );
     });
 
   async function assignSlot(slotId: string) {

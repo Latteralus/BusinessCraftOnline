@@ -26,6 +26,7 @@ type InventoryRow = {
 type EmployeeRow = {
   id: string;
   status: string;
+  shift_ends_at: string | null;
 };
 
 type AssignmentRow = {
@@ -136,8 +137,15 @@ function parseEmployeeRow(value: unknown): EmployeeRow | null {
   if (!isRecord(value)) return null;
   const id = readString(value.id);
   const status = readString(value.status);
-  if (!id || !status) return null;
-  return { id, status };
+  const shiftEndsAt = value.shift_ends_at === null ? null : readString(value.shift_ends_at);
+  if (!id || !status || shiftEndsAt === undefined) return null;
+  return { id, status, shift_ends_at: shiftEndsAt };
+}
+
+function isWorkerOperational(status: string, shiftEndsAt: string | null): boolean {
+  if (status !== "assigned") return false;
+  if (!shiftEndsAt) return false;
+  return new Date(shiftEndsAt).getTime() > Date.now();
 }
 
 function parseAssignmentRow(value: unknown): AssignmentRow | null {
@@ -308,7 +316,7 @@ Deno.serve(async (request) => {
     const [{ data: rawEmployee }, { data: rawAssignment }] = await Promise.all([
       supabase
         .from("employees")
-        .select("id, status")
+        .select("id, status, shift_ends_at")
         .eq("id", slot.employee_id)
         .maybeSingle(),
       supabase
@@ -327,7 +335,13 @@ Deno.serve(async (request) => {
       !assignment ||
       (assignment.slot_number !== null && Number(assignment.slot_number) !== Number(slot.slot_number));
 
-    if (!employee || assignmentMismatch || employee.status === "fired" || employee.status === "unpaid") {
+    if (
+      !employee ||
+      assignmentMismatch ||
+      employee.status === "fired" ||
+      employee.status === "unpaid" ||
+      !isWorkerOperational(employee.status, employee.shift_ends_at)
+    ) {
       await failSlot(supabase, slot.id, "resting");
       restingCount += 1;
       continue;

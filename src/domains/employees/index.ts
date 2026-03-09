@@ -13,6 +13,8 @@ export {
   unassignEmployee,
 } from "./service";
 
+export { getWorkerEffectiveStatus, isWorkerOperational } from "./worker-state";
+
 export {
   assignEmployeeSchema,
   employeeListFilterSchema,

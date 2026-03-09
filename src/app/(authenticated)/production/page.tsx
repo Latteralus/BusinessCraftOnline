@@ -234,7 +234,10 @@ export default function ProductionPage() {
               </label>
 
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => void setRunning("start")} disabled={busy || !manufacturing.job.active_recipe_key}>
+                <button
+                  onClick={() => void setRunning("start")}
+                  disabled={busy || !manufacturing.job.active_recipe_key || !manufacturing.job.worker_assigned}
+                >
                   Start
                 </button>
                 <button onClick={() => void setRunning("stop")} disabled={busy}>

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { startTickRequest } from "../_shared/tick-runtime.ts";
+import { startTickRequest, writeTickRunLog } from "../_shared/tick-runtime.ts";
 
 const RECIPE_INPUTS: Record<string, Array<{ itemKey: string; quantity: number }>> = {
   sawmill_planks: [{ itemKey: "raw_wood", quantity: 2 }],
@@ -28,6 +28,12 @@ const XP_PER_TICK = 5;
 const XP_PER_LEVEL = 100;
 const GAIN_MULTIPLIER = 1.1;
 const CONTRACT_ACTIVE_STATUSES = ["accepted", "in_progress"];
+
+function isWorkerOperational(status: string, shiftEndsAt: string | null): boolean {
+  if (status !== "assigned") return false;
+  if (!shiftEndsAt) return false;
+  return new Date(shiftEndsAt).getTime() > Date.now();
+}
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
@@ -118,6 +124,8 @@ Deno.serve(async (request) => {
   if ("response" in requestStart) return requestStart.response;
 
   const { supabase, release } = requestStart;
+  const startedAt = new Date();
+  const startedAtIso = startedAt.toISOString();
   try {
 
     const { data: jobs, error: jobsError } = await supabase
@@ -136,6 +144,7 @@ Deno.serve(async (request) => {
     let producedTotal = 0;
     let contractsExpired = 0;
     let contractsFulfilled = 0;
+    let workerlessJobs = 0;
 
     for (const job of jobs ?? []) {
     if (!job.active_recipe_key) continue;
@@ -152,35 +161,43 @@ Deno.serve(async (request) => {
 
     if (!business) continue;
 
-    const { data: assignment } = await supabase
+      const { data: assignment, error: assignmentError } = await supabase
       .from("employee_assignments")
-      .select("employee_id")
+      .select("employee_id, assigned_at")
       .eq("business_id", job.business_id)
       .eq("role", "production")
-      .limit(1)
-      .maybeSingle();
+      .order("assigned_at", { ascending: true });
+      if (assignmentError) throw assignmentError;
 
-    if (!assignment) {
+    const workerAssignment = (assignment ?? []).find((candidate) => Boolean(candidate.employee_id)) ?? null;
+    if (!workerAssignment) {
       const { error: workerFlagError } = await supabase
         .from("manufacturing_jobs")
         .update({ worker_assigned: false, updated_at: new Date().toISOString() })
         .eq("id", job.id);
       if (workerFlagError) throw workerFlagError;
+      workerlessJobs += 1;
       continue;
     }
 
     const { data: employee } = await supabase
       .from("employees")
-      .select("id, status")
-      .eq("id", assignment.employee_id)
+      .select("id, status, shift_ends_at")
+      .eq("id", workerAssignment.employee_id)
       .maybeSingle();
 
-    if (!employee || employee.status === "fired" || employee.status === "unpaid") {
+    if (
+      !employee ||
+      employee.status === "fired" ||
+      employee.status === "unpaid" ||
+      !isWorkerOperational(employee.status, employee.shift_ends_at)
+    ) {
       const { error: workerFlagError } = await supabase
         .from("manufacturing_jobs")
         .update({ worker_assigned: false, updated_at: new Date().toISOString() })
         .eq("id", job.id);
       if (workerFlagError) throw workerFlagError;
+      workerlessJobs += 1;
       continue;
     }
 
@@ -263,7 +280,7 @@ Deno.serve(async (request) => {
     const { data: skill } = await supabase
       .from("employee_skills")
       .select("id, level, xp")
-      .eq("employee_id", assignment.employee_id)
+      .eq("employee_id", workerAssignment.employee_id)
       .eq("skill_key", recipeOutput.skillKey)
       .maybeSingle();
 
@@ -312,7 +329,7 @@ Deno.serve(async (request) => {
     producedTotal += outputQty;
   }
 
-  const nowIso = new Date().toISOString();
+    const nowIso = new Date().toISOString();
 
   const { data: expiredContracts } = await supabase
     .from("contracts")
@@ -408,17 +425,51 @@ Deno.serve(async (request) => {
     contractsFulfilled += 1;
   }
 
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        function: "tick-manufacturing",
-        processed,
-        producedTotal,
-        contractsFulfilled,
-        contractsExpired,
-      }),
-      { headers: { "Content-Type": "application/json" } }
-    );
+    const payload = {
+      ok: true,
+      function: "tick-manufacturing",
+      processed,
+      producedTotal,
+      contractsFulfilled,
+      contractsExpired,
+      workerlessJobs,
+    };
+
+    await writeTickRunLog(supabase, {
+      tickName: "tick-manufacturing",
+      status: "ok",
+      startedAtIso,
+      finishedAtIso: nowIso,
+      durationMs: new Date(nowIso).getTime() - startedAt.getTime(),
+      processedCount: processed,
+      metrics: payload,
+      errorMessage: null,
+    });
+
+    return new Response(JSON.stringify(payload), { headers: { "Content-Type": "application/json" } });
+  } catch (error) {
+    const finishedAtIso = new Date().toISOString();
+    const message = error instanceof Error ? error.message : "tick-manufacturing failed";
+
+    try {
+      await writeTickRunLog(supabase, {
+        tickName: "tick-manufacturing",
+        status: "error",
+        startedAtIso,
+        finishedAtIso,
+        durationMs: new Date(finishedAtIso).getTime() - startedAt.getTime(),
+        processedCount: 0,
+        metrics: {},
+        errorMessage: message,
+      });
+    } catch {
+      // Ignore secondary log failures in error path.
+    }
+
+    return new Response(JSON.stringify({ ok: false, error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   } finally {
     await release();
   }
