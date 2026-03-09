@@ -1,7 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { FormEvent, useState, ChangeEvent } from "react";
+import { FormEvent, useEffect, useState, ChangeEvent } from "react";
+
+type PublicStats = {
+  playerCount: number;
+  businessCount: number;
+  onlinePlayerCount: number;
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -9,6 +15,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({ username: "", password: "" });
+  const [publicStats, setPublicStats] = useState<PublicStats | null>(null);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -37,7 +44,36 @@ export default function LoginPage() {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) =>
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPublicStats() {
+      try {
+        const response = await fetch("/api/public-stats", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as PublicStats;
+        if (!cancelled) {
+          setPublicStats(payload);
+        }
+      } catch {
+        // Keep the login page usable even if stats are unavailable.
+      }
+    }
+
+    void loadPublicStats();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const spark = [38, 45, 42, 55, 50, 62, 58, 70, 65, 78, 74, 85];
+  const formattedOnlinePlayers =
+    publicStats?.onlinePlayerCount !== undefined ? publicStats.onlinePlayerCount.toLocaleString() : "...";
+  const formattedPlayerCount =
+    publicStats?.playerCount !== undefined ? publicStats.playerCount.toLocaleString() : "...";
+  const formattedBusinessCount =
+    publicStats?.businessCount !== undefined ? publicStats.businessCount.toLocaleString() : "...";
 
   return (
     <>
@@ -478,15 +514,15 @@ export default function LoginPage() {
             <div className="lco-stat-row">
               <div className="lco-stat-card">
                 <span className="lco-stat-card-label">Active Players</span>
-                <span className="lco-stat-card-val">12,408<span className="lco-up">↑8%</span></span>
+                <span className="lco-stat-card-val">{formattedOnlinePlayers}</span>
               </div>
               <div className="lco-stat-card">
-                <span className="lco-stat-card-label">GDP Simulated</span>
-                <span className="lco-stat-card-val">$2.1B</span>
+                <span className="lco-stat-card-label">Registered Players</span>
+                <span className="lco-stat-card-val">{formattedPlayerCount}</span>
               </div>
               <div className="lco-stat-card">
                 <span className="lco-stat-card-label">Corps Founded</span>
-                <span className="lco-stat-card-val">847</span>
+                <span className="lco-stat-card-val">{formattedBusinessCount}</span>
               </div>
             </div>
 
