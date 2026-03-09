@@ -6,6 +6,7 @@ import type { BankAccountWithBalance } from "@/domains/banking";
 import type { BusinessWithBalance } from "@/domains/businesses";
 import { apiGet, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
+import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -21,18 +22,6 @@ type Props = {
     cityNamesById: Record<string, string>;
   };
 };
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleString();
-}
 
 export default function InventoryClient({ initialData }: Props) {
   const availableItemKeys = Object.keys(NPC_PRICE_CEILINGS);
@@ -305,7 +294,7 @@ export default function InventoryClient({ initialData }: Props) {
               <div key={row.id} style={{ border: "1px solid #334155", borderRadius: 6, padding: 8 }}>
                 <strong>{formatItemKey(row.item_key)}</strong> · Qty {row.quantity} · {formatCurrency(row.cost)} · {row.status}
                 <div style={{ color: "#94a3b8", fontSize: 13 }}>
-                  {cityNamesById[row.from_city_id] ?? row.from_city_id} → {cityNamesById[row.to_city_id] ?? row.to_city_id} · arrives {formatDate(row.arrives_at)}
+                  {cityNamesById[row.from_city_id] ?? row.from_city_id} → {cityNamesById[row.to_city_id] ?? row.to_city_id} · arrives {formatDateTime(row.arrives_at)}
                 </div>
               </div>
             ))}

@@ -14,6 +14,7 @@ import { calculateUpgradePreview } from "@/domains/upgrades";
 import { BASE_WAGE_PER_HOUR } from "@/config/employees";
 import { apiDelete, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
+import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 
 type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades";
@@ -45,24 +46,11 @@ const LAST_NAMES = [
   "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
 ];
 
-function toTitleLabel(value: string) {
-  return value
-    .split("_")
-    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
-    .join(" ");
-}
-
-function formatEmployeeType(type: string) {
-  if (type === "part_time") return "Part-Time";
-  if (type === "full_time") return "Full-Time";
-  return toTitleLabel(type);
-}
-
 export default function BusinessDetailsClient({ business, production, manufacturing, inventory, shelfItems, upgrades, employees, upgradeDefinitions = [], financeSummary, initialTab }: Props) {
   const router = useRouter();
-  const tempPayPer15Min = (BASE_WAGE_PER_HOUR.temp / 4).toFixed(2);
-  const partTimePayPer15Min = (BASE_WAGE_PER_HOUR.part_time / 4).toFixed(2);
-  const fullTimePayPer15Min = (BASE_WAGE_PER_HOUR.full_time / 4).toFixed(2);
+  const tempPayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.temp / 4);
+  const partTimePayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.part_time / 4);
+  const fullTimePayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.full_time / 4);
   
   const defaultTab = (initialTab as TabType) || "overview";
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
@@ -358,11 +346,11 @@ export default function BusinessDetailsClient({ business, production, manufactur
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                 <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Entity Type</div>
-                <div>{business.entity_type.replace(/_/g, " ")}</div>
+                <div>{formatLabel(business.entity_type)}</div>
               </div>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                 <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Valuation</div>
-                <div>${business.value.toFixed(2)}</div>
+                <div>{formatCurrency(business.value)}</div>
               </div>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                 <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Inventory Items</div>
@@ -384,13 +372,13 @@ export default function BusinessDetailsClient({ business, production, manufactur
                 <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                   <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Bank Balance</div>
                   <div style={{ fontSize: "1.5rem", fontWeight: 600, color: financeSummary.balance >= 0 ? "var(--text-primary)" : "#f87171" }}>
-                    ${financeSummary.balance.toFixed(2)}
+                    {formatCurrency(financeSummary.balance)}
                   </div>
                 </div>
                 <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                   <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Revenue (24h)</div>
                   <div style={{ fontSize: "1.2rem", fontWeight: 500, color: "var(--accent-green)" }}>
-                    +${financeSummary.revenue24h.toFixed(2)}
+                    +{formatCurrency(financeSummary.revenue24h)}
                   </div>
                 </div>
                 <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
@@ -402,7 +390,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                 <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                   <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Active Listings Value</div>
                   <div style={{ fontSize: "1.2rem", fontWeight: 500 }}>
-                    ${financeSummary.totalValueOnMarket.toFixed(2)}
+                    {formatCurrency(financeSummary.totalValueOnMarket)}
                   </div>
                 </div>
               </div>
@@ -440,7 +428,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                           <div>
                             <div style={{ fontWeight: 600 }}>{formatItemKey(item.item_key)} (Q{item.quality})</div>
                             <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                              On shelf: {item.quantity} | Price: ${item.unit_price.toFixed(2)}
+                              On shelf: {item.quantity} | Price: {formatCurrency(item.unit_price)}
                             </div>
                           </div>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -716,9 +704,9 @@ export default function BusinessDetailsClient({ business, production, manufactur
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <h3 style={{ margin: 0 }}>Employees</h3>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => hireEmployee("temp")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Temp ($0 · ${tempPayPer15Min}/15m)</button>
-                <button onClick={() => hireEmployee("part_time")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Part Time ($200 · ${partTimePayPer15Min}/15m)</button>
-                <button onClick={() => hireEmployee("full_time")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Full Time ($500 · ${fullTimePayPer15Min}/15m)</button>
+                <button onClick={() => hireEmployee("temp")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Temp ($0 · {tempPayPer15Min}/15m)</button>
+                <button onClick={() => hireEmployee("part_time")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Part Time ($200 · {partTimePayPer15Min}/15m)</button>
+                <button onClick={() => hireEmployee("full_time")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Full Time ($500 · {fullTimePayPer15Min}/15m)</button>
               </div>
             </div>
 
@@ -733,16 +721,11 @@ export default function BusinessDetailsClient({ business, production, manufactur
               </div>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                 <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Total Wages Per Tick</div>
-                <div>${employees.reduce((sum, employee) => sum + (employee.wage_per_hour || 0), 0).toFixed(2)}</div>
+                <div>{formatCurrency(employees.reduce((sum, employee) => sum + (employee.wage_per_hour || 0), 0))}</div>
               </div>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                 <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>This Business Wages Per Tick</div>
-                <div>
-                  $
-                  {thisBusinessEmployees
-                    .reduce((sum, employee) => sum + (getAssignmentForBusiness(employee)?.wage_per_hour ?? employee.wage_per_hour ?? 0), 0)
-                    .toFixed(2)}
-                </div>
+                <div>{formatCurrency(thisBusinessEmployees.reduce((sum, employee) => sum + (getAssignmentForBusiness(employee)?.wage_per_hour ?? employee.wage_per_hour ?? 0), 0))}</div>
               </div>
             </div>
 
@@ -755,7 +738,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                       <div>
                         <div style={{ fontWeight: 600 }}>{e.first_name} {e.last_name}</div>
                         <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: 4 }}>
-                          {formatEmployeeType(e.employee_type)} • {toTitleLabel(e.status)}
+                          {formatEmployeeType(e.employee_type)} • {formatLabel(e.status)}
                         </div>
                         {assignment && (
                           <div style={{ fontSize: "0.8rem", color: "var(--accent-blue)", marginTop: 4 }}>
@@ -763,7 +746,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                           </div>
                         )}
                         <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
-                          Wage: ${(assignment?.wage_per_hour ?? BASE_WAGE_PER_HOUR[e.employee_type]).toFixed(2)}/hr
+                          Wage: {formatCurrency(assignment?.wage_per_hour ?? BASE_WAGE_PER_HOUR[e.employee_type])}/hr
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -897,7 +880,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                         <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: 8 }}>{def.description}</div>
                         <div style={{ display: "flex", gap: 16, fontSize: "0.8rem", color: "var(--text-muted)" }}>
                           <span><strong>Level:</strong> {currentLevel} {def.max_level ? `/ ${def.max_level}` : ""}</span>
-                          {!isMaxed && <span><strong>Next Cost:</strong> ${preview.nextCost.toFixed(2)}</span>}
+                          {!isMaxed && <span><strong>Next Cost:</strong> {formatCurrency(preview.nextCost)}</span>}
                           <span>
                             <strong>Effect:</strong> {def.effect_label} (+{Math.round((preview.currentEffect - 1) * 100)}% {isMaxed ? "" : `→ +${Math.round((preview.nextEffect - 1) * 100)}%`})
                           </span>

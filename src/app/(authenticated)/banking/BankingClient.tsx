@@ -4,6 +4,7 @@ import type { BankAccountWithBalance, LoanSummary, TransactionEntry } from "@/do
 import type { BusinessWithBalance } from "@/domains/businesses";
 import { apiGet, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
+import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -31,14 +32,6 @@ const ACCOUNT_LABELS: Record<string, string> = {
   savings: "Savings",
   investment: "Investment",
 };
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  }).format(value);
-}
 
 export default function BankingClient({ initialData }: Props) {
   const [accounts, setAccounts] = useState(initialData.accounts);
@@ -341,7 +334,7 @@ export default function BankingClient({ initialData }: Props) {
             <p style={{ margin: 0 }}><strong>Status:</strong> {loanData.summary.loan.status}</p>
             <p style={{ margin: 0 }}><strong>Balance Remaining:</strong> {formatCurrency(loanData.summary.loan.balance_remaining)}</p>
             <p style={{ margin: 0 }}><strong>Minimum Weekly Due:</strong> {formatCurrency(loanData.summary.currentMinimumDue)}</p>
-            <p style={{ margin: 0 }}><strong>Next Due Date:</strong> {loanData.summary.loan.next_payment_due ? new Date(loanData.summary.loan.next_payment_due).toLocaleString() : "N/A"}</p>
+            <p style={{ margin: 0 }}><strong>Next Due Date:</strong> {loanData.summary.loan.next_payment_due ? formatDateTime(loanData.summary.loan.next_payment_due) : "N/A"}</p>
             <p style={{ margin: 0, color: loanData.summary.isPaymentOverdue ? "#f87171" : "#94a3b8" }}>
               {loanData.summary.isPaymentOverdue ? "Payment is overdue." : "Loan is in good standing."}
             </p>
@@ -384,7 +377,7 @@ export default function BankingClient({ initialData }: Props) {
             <tbody>
               {transactions.map((entry) => (
                 <tr key={entry.id}>
-                  <td style={{ padding: 8, borderBottom: "1px solid #1f2937" }}>{new Date(entry.created_at).toLocaleString()}</td>
+                  <td style={{ padding: 8, borderBottom: "1px solid #1f2937" }}>{formatDateTime(entry.created_at)}</td>
                   <td style={{ padding: 8, borderBottom: "1px solid #1f2937" }}>{entry.transaction_type}</td>
                   <td style={{ padding: 8, borderBottom: "1px solid #1f2937" }}>{entry.direction}</td>
                   <td style={{ padding: 8, borderBottom: "1px solid #1f2937", textAlign: "right", color: entry.direction === "credit" ? "#34d399" : "#f87171" }}>

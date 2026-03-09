@@ -2,6 +2,7 @@
 
 import { EMPLOYEE_TYPES } from "@/config/employees";
 import type { Employee, EmployeeRole, EmployeeSummary, EmployeeType } from "@/domains/employees";
+import { formatNullableDateTime } from "@/lib/formatters";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -13,11 +14,6 @@ type Props = {
     businesses: Business[];
   };
 };
-
-function formatDate(value: string | null) {
-  if (!value) return "N/A";
-  return new Date(value).toLocaleString();
-}
 
 const FIRST_NAMES = ["James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph", "Thomas", "Charles", "Mary", "Patricia", "Jennifer", "Linda", "Elizabeth", "Barbara", "Susan", "Jessica", "Sarah", "Karen", "Oliver", "Noah", "Elijah", "Lucas", "Mason", "Harper", "Evelyn", "Abigail", "Emily", "Ella"];
 const LAST_NAMES = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin", "Lee", "Perez", "Thompson", "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson"];
@@ -290,7 +286,7 @@ export default function EmployeesClient({ initialData }: Props) {
                 {employee.employee_type} · {employee.status}
                 {employee.specialty_skill_key ? ` · specialty: ${employee.specialty_skill_key}` : ""}
               </p>
-              <p style={{ margin: "6px 0", color: "#94a3b8" }}>Shift Ends: {formatDate(employee.shift_ends_at)}</p>
+              <p style={{ margin: "6px 0", color: "#94a3b8" }}>Shift Ends: {formatNullableDateTime(employee.shift_ends_at)}</p>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button onClick={() => reactivate(employee.id)} disabled={employee.status === "fired"}>Re-Activate</button>
                 <button onClick={() => unassign(employee.id)} disabled={employee.status === "fired"}>Unassign</button>

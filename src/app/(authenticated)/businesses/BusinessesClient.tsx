@@ -8,6 +8,7 @@ import type {
 import type { UpgradeDefinition, UpgradePreview } from "@/domains/upgrades";
 import { apiGet, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
+import { formatCurrency, formatLabel } from "@/lib/formatters";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -62,14 +63,6 @@ const TYPE_LABELS: Record<BusinessType, string> = {
   general_store: "General Store",
   specialty_store: "Specialty Store",
 };
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  }).format(value);
-}
 
 export default function BusinessesClient({ initialData }: Props) {
   const [businesses, setBusinesses] = useState<BusinessWithBalance[]>(initialData.businesses);
@@ -294,7 +287,7 @@ export default function BusinessesClient({ initialData }: Props) {
             >
               <p style={{ margin: 0, fontWeight: 700 }}>{business.name}</p>
               <p style={{ margin: "6px 0", color: "#94a3b8" }}>
-                {TYPE_LABELS[business.type]} · {business.entity_type} · Balance {formatCurrency(business.balance)}
+                {TYPE_LABELS[business.type]} · {formatLabel(business.entity_type)} · Balance {formatCurrency(business.balance)}
               </p>
               <p style={{ margin: 0, color: "#94a3b8" }}>Value: {formatCurrency(business.value)}</p>
             </Link>
