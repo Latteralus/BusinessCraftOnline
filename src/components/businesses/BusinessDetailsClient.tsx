@@ -18,6 +18,8 @@ import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import BusinessFinanceDashboardPanel from "./BusinessFinanceDashboard";
+import BusinessOverviewDashboard from "./BusinessOverviewDashboard";
+import BusinessOperationsDashboard from "./BusinessOperationsDashboard";
 
 type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades";
 
@@ -360,25 +362,16 @@ export default function BusinessDetailsClient({ business, production, manufactur
         )}
         {activeTab === "overview" && (
           <div>
-            <h3 style={{ marginBottom: 16 }}>Business Overview</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
-              <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
-                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Entity Type</div>
-                <div>{formatLabel(business.entity_type)}</div>
-              </div>
-              <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
-                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Valuation</div>
-                <div>{formatCurrency(financeDashboard?.valuation.currentValue ?? business.value)}</div>
-              </div>
-              <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
-                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Inventory Items</div>
-                <div>{inventory.length}</div>
-              </div>
-              <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
-                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Upgrades Installed</div>
-                <div>{upgrades.length}</div>
-              </div>
-            </div>
+            <BusinessOverviewDashboard
+              business={business}
+              financeDashboard={financeDashboard ?? null}
+              production={production}
+              manufacturing={manufacturing}
+              inventory={inventory}
+              shelfItems={shelfItems}
+              upgrades={upgrades}
+              employees={employees}
+            />
           </div>
         )}
 
@@ -391,6 +384,14 @@ export default function BusinessDetailsClient({ business, production, manufactur
         {activeTab === "operations" && (
           <div>
             <h3 style={{ marginBottom: 16 }}>Operations</h3>
+            <BusinessOperationsDashboard
+              business={business}
+              production={production}
+              manufacturing={manufacturing}
+              inventory={inventory}
+              shelfItems={shelfItems}
+              employees={employees}
+            />
             {isStoreBusiness && (
               <div style={{ display: "grid", gap: 16, marginBottom: 16 }}>
                 <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
