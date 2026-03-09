@@ -145,6 +145,10 @@ export function Topbar({
   }, [isChatOpen]);
 
   useEffect(() => {
+    if (!isChatOpen) {
+      return;
+    }
+
     let isCancelled = false;
     let removeChannel: (() => void) | null = null;
 
@@ -310,6 +314,7 @@ export function Topbar({
                     <Link
                       key={player.player_id}
                       href={`/players/${player.player_id}`}
+                      prefetch={false}
                       className="online-player-row"
                       onClick={() => setIsOnlineListOpen(false)}
                     >
@@ -330,13 +335,13 @@ export function Topbar({
         </div>
       </div>
       <div className="topbar-nav">
-        <Link href="/dashboard" className={pathname === "/dashboard" ? "active" : ""}>Dashboard</Link>
-        <Link href="/businesses" className={pathname === "/businesses" ? "active" : ""}>My Businesses</Link>
-        <Link href="/market" className={pathname === "/market" ? "active" : ""}>Market</Link>
-        <Link href="/production" className={pathname === "/production" ? "active" : ""}>Manufacturing</Link>
-        <Link href="/banking" className={pathname === "/banking" ? "active" : ""}>Banking</Link>
-        <Link href="/contracts" className={pathname === "/contracts" ? "active" : ""}>Contracts</Link>
-        <Link href="/inventory" className={pathname === "/inventory" ? "active" : ""}>Inventory</Link>
+        <Link href="/dashboard" prefetch={false} className={pathname === "/dashboard" ? "active" : ""}>Dashboard</Link>
+        <Link href="/businesses" prefetch={false} className={pathname === "/businesses" ? "active" : ""}>My Businesses</Link>
+        <Link href="/market" prefetch={false} className={pathname === "/market" ? "active" : ""}>Market</Link>
+        <Link href="/production" prefetch={false} className={pathname === "/production" ? "active" : ""}>Manufacturing</Link>
+        <Link href="/banking" prefetch={false} className={pathname === "/banking" ? "active" : ""}>Banking</Link>
+        <Link href="/contracts" prefetch={false} className={pathname === "/contracts" ? "active" : ""}>Contracts</Link>
+        <Link href="/inventory" prefetch={false} className={pathname === "/inventory" ? "active" : ""}>Inventory</Link>
       </div>
       <div className="topbar-right">
         <div className="topbar-chat-wrap" ref={chatRef}>

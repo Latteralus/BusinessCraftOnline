@@ -325,27 +325,27 @@ export default async function DashboardPage() {
         </div>
 
         <div className="quick-actions anim anim-d2">
-          <Link className="qa-btn" href="/businesses">
+          <Link className="qa-btn" href="/businesses" prefetch={false}>
             <div className="qa-icon" style={{ background: "var(--accent-green-dim)" }}>🏭</div>
             <div><div className="qa-text">New Business</div><div className="qa-sub">Start a venture</div></div>
           </Link>
-          <Link className="qa-btn" href="/inventory">
+          <Link className="qa-btn" href="/inventory" prefetch={false}>
             <div className="qa-icon" style={{ background: "var(--accent-blue-dim)" }}>📦</div>
             <div><div className="qa-text">Inventory</div><div className="qa-sub">Manage stock</div></div>
           </Link>
-          <Link className="qa-btn" href="/market">
+          <Link className="qa-btn" href="/market" prefetch={false}>
             <div className="qa-icon" style={{ background: "var(--accent-amber-dim)" }}>📊</div>
             <div><div className="qa-text">Player Market</div><div className="qa-sub">Buy & sell goods</div></div>
           </Link>
-          <Link className="qa-btn" href="/banking">
+          <Link className="qa-btn" href="/banking" prefetch={false}>
             <div className="qa-icon" style={{ background: "var(--accent-purple-dim)" }}>🏦</div>
             <div><div className="qa-text">Banking</div><div className="qa-sub">Transfers & loans</div></div>
           </Link>
-          <Link className="qa-btn" href="/contracts">
+          <Link className="qa-btn" href="/contracts" prefetch={false}>
             <div className="qa-icon" style={{ background: "var(--accent-cyan-dim)" }}>📝</div>
             <div><div className="qa-text">Contracts</div><div className="qa-sub">Pending bids</div></div>
           </Link>
-          <Link className="qa-btn" href="/employees">
+          <Link className="qa-btn" href="/employees" prefetch={false}>
             <div className="qa-icon" style={{ background: "var(--accent-red-dim)" }}>👥</div>
             <div><div className="qa-text">Employees</div><div className="qa-sub">{employeeSummary?.totalEmployees ?? 0} Total</div></div>
           </Link>
@@ -358,12 +358,12 @@ export default async function DashboardPage() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
                 My Businesses
               </div>
-              <Link href="/businesses" className="card-action">View All →</Link>
+              <Link href="/businesses" prefetch={false} className="card-action">View All →</Link>
             </div>
             <div className="card-body card-body-scroll">
               {businessList.length > 0 ? (
                 businessList.map((business) => (
-                  <Link href={`/businesses/${business.id}`} key={business.id} className="biz-item" style={{ textDecoration: "none" }}>
+                  <Link href={`/businesses/${business.id}`} prefetch={false} key={business.id} className="biz-item" style={{ textDecoration: "none" }}>
                     <div className="biz-icon" style={{ background: "var(--accent-amber-dim)", color: "var(--accent-amber)" }}>
                       {getBusinessIcon(business.type)}
                     </div>
@@ -389,13 +389,14 @@ export default async function DashboardPage() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 20h20M5 20V8l5 4V4l5 8h5v8"/></svg>
                 Active Operations
               </div>
-              <Link href="/businesses" className="card-action">Manage →</Link>
+              <Link href="/businesses" prefetch={false} className="card-action">Manage →</Link>
             </div>
             <div className="card-body card-body-scroll">
               {activeOperations.length > 0 ? (
                 activeOperations.map((op) => (
                   <Link
                     href={`/businesses/${op.businessId}?tab=operations`}
+                    prefetch={false}
                     key={op.id}
                     style={{ textDecoration: "none", color: "inherit", display: "block" }}
                   >
@@ -472,7 +473,7 @@ export default async function DashboardPage() {
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                   Market Watch
                 </div>
-                <Link href="/market" className="card-action">Full Market →</Link>
+                <Link href="/market" prefetch={false} className="card-action">Full Market →</Link>
               </div>
               <div className="card-body">
                 {marketFeed.map((entry) => (
@@ -493,7 +494,7 @@ export default async function DashboardPage() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
                 Employees
               </div>
-              <Link href="/employees" className="card-action">Hire / Manage →</Link>
+              <Link href="/employees" prefetch={false} className="card-action">Hire / Manage →</Link>
             </div>
             <div className="card-body">
               <div className="emp-item">
