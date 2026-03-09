@@ -3,11 +3,34 @@ import { startTickRequest, toNumber, writeTickRunLog } from "../_shared/tick-run
 
 const WAGE_CHARGE_INTERVAL_MS = 60 * 60 * 1000;
 
-function shouldCharge(lastChargedAt: string | null | undefined, nowMs: number): boolean {
-  if (!lastChargedAt) return true;
-  const lastMs = new Date(lastChargedAt).getTime();
-  if (!Number.isFinite(lastMs)) return true;
-  return nowMs - lastMs >= WAGE_CHARGE_INTERVAL_MS;
+function readTimestampMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getChargeWindowCount(
+  lastChargedAt: string | null | undefined,
+  createdAt: string | null | undefined,
+  nowMs: number
+): number {
+  const anchorMs = readTimestampMs(lastChargedAt) ?? readTimestampMs(createdAt);
+  if (anchorMs === null) return 1;
+  return Math.max(0, Math.floor((nowMs - anchorMs) / WAGE_CHARGE_INTERVAL_MS));
+}
+
+function getNextChargeAnchorIso(
+  lastChargedAt: string | null | undefined,
+  createdAt: string | null | undefined,
+  windowsCharged: number,
+  fallbackIso: string
+): string {
+  if (windowsCharged <= 0) return fallbackIso;
+
+  const anchorMs = readTimestampMs(lastChargedAt) ?? readTimestampMs(createdAt);
+  if (anchorMs === null) return fallbackIso;
+
+  return new Date(anchorMs + windowsCharged * WAGE_CHARGE_INTERVAL_MS).toISOString();
 }
 
 Deno.serve(async (request) => {
@@ -26,7 +49,7 @@ Deno.serve(async (request) => {
     const { data: employeeRows, error: employeesError } = await supabase
       .from("employees")
       .select(
-        "id, player_id, first_name, last_name, status, unpaid_wage_due, employer_business_id, wage_per_hour, last_wage_charged_at"
+        "id, player_id, first_name, last_name, status, unpaid_wage_due, employer_business_id, wage_per_hour, last_wage_charged_at, created_at"
       )
       .order("created_at", { ascending: true });
 
@@ -35,6 +58,7 @@ Deno.serve(async (request) => {
     let employeesChecked = 0;
     let wagesCharged = 0;
     let totalWages = 0;
+    let totalHoursCharged = 0;
     let unpaidTransitions = 0;
     let skippedByInterval = 0;
     let skippedByStatus = 0;
@@ -43,7 +67,12 @@ Deno.serve(async (request) => {
     for (const employee of employeeRows ?? []) {
       employeesChecked += 1;
 
-      if (!shouldCharge(employee.last_wage_charged_at, nowMs)) {
+      const chargeWindowCount = getChargeWindowCount(
+        employee.last_wage_charged_at,
+        employee.created_at,
+        nowMs
+      );
+      if (chargeWindowCount <= 0) {
         skippedByInterval += 1;
         continue;
       }
@@ -58,11 +87,19 @@ Deno.serve(async (request) => {
         continue;
       }
 
-      const wageAmount = Number(toNumber(employee.wage_per_hour).toFixed(2));
-      if (wageAmount <= 0) {
+      const wagePerHour = Number(toNumber(employee.wage_per_hour).toFixed(2));
+      const wageAmount = Number((wagePerHour * chargeWindowCount).toFixed(2));
+      const chargeAnchorIso = getNextChargeAnchorIso(
+        employee.last_wage_charged_at,
+        employee.created_at,
+        chargeWindowCount,
+        nowIso
+      );
+
+      if (wagePerHour <= 0 || wageAmount <= 0) {
         await supabase
           .from("employees")
-          .update({ last_wage_charged_at: nowIso, updated_at: nowIso })
+          .update({ last_wage_charged_at: chargeAnchorIso, updated_at: nowIso })
           .eq("id", employee.id);
         continue;
       }
@@ -89,11 +126,12 @@ Deno.serve(async (request) => {
 
         await supabase
           .from("employees")
-          .update({ last_wage_charged_at: nowIso, updated_at: nowIso })
+          .update({ last_wage_charged_at: chargeAnchorIso, updated_at: nowIso })
           .eq("id", employee.id);
 
         wagesCharged += 1;
         totalWages += wageAmount;
+        totalHoursCharged += chargeWindowCount;
         continue;
       }
 
@@ -104,7 +142,7 @@ Deno.serve(async (request) => {
           unpaid_wage_due: Number((toNumber(employee.unpaid_wage_due) + wageAmount).toFixed(2)),
           unpaid_since: nowIso,
           last_unassigned_for_unpaid_at: nowIso,
-          last_wage_charged_at: nowIso,
+          last_wage_charged_at: chargeAnchorIso,
           updated_at: nowIso,
         })
         .eq("id", employee.id)
@@ -129,6 +167,7 @@ Deno.serve(async (request) => {
       function: "tick-wages",
       employeesChecked,
       wagesCharged,
+      totalHoursCharged,
       totalWages: Number(totalWages.toFixed(2)),
       unpaidTransitions,
       skippedByInterval,
