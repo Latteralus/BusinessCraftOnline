@@ -55,8 +55,15 @@ export function notFound(message: string) {
 }
 
 export function fail(error: unknown, fallback: string, status = 400) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error && typeof error.message === "string"
+        ? error.message
+        : fallback;
+
   return NextResponse.json(
-    { error: error instanceof Error ? error.message : fallback },
+    { error: message },
     { status }
   );
 }
