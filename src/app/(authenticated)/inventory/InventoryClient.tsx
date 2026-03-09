@@ -1,0 +1,296 @@
+"use client";
+
+import { NPC_PRICE_CEILINGS } from "@/config/items";
+import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } from "@/domains/inventory";
+import type { BankAccountWithBalance } from "@/domains/banking";
+import type { BusinessWithBalance } from "@/domains/businesses";
+import { formatItemKey } from "@/lib/items";
+import Link from "next/link";
+import { useMemo, useState } from "react";
+
+type Props = {
+  initialData: {
+    personalInventory: PersonalInventoryItem[];
+    businessInventory: BusinessInventoryItem[];
+    shippingQueue: ShippingQueueItem[];
+    accounts: BankAccountWithBalance[];
+    businesses: BusinessWithBalance[];
+    businessNamesById: Record<string, string>;
+    cityNamesById: Record<string, string>;
+  };
+};
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleString();
+}
+
+export default function InventoryClient({ initialData }: Props) {
+  const availableItemKeys = Object.keys(NPC_PRICE_CEILINGS);
+  const [personalInventory, setPersonalInventory] = useState(initialData.personalInventory);
+  const [businessInventory, setBusinessInventory] = useState(initialData.businessInventory);
+  const [shippingQueue, setShippingQueue] = useState(initialData.shippingQueue);
+  const [accounts, setAccounts] = useState(initialData.accounts);
+  const [businesses, setBusinesses] = useState(initialData.businesses);
+  const [businessNamesById, setBusinessNamesById] = useState(initialData.businessNamesById);
+  const [cityNamesById, setCityNamesById] = useState(initialData.cityNamesById);
+  const [sourceType, setSourceType] = useState<"personal" | "business">("personal");
+  const [sourceBusinessId, setSourceBusinessId] = useState(initialData.businesses[0]?.id ?? "");
+  const [destinationType, setDestinationType] = useState<"personal" | "business">("business");
+  const [destinationBusinessId, setDestinationBusinessId] = useState(initialData.businesses[0]?.id ?? "");
+  const [itemKey, setItemKey] = useState(availableItemKeys[0] ?? "");
+  const [quantity, setQuantity] = useState("1");
+  const [quality, setQuality] = useState("40");
+  const [fundingAccountId, setFundingAccountId] = useState(initialData.accounts.find((a) => a.account_type === "checking")?.id ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const businessOptions = useMemo(
+    () =>
+      businesses.map((business) => ({
+        businessId: business.id,
+        businessName: business.name,
+        cityId: business.city_id,
+      })),
+    [businesses]
+  );
+
+  async function loadData() {
+    setLoading(true);
+    setError(null);
+
+    const [inventoryRes, accountsRes, businessesRes, citiesRes] = await Promise.all([
+      fetch("/api/inventory", { cache: "no-store" }),
+      fetch("/api/banking/accounts", { cache: "no-store" }),
+      fetch("/api/businesses", { cache: "no-store" }),
+      fetch("/api/cities", { cache: "no-store" }),
+    ]);
+
+    const inventoryJson = await inventoryRes.json();
+    const accountsJson = await accountsRes.json();
+    const businessesJson = await businessesRes.json();
+    const citiesJson = await citiesRes.json();
+
+    if (!inventoryRes.ok) {
+      setError(inventoryJson.error ?? "Failed to load inventory.");
+    } else if (!accountsRes.ok) {
+      setError(accountsJson.error ?? "Failed to load bank accounts.");
+    } else if (!businessesRes.ok) {
+      setError(businessesJson.error ?? "Failed to load businesses.");
+    } else if (!citiesRes.ok) {
+      setError(citiesJson.error ?? "Failed to load cities.");
+    } else {
+      setPersonalInventory(inventoryJson.personalInventory ?? []);
+      setBusinessInventory(inventoryJson.businessInventory ?? []);
+      setShippingQueue(inventoryJson.shippingQueue ?? []);
+      setBusinessNamesById(inventoryJson.businessNamesById ?? {});
+      const nextCityNamesById: Record<string, string> = { ...(inventoryJson.cityNamesById ?? {}) };
+      for (const city of citiesJson.cities ?? []) {
+        nextCityNamesById[city.id] = city.name;
+      }
+      setCityNamesById(nextCityNamesById);
+      setAccounts(accountsJson.accounts ?? []);
+      setBusinesses(businessesJson.businesses ?? []);
+    }
+
+    setLoading(false);
+  }
+
+  async function submitTransfer() {
+    if (submitting) return;
+    setSubmitting(true);
+    setError(null);
+    setSuccess(null);
+
+    const selectedSource = businessOptions.find((option) => option.businessId === sourceBusinessId);
+    const selectedDestination = businessOptions.find((option) => option.businessId === destinationBusinessId);
+
+    const response = await fetch("/api/inventory/transfer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceType,
+        sourceBusinessId: sourceType === "business" ? sourceBusinessId : undefined,
+        sourceCityId: sourceType === "business" ? selectedSource?.cityId : undefined,
+        destinationType,
+        destinationBusinessId: destinationType === "business" ? destinationBusinessId : undefined,
+        destinationCityId: destinationType === "business" ? selectedDestination?.cityId : undefined,
+        itemKey: itemKey.trim(),
+        quantity: Number(quantity),
+        quality: Number(quality),
+        fundingAccountId,
+      }),
+    });
+
+    const data = await response.json();
+    setSubmitting(false);
+    if (!response.ok) {
+      setError(data.error ?? "Transfer failed.");
+      return;
+    }
+
+    setSuccess(
+      data.transferType === "shipping"
+        ? `Transfer queued for shipping (${data.shippingMinutes ?? 0} min, ${formatCurrency(data.shippingCost ?? 0)}).`
+        : "Transfer completed instantly."
+    );
+
+    await loadData();
+  }
+
+  return (
+    <div className="anim">
+      <header className="lc-page-header">
+        <div>
+          <h1>Inventory</h1>
+          <p>Personal inventory, business inventory, shipping queue, and transfer controls.</p>
+        </div>
+        <div style={{ alignSelf: "center" }}>
+          <Link href="/dashboard">Back to Dashboard</Link>
+        </div>
+      </header>
+
+      {loading ? <p>Refreshing inventory data...</p> : null}
+      {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
+      {success ? <p style={{ color: "#34d399" }}>{success}</p> : null}
+
+      <section>
+        <h2 style={{ marginTop: 0 }}>Transfer Items</h2>
+        <div style={{ display: "grid", gap: 10, maxWidth: 620 }}>
+          <label>
+            Source Type
+            <select value={sourceType} onChange={(event) => setSourceType(event.target.value as "personal" | "business")}>
+              <option value="personal">Personal</option>
+              <option value="business">Business</option>
+            </select>
+          </label>
+          {sourceType === "business" ? (
+            <label>
+              Source Business
+              <select value={sourceBusinessId} onChange={(event) => setSourceBusinessId(event.target.value)}>
+                <option value="">Select business</option>
+                {businessOptions.map((option) => (
+                  <option key={option.businessId} value={option.businessId}>
+                    {option.businessName}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label>
+            Destination Type
+            <select value={destinationType} onChange={(event) => setDestinationType(event.target.value as "personal" | "business")}>
+              <option value="personal">Personal</option>
+              <option value="business">Business</option>
+            </select>
+          </label>
+          {destinationType === "business" ? (
+            <>
+              <label>
+                Destination Business
+                <select value={destinationBusinessId} onChange={(event) => setDestinationBusinessId(event.target.value)}>
+                  <option value="">Select business</option>
+                  {businessOptions.map((option) => (
+                    <option key={option.businessId} value={option.businessId}>
+                      {option.businessName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p style={{ margin: 0, color: "#94a3b8" }}>
+                Destination City: {(() => {
+                  const selected = businessOptions.find((option) => option.businessId === destinationBusinessId);
+                  return selected ? cityNamesById[selected.cityId] ?? selected.cityId : "Select destination business";
+                })()}
+              </p>
+            </>
+          ) : null}
+          <label>
+            Item
+            <select value={itemKey} onChange={(event) => setItemKey(event.target.value)}>
+              {availableItemKeys.map((key) => (
+                <option key={key} value={key}>{formatItemKey(key)}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Quantity
+            <input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+          </label>
+          <label>
+            Quality
+            <input type="number" min="1" max="100" value={quality} onChange={(event) => setQuality(event.target.value)} />
+          </label>
+          <label>
+            Funding Account (for shipping)
+            <select value={fundingAccountId} onChange={(event) => setFundingAccountId(event.target.value)}>
+              <option value="">Select account</option>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.account_type} ({formatCurrency(account.balance)})
+                </option>
+              ))}
+            </select>
+          </label>
+          <button onClick={submitTransfer} disabled={submitting || !itemKey.trim() || Number(quantity) <= 0 || Number(quality) < 1 || Number(quality) > 100}>
+            {submitting ? "Submitting..." : "Submit Transfer"}
+          </button>
+        </div>
+      </section>
+
+      <section>
+        <h2 style={{ marginTop: 0 }}>Personal Inventory</h2>
+        {personalInventory.length === 0 ? <p>No personal items.</p> : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {personalInventory.map((row) => (
+              <div key={row.id} style={{ border: "1px solid #334155", borderRadius: 6, padding: 8 }}>
+                <strong>{formatItemKey(row.item_key)}</strong> · Qty {row.quantity} · Q{row.quality}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h2 style={{ marginTop: 0 }}>Business Inventory</h2>
+        {businessInventory.length === 0 ? <p>No business inventory rows.</p> : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {businessInventory.map((row) => (
+              <div key={row.id} style={{ border: "1px solid #334155", borderRadius: 6, padding: 8 }}>
+                <strong>{formatItemKey(row.item_key)}</strong> · Qty {row.quantity} · Reserved {row.reserved_quantity} · Q{row.quality}
+                <div style={{ color: "#94a3b8", fontSize: 13 }}>
+                  Business {businessNamesById[row.business_id] ?? row.business_id} · City {cityNamesById[row.city_id] ?? row.city_id}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h2 style={{ marginTop: 0 }}>Shipping Queue</h2>
+        {shippingQueue.length === 0 ? <p>No shipping queue entries.</p> : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {shippingQueue.map((row) => (
+              <div key={row.id} style={{ border: "1px solid #334155", borderRadius: 6, padding: 8 }}>
+                <strong>{formatItemKey(row.item_key)}</strong> · Qty {row.quantity} · {formatCurrency(row.cost)} · {row.status}
+                <div style={{ color: "#94a3b8", fontSize: 13 }}>
+                  {cityNamesById[row.from_city_id] ?? row.from_city_id} → {cityNamesById[row.to_city_id] ?? row.to_city_id} · arrives {formatDate(row.arrives_at)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

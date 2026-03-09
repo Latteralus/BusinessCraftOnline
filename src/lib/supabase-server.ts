@@ -1,7 +1,28 @@
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { verifyCustomJwt } from "./auth-jwt";
 import { CUSTOM_SESSION_COOKIE_NAME } from "./session";
+
+const getCachedServerUser = cache(async () => {
+  const cookieStore = cookies();
+  const customToken = cookieStore.get(CUSTOM_SESSION_COOKIE_NAME)?.value;
+
+  if (!customToken) {
+    return { user: null, token: null };
+  }
+
+  try {
+    const payload = await verifyCustomJwt(customToken);
+    if (!payload?.sub) {
+      return { user: null, token: customToken };
+    }
+
+    return { user: { id: payload.sub }, token: customToken };
+  } catch {
+    return { user: null, token: customToken };
+  }
+});
 
 export function createSupabaseServerClient() {
   const cookieStore = cookies();
@@ -24,22 +45,8 @@ export function createSupabaseServerClient() {
   );
 
   client.auth.getUser = async () => {
-    if (!customToken) {
-      console.error("[supabase-server] No custom_session cookie found!");
-      return { data: { user: null }, error: null } as any;
-    }
-    
-    try {
-      const payload = await verifyCustomJwt(customToken);
-      if (!payload || !payload.sub) {
-        console.error("[supabase-server] verifyCustomJwt returned no payload/sub", payload);
-        return { data: { user: null }, error: null } as any;
-      }
-      return { data: { user: { id: payload.sub } }, error: null } as any;
-    } catch (e) {
-      console.error("[supabase-server] getUser error:", e);
-      return { data: { user: null }, error: null } as any;
-    }
+    const { user } = await getCachedServerUser();
+    return { data: { user }, error: null } as any;
   };
 
   return client;

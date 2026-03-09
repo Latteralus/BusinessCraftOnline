@@ -18,7 +18,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { DashboardClock } from "@/components/dashboard/DashboardClock";
-import { PageAutoRefresh } from "@/components/realtime/PageAutoRefresh";
 import { formatItemKey } from "@/lib/items";
 
 async function logout() {
@@ -97,35 +96,34 @@ export default async function DashboardPage() {
     ? await getCityById(supabase, activeTravel.to_city_id).catch(() => null)
     : null;
 
-  const bankingSnapshot = await getBankingSnapshot(supabase, user.id).catch(() => null);
-  const businessSummary = await getBusinessSummary(supabase, user.id).catch(() => null);
-  const businessesWithBalances = await getBusinessesWithBalances(supabase, user.id).catch(() => []);
-  const employeeSummary = await getEmployeeSummary(supabase, user.id).catch(() => null);
-  const marketTransactions = await getMarketTransactions(supabase, user.id, 20).catch(() => []);
-  const storefrontSettings = await getMarketStorefrontSettings(supabase, user.id).catch(() => []);
-  const tickHealth = await getTickHealthSummary(supabase, 24).catch(() => null);
-  const storefrontPerformance = await getStorefrontPerformanceSummary(supabase, user.id, 24).catch(() => null);
-  const adminEconomySummary =
-    player?.role === "admin" ? await getAdminEconomySummary(supabase, 24).catch(() => null) : null;
-
-  const [res1, res2, res3, mfgRes, extRes] = await Promise.all([
+  const [
+    bankingSnapshot,
+    businessSummary,
+    businessesWithBalances,
+    employeeSummary,
+    marketTransactions,
+    storefrontSettings,
+    tickHealth,
+    storefrontPerformance,
+    adminEconomySummary,
+    res1,
+    mfgRes,
+    extRes,
+  ] = await Promise.all([
+    getBankingSnapshot(supabase, user.id).catch(() => null),
+    getBusinessSummary(supabase, user.id).catch(() => null),
+    getBusinessesWithBalances(supabase, user.id).catch(() => []),
+    getEmployeeSummary(supabase, user.id).catch(() => null),
+    getMarketTransactions(supabase, user.id, 20).catch(() => []),
+    getMarketStorefrontSettings(supabase, user.id).catch(() => []),
+    getTickHealthSummary(supabase, 24).catch(() => null),
+    getStorefrontPerformanceSummary(supabase, user.id, 24).catch(() => null),
+    player?.role === "admin" ? getAdminEconomySummary(supabase, 24).catch(() => null) : Promise.resolve(null),
     supabase
       .from("shipping_queue")
       .select("id", { count: "exact", head: true })
       .eq("owner_player_id", user.id)
       .eq("status", "in_transit"),
-    supabase
-      .from("shipping_queue")
-      .select("id", { count: "exact", head: true })
-      .eq("owner_player_id", user.id)
-      .eq("status", "in_transit")
-      .lte("arrives_at", new Date().toISOString()),
-    supabase
-      .from("travel_log")
-      .select("id", { count: "exact", head: true })
-      .eq("player_id", user.id)
-      .eq("status", "traveling")
-      .lte("arrives_at", new Date().toISOString()),
     supabase
       .from("manufacturing_jobs")
       .select("id, business_id, status, active_recipe_key, worker_assigned, last_tick_at, updated_at, business:businesses!inner(name, type, player_id)")
@@ -218,8 +216,6 @@ export default async function DashboardPage() {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const inTransitShippingCount = res1?.count ?? 0;
-  const dueShippingCount = res2?.count ?? 0;
-  const dueTravelArrivalsCount = res3?.count ?? 0;
 
   const checkingAccount =
     bankingSnapshot?.accounts?.find((account) => account.account_type === "checking") ?? null;
@@ -282,7 +278,6 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <PageAutoRefresh intervalMs={10000} />
       <div className="welcome-strip anim">
           <div className="welcome-left">
             <h1>Good afternoon, {character.first_name}</h1>
