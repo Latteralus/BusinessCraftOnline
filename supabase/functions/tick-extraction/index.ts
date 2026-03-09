@@ -219,22 +219,9 @@ async function consumeFarmInputs(
     .eq("quality", 40)
     .maybeSingle();
 
-  const { data: seeds } = await supabase
-    .from("business_inventory")
-    .select("id, quantity, reserved_quantity")
-    .eq("business_id", businessId)
-    .eq("owner_player_id", ownerPlayerId)
-    .eq("item_key", "seeds")
-    .eq("quality", 40)
-    .maybeSingle();
-
   const parsedWater = parseInventoryRow(water);
-  const parsedSeeds = parseInventoryRow(seeds);
-
   const waterAvailable = parsedWater && parsedWater.quantity - parsedWater.reserved_quantity >= 1;
-  const seedsAvailable = parsedSeeds && parsedSeeds.quantity - parsedSeeds.reserved_quantity >= 1;
-
-  if (!waterAvailable || !seedsAvailable) return false;
+  if (!waterAvailable) return false;
 
   const nextWater = parsedWater.quantity - 1;
   if (nextWater <= 0) {
@@ -245,18 +232,6 @@ async function consumeFarmInputs(
       .from("business_inventory")
       .update({ quantity: nextWater, updated_at: new Date().toISOString() })
       .eq("id", parsedWater.id);
-    if (error) throw error;
-  }
-
-  const nextSeeds = parsedSeeds.quantity - 1;
-  if (nextSeeds <= 0) {
-    const { error } = await supabase.from("business_inventory").delete().eq("id", parsedSeeds.id);
-    if (error) throw error;
-  } else {
-    const { error } = await supabase
-      .from("business_inventory")
-      .update({ quantity: nextSeeds, updated_at: new Date().toISOString() })
-      .eq("id", parsedSeeds.id);
     if (error) throw error;
   }
 

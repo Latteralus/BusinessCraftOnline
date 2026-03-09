@@ -39,7 +39,7 @@ export const STARTUP_COSTS: Record<BusinessType, number> = {
 
 export const BUSINESS_UPGRADE_KEYS_BY_TYPE: Record<BusinessType, readonly string[]> = {
   mine: ["extraction_efficiency", "worker_capacity", "tool_durability", "ore_quality"],
-  farm: ["crop_yield", "water_efficiency", "seed_efficiency", "worker_capacity"],
+  farm: ["crop_yield", "water_efficiency", "worker_capacity"],
   water_company: ["extraction_efficiency", "worker_capacity"],
   logging_camp: ["extraction_efficiency", "worker_capacity", "tool_durability"],
   oil_well: ["extraction_efficiency", "worker_capacity", "tool_durability"],
@@ -79,7 +79,6 @@ export const BUSINESS_UPGRADE_BASE_COSTS = {
   ore_quality: 1000,
   crop_yield: 400,
   water_efficiency: 600,
-  seed_efficiency: 800,
   production_efficiency: 600,
   equipment_quality: 1200,
   input_reduction: 1800,
@@ -95,7 +94,6 @@ export const BUSINESS_UPGRADE_KEYS = [
   "ore_quality",
   "crop_yield",
   "water_efficiency",
-  "seed_efficiency",
   "production_efficiency",
   "equipment_quality",
   "input_reduction",

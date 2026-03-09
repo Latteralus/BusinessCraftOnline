@@ -155,9 +155,7 @@ export function isManufacturingBusinessType(type: BusinessType): type is Manufac
 }
 
 export const FARM_WATER_ITEM_KEY = "water";
-export const FARM_SEED_ITEM_KEY = "seeds";
 export const FARM_WATER_PER_TICK = 1;
-export const FARM_SEEDS_PER_TICK = 1;
 
 export function isExtractionBusinessType(type: BusinessType): type is ExtractionBusinessType {
   return EXTRACTION_BUSINESS_TYPES.includes(type as ExtractionBusinessType);
