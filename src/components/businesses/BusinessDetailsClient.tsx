@@ -6,6 +6,7 @@ import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import type { Business, BusinessUpgrade } from "@/domains/businesses";
 import type { ProductionStatus, ManufacturingStatusView } from "@/domains/production";
 import type { BusinessInventoryItem } from "@/domains/inventory";
+import type { StoreShelfItem } from "@/domains/stores";
 import type { EmployeeAssignment, Employee } from "@/domains/employees";
 import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import type { UpgradeDefinition } from "@/domains/upgrades";
@@ -20,6 +21,7 @@ type Props = {
   production: ProductionStatus | null;
   manufacturing: ManufacturingStatusView | null;
   inventory: BusinessInventoryItem[];
+  shelfItems: StoreShelfItem[];
   upgrades: BusinessUpgrade[];
   employees: (Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] })[];
   upgradeDefinitions?: UpgradeDefinition[];
@@ -54,7 +56,7 @@ function formatEmployeeType(type: string) {
   return toTitleLabel(type);
 }
 
-export default function BusinessDetailsClient({ business, production, manufacturing, inventory, upgrades, employees, upgradeDefinitions = [], financeSummary, initialTab }: Props) {
+export default function BusinessDetailsClient({ business, production, manufacturing, inventory, shelfItems, upgrades, employees, upgradeDefinitions = [], financeSummary, initialTab }: Props) {
   const router = useRouter();
   const tempPayPer15Min = (BASE_WAGE_PER_HOUR.temp / 4).toFixed(2);
   const partTimePayPer15Min = (BASE_WAGE_PER_HOUR.part_time / 4).toFixed(2);
@@ -69,6 +71,9 @@ export default function BusinessDetailsClient({ business, production, manufactur
   const [marketActionItem, setMarketActionItem] = useState<{ id: string; type: "market" | "transfer"; available: number } | null>(null);
   const [actionQuantity, setActionQuantity] = useState(1);
   const [actionPrice, setActionPrice] = useState(1);
+  const [shelfActionItem, setShelfActionItem] = useState<{ itemKey: string; quality: number; maxQuantity: number } | null>(null);
+  const [shelfQuantity, setShelfQuantity] = useState(1);
+  const [shelfPrice, setShelfPrice] = useState(1);
 
   useAutoRefresh(() => {
     router.refresh();
@@ -103,6 +108,9 @@ export default function BusinessDetailsClient({ business, production, manufactur
       Boolean(getAssignmentForBusiness(employee)) || employee.employer_business_id === business.id
   );
   const availableEmployees = employees.filter(e => e.status === "available");
+  const isStoreBusiness = business.type === "general_store" || business.type === "specialty_store";
+  const shelfKey = (itemKey: string, quality: number) => `${itemKey}:${quality}`;
+  const shelfByInventoryKey = Object.fromEntries(shelfItems.map((item) => [shelfKey(item.item_key, item.quality), item]));
   const availableWorkersForSlots = thisBusinessEmployees
     .filter((employee) => {
       const assignment = getAssignmentForBusiness(employee);
@@ -371,6 +379,58 @@ export default function BusinessDetailsClient({ business, production, manufactur
     }
   }
 
+  async function saveShelfItem(item: BusinessInventoryItem) {
+    if (!shelfActionItem || busy) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/stores/shelves", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessId: business.id,
+          itemKey: item.item_key,
+          quality: item.quality,
+          quantity: shelfQuantity,
+          unitPrice: shelfPrice,
+        }),
+      });
+
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to save shelf item.");
+      setShelfActionItem(null);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error saving shelf item");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeShelfItem(shelfItemId: string) {
+    if (busy) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/stores/shelves", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shelfItemId }),
+      });
+
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to remove shelf item.");
+      if (shelfActionItem) {
+        setShelfActionItem(null);
+      }
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error removing shelf item");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="card anim" style={{ marginTop: 24 }}>
       <div className="card-header" style={{ padding: 0, borderBottom: "1px solid var(--border-subtle)", overflowX: "auto" }}>
@@ -466,8 +526,163 @@ export default function BusinessDetailsClient({ business, production, manufactur
         {activeTab === "operations" && (
           <div>
             <h3 style={{ marginBottom: 16 }}>Operations</h3>
-	            {production || manufacturing ? (
-	              <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
+            {isStoreBusiness && (
+              <div style={{ display: "grid", gap: 16, marginBottom: 16 }}>
+                <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: "0.95rem" }}>Shelf Stock</h4>
+                      <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                        Place business inventory on shelves and set the price NPC shoppers will pay.
+                      </p>
+                    </div>
+                    <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                      Active shelf rows: {shelfItems.length}
+                    </div>
+                  </div>
+
+                  {shelfItems.length > 0 ? (
+                    <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+                      {shelfItems.map((item) => (
+                        <div
+                          key={item.id}
+                          style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", padding: 12, background: "var(--bg-elevated)", borderRadius: 8, flexWrap: "wrap" }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 600 }}>{formatItemKey(item.item_key)} (Q{item.quality})</div>
+                            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                              On shelf: {item.quantity} | Price: ${item.unit_price.toFixed(2)}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <button
+                              onClick={() => {
+                                const inventoryItem = inventory.find(
+                                  (inventoryRow) => inventoryRow.item_key === item.item_key && inventoryRow.quality === item.quality
+                                );
+                                const available = inventoryItem ? inventoryItem.quantity - inventoryItem.reserved_quantity : 0;
+                                setShelfActionItem({
+                                  itemKey: item.item_key,
+                                  quality: item.quality,
+                                  maxQuantity: Math.max(item.quantity, item.quantity + available),
+                                });
+                                setShelfQuantity(item.quantity);
+                                setShelfPrice(item.unit_price);
+                              }}
+                              disabled={busy}
+                              style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => void removeShelfItem(item.id)}
+                              disabled={busy}
+                              style={{ fontSize: "0.75rem", padding: "4px 8px", background: "rgba(248, 113, 113, 0.1)", color: "#f87171", border: "1px solid rgba(248, 113, 113, 0.2)" }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", marginBottom: 16 }}>No items are currently on your shelves.</p>
+                  )}
+
+                  {inventory.length > 0 ? (
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr style={{ borderBottom: "1px solid var(--border-subtle)", textAlign: "left" }}>
+                          <th style={{ padding: "12px 8px", color: "var(--text-secondary)", fontWeight: 500, fontSize: "0.85rem" }}>Item</th>
+                          <th style={{ padding: "12px 8px", color: "var(--text-secondary)", fontWeight: 500, fontSize: "0.85rem" }}>Quality</th>
+                          <th style={{ padding: "12px 8px", color: "var(--text-secondary)", fontWeight: 500, fontSize: "0.85rem", textAlign: "right" }}>Free Stock</th>
+                          <th style={{ padding: "12px 8px", color: "var(--text-secondary)", fontWeight: 500, fontSize: "0.85rem", textAlign: "right" }}>On Shelf</th>
+                          <th style={{ padding: "12px 8px", color: "var(--text-secondary)", fontWeight: 500, fontSize: "0.85rem", textAlign: "right" }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {inventory.map((item) => {
+                          const available = item.quantity - item.reserved_quantity;
+                          const existingShelf = shelfByInventoryKey[shelfKey(item.item_key, item.quality)] as StoreShelfItem | undefined;
+                          const maxShelfQuantity = available + (existingShelf?.quantity ?? 0);
+                          const isShelfRow =
+                            shelfActionItem?.itemKey === item.item_key && shelfActionItem?.quality === item.quality;
+
+                          return (
+                            <Fragment key={`${item.id}-shelf`}>
+                              <tr style={{ borderBottom: isShelfRow ? "none" : "1px solid var(--border-subtle)" }}>
+                                <td style={{ padding: "12px 8px" }}>{formatItemKey(item.item_key)}</td>
+                                <td style={{ padding: "12px 8px" }}>{item.quality}</td>
+                                <td style={{ padding: "12px 8px", textAlign: "right", fontWeight: 600 }}>{available}</td>
+                                <td style={{ padding: "12px 8px", textAlign: "right" }}>{existingShelf?.quantity ?? 0}</td>
+                                <td style={{ padding: "12px 8px", textAlign: "right" }}>
+                                  <button
+                                    onClick={() => {
+                                      setShelfActionItem({
+                                        itemKey: item.item_key,
+                                        quality: item.quality,
+                                        maxQuantity: maxShelfQuantity,
+                                      });
+                                      setShelfQuantity(existingShelf?.quantity ?? 1);
+                                      setShelfPrice(existingShelf?.unit_price ?? 1);
+                                    }}
+                                    disabled={busy || maxShelfQuantity <= 0}
+                                    style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                                  >
+                                    {existingShelf ? "Edit Shelf" : "Place on Shelf"}
+                                  </button>
+                                </td>
+                              </tr>
+                              {isShelfRow && (
+                                <tr style={{ borderBottom: "1px solid var(--border-subtle)", background: "var(--bg-elevated)" }}>
+                                  <td colSpan={5} style={{ padding: "12px 16px" }}>
+                                    <div style={{ display: "flex", gap: 16, alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" }}>
+                                      <div style={{ fontSize: "0.85rem", fontWeight: 500 }}>Shelf setup:</div>
+                                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                        <label style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Qty:</label>
+                                        <input
+                                          type="number"
+                                          title="Shelf quantity"
+                                          min={1}
+                                          max={maxShelfQuantity}
+                                          value={shelfQuantity}
+                                          onChange={(e) => setShelfQuantity(Math.min(maxShelfQuantity, Math.max(1, parseInt(e.target.value) || 1)))}
+                                          style={{ width: 70, padding: "4px 8px", fontSize: "0.8rem", background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)" }}
+                                        />
+                                      </div>
+                                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                        <label style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Unit Price ($):</label>
+                                        <input
+                                          type="number"
+                                          title="Shelf price"
+                                          min={0.01}
+                                          step={0.01}
+                                          value={shelfPrice}
+                                          onChange={(e) => setShelfPrice(Math.max(0.01, parseFloat(e.target.value) || 0.01))}
+                                          style={{ width: 90, padding: "4px 8px", fontSize: "0.8rem", background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)" }}
+                                        />
+                                      </div>
+                                      <div style={{ display: "flex", gap: 8 }}>
+                                        <button onClick={() => setShelfActionItem(null)} disabled={busy} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "transparent", color: "var(--text-primary)", border: "1px solid var(--border-subtle)" }}>Cancel</button>
+                                        <button onClick={() => void saveShelfItem(item)} disabled={busy} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "var(--accent-blue)", color: "white", border: "none" }}>Save Shelf</button>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No business inventory is available to stock shelves.</p>
+                  )}
+                </div>
+              </div>
+            )}
+		            {production || manufacturing ? (
+		              <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
 	                <div style={{ marginBottom: 12 }}>
 	                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Type</span>
 	                  <div style={{ fontWeight: 600 }}>{production ? "Extraction" : "Manufacturing"}</div>
@@ -601,11 +816,11 @@ export default function BusinessDetailsClient({ business, production, manufactur
                   </div>
                 )}
               </div>
-            ) : (
-              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No operations active.</p>
-            )}
-          </div>
-        )}
+	            ) : !isStoreBusiness ? (
+	              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No operations active.</p>
+	            ) : null}
+	          </div>
+	        )}
 
         {activeTab === "employees" && (
           <div>

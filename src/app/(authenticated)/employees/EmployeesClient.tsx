@@ -3,7 +3,7 @@
 import { EMPLOYEE_TYPES } from "@/config/employees";
 import type { Employee, EmployeeRole, EmployeeSummary, EmployeeType } from "@/domains/employees";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Business = { id: string; name: string };
 type Props = {
@@ -42,6 +42,32 @@ export default function EmployeesClient({ initialData }: Props) {
     () => employees.filter((employee) => employee.status !== "fired"),
     [employees]
   );
+
+  const selectedAssignEmployee = useMemo(
+    () => employees.find((employee) => employee.id === assignEmployeeId) ?? null,
+    [assignEmployeeId, employees]
+  );
+
+  const assignableBusinesses = useMemo(() => {
+    if (!selectedAssignEmployee?.employer_business_id) return businesses;
+    return businesses.filter((business) => business.id === selectedAssignEmployee.employer_business_id);
+  }, [businesses, selectedAssignEmployee]);
+
+  useEffect(() => {
+    if (!assignEmployeeId) {
+      setAssignBusinessId("");
+      return;
+    }
+
+    if (assignableBusinesses.length === 1) {
+      setAssignBusinessId(assignableBusinesses[0].id);
+      return;
+    }
+
+    if (!assignableBusinesses.some((business) => business.id === assignBusinessId)) {
+      setAssignBusinessId("");
+    }
+  }, [assignBusinessId, assignEmployeeId, assignableBusinesses]);
 
   async function loadData() {
     setLoading(true);
@@ -111,6 +137,8 @@ export default function EmployeesClient({ initialData }: Props) {
       return;
     }
     setSuccess("Employee assigned successfully.");
+    setAssignEmployeeId("");
+    setAssignBusinessId("");
     await loadData();
   }
 
@@ -230,9 +258,14 @@ export default function EmployeesClient({ initialData }: Props) {
             Business
             <select value={assignBusinessId} onChange={(event) => setAssignBusinessId(event.target.value)}>
               <option value="">Select business</option>
-              {businesses.map((business) => <option key={business.id} value={business.id}>{business.name}</option>)}
+              {assignableBusinesses.map((business) => <option key={business.id} value={business.id}>{business.name}</option>)}
             </select>
           </label>
+          {selectedAssignEmployee?.employer_business_id ? (
+            <p style={{ margin: 0, color: "#94a3b8", fontSize: "0.9rem" }}>
+              This employee is tied to one business and can only be assigned there.
+            </p>
+          ) : null}
           <label>
             Role
             <select value={assignRole} onChange={(event) => setAssignRole(event.target.value as EmployeeRole)}>

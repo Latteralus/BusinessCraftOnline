@@ -90,6 +90,7 @@ export type FireEmployeeInput = {
 export type EmployeeListFilter = {
   status?: EmployeeStatus;
   employeeType?: EmployeeType;
+  businessId?: string;
 };
 
 export type { EmployeeRole, EmployeeSkillKey, EmployeeStatus, EmployeeType };

@@ -101,6 +101,10 @@ export async function getPlayerEmployees(
     query = query.eq("employee_type", filters.employeeType);
   }
 
+  if (filters?.businessId) {
+    query = query.eq("employer_business_id", filters.businessId);
+  }
+
   const { data, error } = await query;
   if (error) throw error;
 
@@ -244,6 +248,9 @@ export async function assignEmployee(
   if (employee.status === "fired") throw new Error("Cannot assign a fired employee.");
   if (employee.status === "unpaid") {
     throw new Error("Cannot assign an unpaid employee until wages are settled.");
+  }
+  if (employee.employer_business_id && employee.employer_business_id !== input.businessId) {
+    throw new Error("Employee belongs to a different business and cannot be reassigned.");
   }
 
   await ensureBusinessBelongsToPlayer(client, playerId, input.businessId);

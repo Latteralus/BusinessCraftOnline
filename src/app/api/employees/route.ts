@@ -25,6 +25,7 @@ export async function GET(request: Request) {
   const rawFilters = {
     status: url.searchParams.get("status") ?? undefined,
     employeeType: url.searchParams.get("employeeType") ?? undefined,
+    businessId: url.searchParams.get("businessId") ?? undefined,
   };
 
   const parsed = employeeListFilterSchema.safeParse(rawFilters);

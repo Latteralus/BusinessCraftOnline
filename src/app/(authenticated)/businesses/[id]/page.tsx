@@ -3,6 +3,7 @@ import { getBusinessById, getBusinessUpgrades, getBusinessFinanceSummary } from 
 import { getCityById } from "@/domains/cities-travel";
 import { getProductionStatus, getManufacturingStatus } from "@/domains/production";
 import { getBusinessInventory } from "@/domains/inventory";
+import { getStoreShelfItems } from "@/domains/stores";
 import { getUpgradeDefinitionsForBusinessType, type BusinessType } from "@/domains/upgrades";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
@@ -41,13 +42,19 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
     "oil_well",
   ].includes(business.type);
 
-  const [city, production, manufacturing, inventory, upgrades, employeesRes, upgradeDefinitions, financeSummary] = await Promise.all([
+  const [city, production, manufacturing, inventory, shelfItems, upgrades, employeesRes, upgradeDefinitions, financeSummary] = await Promise.all([
     getCityById(supabase, business.city_id).catch(() => null),
     isExtraction ? getProductionStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
     !isExtraction ? getManufacturingStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
     getBusinessInventory(supabase, user.id, business.id).catch(() => []),
+    getStoreShelfItems(supabase, user.id, { businessId: business.id }).catch(() => []),
     getBusinessUpgrades(supabase, user.id, business.id).catch(() => []),
-    supabase.from("employees").select("*, employee_assignments(*, business:businesses(*))").eq("player_id", user.id).order("created_at", { ascending: false }),
+    supabase
+      .from("employees")
+      .select("*, employee_assignments(*, business:businesses(*))")
+      .eq("player_id", user.id)
+      .eq("employer_business_id", business.id)
+      .order("created_at", { ascending: false }),
     getUpgradeDefinitionsForBusinessType(supabase, business.type as BusinessType).catch(() => []),
     getBusinessFinanceSummary(supabase, user.id, business.id).catch(() => null)
   ]);
@@ -83,6 +90,7 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
         production={production}
         manufacturing={manufacturing}
         inventory={inventory}
+        shelfItems={shelfItems}
         upgrades={upgrades}
         employees={employees as any}
         upgradeDefinitions={upgradeDefinitions}

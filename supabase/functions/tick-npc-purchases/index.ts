@@ -35,22 +35,6 @@ function ceilForItem(itemKey: string): number {
   return NPC_PRICE_CEILINGS[itemKey] ?? 1;
 }
 
-function estimateStoreUnitPrice(
-  itemKey: string,
-  quality: number,
-  businessId: string,
-  tickWindowStartedAt: string,
-  subTickIndex: number
-): number {
-  const seed = hashString(`${tickWindowStartedAt}|${subTickIndex}|${businessId}|${itemKey}|${quality}`);
-  const rng = createRng(seed);
-  const ceiling = Math.max(0.01, ceilForItem(itemKey));
-  const clampedQuality = clamp(quality, 1, 100);
-  const qualityFactor = 0.55 + (clampedQuality / 100) * 0.4;
-  const variance = randBetweenWithRng(rng, 0.92, 1.08);
-  return round2(Math.max(0.01, ceiling * qualityFactor * variance));
-}
-
 function randBetweenWithRng(rng: () => number, min: number, max: number): number {
   return min + rng() * (max - min);
 }
@@ -166,18 +150,17 @@ async function persistSubtickState(
 
 async function settleStoreInventorySale(
   supabase: ReturnType<typeof createClient>,
-  inventoryRow: {
+  shelfRow: {
     id: string;
     owner_player_id: string;
     business_id: string;
     item_key: string;
     quality: number | string;
     quantity: number | string;
-    reserved_quantity: number | string;
+    unit_price: number | string;
     city_id: string;
     business_name?: string;
   },
-  unitPrice: number,
   soldQty: number,
   meta?: {
     shopperName?: string | null;
@@ -187,9 +170,22 @@ async function settleStoreInventorySale(
     tickWindowStartedAt?: string | null;
   }
 ) {
+  const { data: inventoryRow, error: inventoryError } = await supabase
+    .from("business_inventory")
+    .select("id, quantity, reserved_quantity")
+    .eq("owner_player_id", shelfRow.owner_player_id)
+    .eq("business_id", shelfRow.business_id)
+    .eq("item_key", shelfRow.item_key)
+    .eq("quality", shelfRow.quality)
+    .maybeSingle();
+
+  if (inventoryError) throw inventoryError;
+  if (!inventoryRow) throw new Error("Shelf inventory backing row not found.");
+
   const inventoryQty = toNumber(inventoryRow.quantity);
   const inventoryReserved = toNumber(inventoryRow.reserved_quantity);
-  const listingPrice = Math.max(0.01, toNumber(unitPrice));
+  const shelfQty = toNumber(shelfRow.quantity);
+  const listingPrice = Math.max(0.01, toNumber(shelfRow.unit_price));
 
   const gross = Number((listingPrice * soldQty).toFixed(2));
   const fee = 0;
@@ -197,6 +193,7 @@ async function settleStoreInventorySale(
 
   const nextQty = inventoryQty - soldQty;
   const nextReserved = Math.max(0, Math.min(inventoryReserved, nextQty));
+  const nextShelfQty = shelfQty - soldQty;
   const now = new Date().toISOString();
 
   if (nextQty <= 0) {
@@ -214,28 +211,42 @@ async function settleStoreInventorySale(
     if (updateError) throw updateError;
   }
 
+  if (nextShelfQty <= 0) {
+    const { error: deleteShelfError } = await supabase.from("store_shelf_items").delete().eq("id", shelfRow.id);
+    if (deleteShelfError) throw deleteShelfError;
+  } else {
+    const { error: updateShelfError } = await supabase
+      .from("store_shelf_items")
+      .update({
+        quantity: nextShelfQty,
+        updated_at: now,
+      })
+      .eq("id", shelfRow.id);
+    if (updateShelfError) throw updateShelfError;
+  }
+
   const { error: ledgerError } = await supabase.from("business_accounts").insert({
-    business_id: inventoryRow.business_id,
+    business_id: shelfRow.business_id,
     amount: gross,
     entry_type: "credit",
     category: "npc_sale",
-    description: `NPC storefront purchase: ${soldQty}x ${inventoryRow.item_key}`,
-    reference_id: inventoryRow.id,
+    description: `NPC storefront purchase: ${soldQty}x ${shelfRow.item_key}`,
+    reference_id: shelfRow.id,
   });
   if (ledgerError) throw ledgerError;
 
   const { error: txError } = await supabase.from("market_transactions").insert({
     listing_id: null,
-    seller_player_id: inventoryRow.owner_player_id,
+    seller_player_id: shelfRow.owner_player_id,
     buyer_player_id: null,
     buyer_type: "npc",
-    seller_business_id: inventoryRow.business_id,
-    seller_business_name: inventoryRow.business_name ?? "Unknown Business",
+    seller_business_id: shelfRow.business_id,
+    seller_business_name: shelfRow.business_name ?? "Unknown Business",
     buyer_business_id: null,
     buyer_business_name: null,
-    city_id: inventoryRow.city_id,
-    item_key: inventoryRow.item_key,
-    quality: Math.max(1, Math.min(100, toNumber(inventoryRow.quality))),
+    city_id: shelfRow.city_id,
+    item_key: shelfRow.item_key,
+    quality: Math.max(1, Math.min(100, toNumber(shelfRow.quality))),
     quantity: soldQty,
     unit_price: listingPrice,
     gross_total: gross,
@@ -450,32 +461,38 @@ Deno.serve(async (request) => {
 
     adSpendTotal += adBudgetApplied;
 
-    const { data: inventoryRows } = await supabase
-      .from("business_inventory")
-      .select("id, owner_player_id, business_id, city_id, item_key, quality, quantity, reserved_quantity")
-      .eq("owner_player_id", store.player_id)
-      .eq("business_id", store.id)
-      .gt("quantity", 0)
-      .limit(200);
+    const [{ data: inventoryRows }, { data: shelfRows }] = await Promise.all([
+      supabase
+        .from("business_inventory")
+        .select("id, owner_player_id, business_id, city_id, item_key, quality, quantity, reserved_quantity")
+        .eq("owner_player_id", store.player_id)
+        .eq("business_id", store.id)
+        .gt("quantity", 0)
+        .limit(200),
+      supabase
+        .from("store_shelf_items")
+        .select("id, owner_player_id, business_id, item_key, quality, quantity, unit_price")
+        .eq("owner_player_id", store.player_id)
+        .eq("business_id", store.id)
+        .gt("quantity", 0)
+        .limit(200),
+    ]);
 
-    const availableRows = (inventoryRows ?? [])
-      .map((row) => ({
-        ...row,
-        business_name: String(store.name ?? "Unknown Business"),
-        unit_price: estimateStoreUnitPrice(
-          String(row.item_key),
-          Number(row.quality),
-          String(store.id),
-          tickWindowStartedAt,
-          subTickIndex
-        ),
-      }))
-      .filter((row) => {
-        const quantity = toNumber(row.quantity);
-        const reserved = toNumber(row.reserved_quantity);
-        const available = quantity - reserved;
-        return available > 0 && toNumber(row.unit_price) > 0;
-      });
+    const inventoryByKey = new Map(
+      (inventoryRows ?? []).map((row) => [`${row.item_key}:${row.quality}`, row])
+    );
+
+    const availableRows = (shelfRows ?? [])
+      .map((row) => {
+        const inventory = inventoryByKey.get(`${row.item_key}:${row.quality}`);
+        return {
+          ...row,
+          city_id: String(store.city_id),
+          business_name: String(store.name ?? "Unknown Business"),
+          inventory_quantity: inventory?.quantity ?? 0,
+        };
+      })
+      .filter((row) => toNumber(row.quantity) > 0 && toNumber(row.inventory_quantity) > 0 && toNumber(row.unit_price) > 0);
 
     if (availableRows.length === 0) {
       await writeStorefrontSnapshot(supabase, {
@@ -513,11 +530,7 @@ Deno.serve(async (request) => {
       const desiredPurchases = Math.max(1, Math.min(6, shopperMaxItems));
 
       for (let purchaseAttempt = 0; purchaseAttempt < desiredPurchases; purchaseAttempt += 1) {
-        const activeRows = availableRows.filter((row) => {
-          const quantity = toNumber(row.quantity);
-          const reserved = toNumber(row.reserved_quantity);
-          return quantity - reserved > 0;
-        });
+        const activeRows = availableRows.filter((row) => toNumber(row.quantity) > 0 && toNumber(row.inventory_quantity) > 0);
         if (activeRows.length === 0 || remainingItems <= 0 || remainingBudget <= 0) break;
 
         const itemKeys = Array.from(new Set(activeRows.map((row) => String(row.item_key))));
@@ -553,7 +566,7 @@ Deno.serve(async (request) => {
         const chosenPrice = toNumber(chosen.unit_price);
         if (chosenPrice <= 0) continue;
 
-        const available = Math.max(0, toNumber(chosen.quantity) - toNumber(chosen.reserved_quantity));
+        const available = Math.max(0, Math.min(toNumber(chosen.quantity), toNumber(chosen.inventory_quantity)));
         const affordable = Math.floor(remainingBudget / chosenPrice);
         const maxByAttempt = Math.max(1, Math.min(6, 1 + Math.floor(Number(listingCapacityLevel) / 2)));
         const soldQty = Math.max(
@@ -570,7 +583,7 @@ Deno.serve(async (request) => {
           continue;
         }
 
-        const settled = await settleStoreInventorySale(supabase, chosen, chosenPrice, soldQty, {
+        const settled = await settleStoreInventorySale(supabase, chosen, soldQty, {
           shopperName,
           shopperTier: tier.key,
           shopperBudget,
@@ -579,7 +592,7 @@ Deno.serve(async (request) => {
         });
 
         chosen.quantity = Math.max(0, toNumber(chosen.quantity) - soldQty);
-        chosen.reserved_quantity = Math.max(0, Math.min(toNumber(chosen.reserved_quantity), toNumber(chosen.quantity)));
+        chosen.inventory_quantity = Math.max(0, toNumber(chosen.inventory_quantity) - soldQty);
 
         remainingBudget = round2(Math.max(0, remainingBudget - settled.gross));
         remainingItems = Math.max(0, remainingItems - soldQty);

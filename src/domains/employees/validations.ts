@@ -14,6 +14,7 @@ const employeeSkillKeySchema = z.enum(EMPLOYEE_SKILL_KEYS);
 export const employeeListFilterSchema = z.object({
   status: employeeStatusSchema.optional(),
   employeeType: employeeTypeSchema.optional(),
+  businessId: z.uuid("Business id is invalid.").optional(),
 });
 
 export const hireEmployeeSchema = z
