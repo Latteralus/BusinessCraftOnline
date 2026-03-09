@@ -654,6 +654,9 @@ th {
     transition: all 0.2s;
   }
   .avatar-btn:hover { border-color: var(--border-medium); }
+  .avatar-btn-loading {
+    min-width: 164px;
+  }
   .avatar-circle {
     width: 28px; height: 28px;
     border-radius: 50%;
@@ -664,6 +667,14 @@ th {
   .avatar-info { text-align: left; }
   .avatar-name { font-size: 0.78rem; font-weight: 600; color: var(--text-primary); line-height: 1.1; }
   .avatar-level { font-size: 0.65rem; color: var(--text-muted); }
+  .avatar-btn-loading .avatar-circle {
+    background: linear-gradient(135deg, rgba(212, 175, 55, 0.42), rgba(184, 134, 11, 0.32));
+    color: rgba(255, 255, 255, 0.8);
+  }
+  .avatar-btn-loading .avatar-name,
+  .avatar-btn-loading .avatar-level {
+    color: var(--text-secondary);
+  }
 
   /* ───── LAYOUT ───── */
   .main-container {

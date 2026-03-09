@@ -39,9 +39,9 @@ function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[]) {
 }
 
 interface TopbarProps {
-  initials: string;
-  firstName: string;
-  lastName: string;
+  initials?: string;
+  firstName?: string;
+  lastName?: string;
 }
 
 export function Topbar({
@@ -50,6 +50,12 @@ export function Topbar({
   lastName,
 }: TopbarProps) {
   const pathname = usePathname();
+  const [identity, setIdentity] = useState(() => ({
+    initials: initials ?? "··",
+    firstName: firstName ?? "",
+    lastName: lastName ?? "",
+    loaded: Boolean(initials && firstName && lastName),
+  }));
   const [playerCount, setPlayerCount] = useState<number | null>(null);
   const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayerPreview[]>([]);
   const [notificationsCount, setNotificationsCount] = useState<number | null>(null);
@@ -65,6 +71,50 @@ export function Topbar({
   const chatRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const isChatOpenRef = useRef(false);
+
+  useEffect(() => {
+    setIdentity({
+      initials: initials ?? "··",
+      firstName: firstName ?? "",
+      lastName: lastName ?? "",
+      loaded: Boolean(initials && firstName && lastName),
+    });
+  }, [firstName, initials, lastName]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadIdentity() {
+      const response = await fetch("/api/auth/me", { cache: "no-store" });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            character?: { first_name?: string | null; last_name?: string | null } | null;
+          }
+        | null;
+
+      if (!response.ok || cancelled || !payload?.character?.first_name || !payload.character.last_name) {
+        return;
+      }
+
+      const resolvedFirstName = payload.character.first_name;
+      const resolvedLastName = payload.character.last_name;
+
+      setIdentity({
+        initials: `${resolvedFirstName[0] ?? ""}${resolvedLastName[0] ?? ""}` || "··",
+        firstName: resolvedFirstName,
+        lastName: resolvedLastName,
+        loaded: true,
+      });
+    }
+
+    if (!identity.loaded) {
+      void loadIdentity();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [identity.loaded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -404,10 +454,12 @@ export function Topbar({
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
           {(notificationsCount ?? 0) > 0 ? <div className="notif-badge">{notificationsCount}</div> : null}
         </div>
-        <div className="avatar-btn">
-          <div className="avatar-circle">{initials}</div>
+        <div className={`avatar-btn ${identity.loaded ? "" : "avatar-btn-loading"}`.trim()}>
+          <div className="avatar-circle">{identity.initials}</div>
           <div className="avatar-info">
-            <div className="avatar-name">{firstName} {lastName}</div>
+            <div className="avatar-name">
+              {identity.loaded ? `${identity.firstName} ${identity.lastName}` : "Loading profile"}
+            </div>
             <div className="avatar-level">Active operator</div>
           </div>
         </div>
