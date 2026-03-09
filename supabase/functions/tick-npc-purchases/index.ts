@@ -10,6 +10,11 @@ import {
   NPC_DEMAND_CURVE,
   NPC_PRICE_BAND_PERCENT,
   NPC_PRICE_CEILINGS,
+  NPC_PRICE_RESPONSE_CURVE,
+  NPC_PRICE_SENSITIVITY_MAX,
+  NPC_PRICE_SENSITIVITY_MIN,
+  NPC_QUALITY_PREFERENCE_MAX,
+  NPC_QUALITY_PREFERENCE_MIN,
   NPC_SHOPPERS_PER_SUBTICK_BASE,
   NPC_SHOPPER_TIERS,
   NPC_SUBTICKS_PER_TICK,
@@ -52,6 +57,10 @@ function clamp(value: number, min: number, max: number): number {
 
 function round2(value: number): number {
   return Number(value.toFixed(2));
+}
+
+function lerp(start: number, end: number, t: number): number {
+  return start + (end - start) * t;
 }
 
 function hashString(input: string): number {
@@ -97,6 +106,64 @@ function makeShopperName(_subTickIndex: number, _shopperIndex: number, rng: () =
   const first = SHOPPER_NAME_PREFIXES[randomIntWithRng(rng, 0, SHOPPER_NAME_PREFIXES.length - 1)];
   const last = SHOPPER_NAME_SUFFIXES[randomIntWithRng(rng, 0, SHOPPER_NAME_SUFFIXES.length - 1)];
   return `${first} ${last}`;
+}
+
+function getPriceCurveMultiplier(priceRatio: number): number {
+  if (!Number.isFinite(priceRatio)) return 0;
+
+  const first = NPC_PRICE_RESPONSE_CURVE[0];
+  if (priceRatio <= first.ratio) return first.multiplier;
+
+  for (let index = 1; index < NPC_PRICE_RESPONSE_CURVE.length; index += 1) {
+    const previous = NPC_PRICE_RESPONSE_CURVE[index - 1];
+    const current = NPC_PRICE_RESPONSE_CURVE[index];
+    if (priceRatio <= current.ratio) {
+      const span = current.ratio - previous.ratio;
+      const t = span <= 0 ? 0 : (priceRatio - previous.ratio) / span;
+      return lerp(previous.multiplier, current.multiplier, clamp(t, 0, 1));
+    }
+  }
+
+  return NPC_PRICE_RESPONSE_CURVE[NPC_PRICE_RESPONSE_CURVE.length - 1]?.multiplier ?? 0;
+}
+
+function getShelfPurchaseScore(
+  row: {
+    item_key: string;
+    unit_price: number | string;
+    quality: number | string;
+  },
+  shopper: {
+    priceSensitivity: number;
+    qualityPreference: number;
+  },
+  priceToleranceMultiplier: number
+): number {
+  const baseWorth = Math.max(0.01, ceilForItem(String(row.item_key)));
+  const rawPrice = Math.max(0.01, toNumber(row.unit_price));
+  const baseRatio = rawPrice / baseWorth;
+  if (baseRatio >= 2) return 0;
+
+  const sensitivityRange = Math.max(0.0001, NPC_PRICE_SENSITIVITY_MAX - NPC_PRICE_SENSITIVITY_MIN);
+  const qualityRange = Math.max(0.0001, NPC_QUALITY_PREFERENCE_MAX - NPC_QUALITY_PREFERENCE_MIN);
+  const priceTolerance = clamp(priceToleranceMultiplier, 1, 1.5);
+  const normalizedSensitivity = clamp(
+    (shopper.priceSensitivity - NPC_PRICE_SENSITIVITY_MIN) / sensitivityRange,
+    0,
+    1
+  );
+  const normalizedQualityPreference = clamp(
+    (shopper.qualityPreference - NPC_QUALITY_PREFERENCE_MIN) / qualityRange,
+    0,
+    1
+  );
+  const perceivedRatio = baseRatio / lerp(0.92, priceTolerance, normalizedSensitivity);
+  const priceScore = getPriceCurveMultiplier(perceivedRatio);
+  if (priceScore <= 0) return 0;
+
+  const normalizedQuality = clamp(toNumber(row.quality) / 100, 0, 1);
+  const qualityScore = lerp(0.85 + normalizedQuality * 0.3, 0.7 + normalizedQuality * 0.8, normalizedQualityPreference);
+  return priceScore * qualityScore;
 }
 
 async function getOrCreateSubtickState(supabase: ReturnType<typeof createClient>) {
@@ -475,6 +542,7 @@ Deno.serve(async (request) => {
         .select("id, owner_player_id, business_id, city_id, item_key, quality, quantity, reserved_quantity")
         .eq("owner_player_id", store.player_id)
         .eq("business_id", store.id)
+        .gt("reserved_quantity", 0)
         .gt("quantity", 0)
         .limit(200),
       supabase
@@ -490,6 +558,8 @@ Deno.serve(async (request) => {
       (inventoryRows ?? []).map((row) => [`${row.item_key}:${row.quality}`, row])
     );
 
+    // NPC storefront traffic is shelf-only. Inventory rows are read solely to verify
+    // the reserved stock that backs each shelf position before any sale can happen.
     const availableRows = (shelfRows ?? [])
       .map((row) => {
         const inventory = inventoryByKey.get(`${row.item_key}:${row.quality}`);
@@ -535,8 +605,12 @@ Deno.serve(async (request) => {
         1,
         randomIntWithRng(seededRng, tier.maxItemsMin, Math.max(tier.maxItemsMin, tier.maxItemsMax))
       );
-      const priceSensitivity = randBetweenWithRng(seededRng, 0.7, 1.0);
-      const qualityPreference = randBetweenWithRng(seededRng, 0.0, 1.0);
+      const priceSensitivity = randBetweenWithRng(seededRng, NPC_PRICE_SENSITIVITY_MIN, NPC_PRICE_SENSITIVITY_MAX);
+      const qualityPreference = randBetweenWithRng(
+        seededRng,
+        NPC_QUALITY_PREFERENCE_MIN,
+        NPC_QUALITY_PREFERENCE_MAX
+      );
       const shopperName = makeShopperName(subTickIndex, shopperIndex, seededRng);
 
       let remainingBudget = shopperBudget;
@@ -554,28 +628,37 @@ Deno.serve(async (request) => {
           seededRng
         );
 
-        const strictCeiling = ceilForItem(targetItemKey) * priceToleranceMultiplier * priceSensitivity;
-        const candidates = activeRows.filter(
-          (row) => row.item_key === targetItemKey && toNumber(row.unit_price) <= strictCeiling
-        );
+        const candidates = activeRows.filter((row) => row.item_key === targetItemKey);
         if (candidates.length === 0) continue;
 
         const cheapest = Math.min(...candidates.map((row) => toNumber(row.unit_price)));
-        const priceBandMax = cheapest * (1 + NPC_PRICE_BAND_PERCENT);
-        const withinBand = candidates.filter((row) => toNumber(row.unit_price) <= priceBandMax);
+        const withinBand = candidates.filter((row) => {
+          const unitPrice = toNumber(row.unit_price);
+          return unitPrice <= cheapest * (1 + NPC_PRICE_BAND_PERCENT * 6) && unitPrice <= remainingBudget;
+        });
         if (withinBand.length === 0) continue;
 
-        const chosen = [...withinBand].sort((a, b) => {
-          if (qualityPreference >= 0.5) {
-            const qualityDiff = toNumber(b.quality) - toNumber(a.quality);
-            if (qualityDiff !== 0) return qualityDiff;
-            return toNumber(a.unit_price) - toNumber(b.unit_price);
-          }
+        const weightedCandidates = withinBand
+          .map((row) => ({
+            row,
+            score: getShelfPurchaseScore(
+              row,
+              { priceSensitivity, qualityPreference },
+              priceToleranceMultiplier
+            ),
+          }))
+          .filter((entry) => entry.score > 0);
+        if (weightedCandidates.length === 0) continue;
 
-          const priceDiff = toNumber(a.unit_price) - toNumber(b.unit_price);
-          if (priceDiff !== 0) return priceDiff;
-          return toNumber(b.quality) - toNumber(a.quality);
-        })[0];
+        const bestScore = Math.max(...weightedCandidates.map((entry) => entry.score));
+        const purchaseChance = clamp(bestScore / 1.15, 0, 0.995);
+        if (seededRng() > purchaseChance) continue;
+
+        const chosen = pickWeighted(
+          weightedCandidates,
+          (entry) => entry.score,
+          seededRng
+        ).row;
 
         const chosenPrice = toNumber(chosen.unit_price);
         if (chosenPrice <= 0) continue;

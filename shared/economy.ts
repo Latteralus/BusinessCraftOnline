@@ -51,6 +51,15 @@ export const NPC_PRICE_SENSITIVITY_MIN = 0.7;
 export const NPC_PRICE_SENSITIVITY_MAX = 1.0;
 export const NPC_QUALITY_PREFERENCE_MIN = 0.0;
 export const NPC_QUALITY_PREFERENCE_MAX = 1.0;
+export const NPC_PRICE_RESPONSE_CURVE = [
+  { ratio: 0.1, multiplier: 1.9 },
+  { ratio: 0.5, multiplier: 1.45 },
+  { ratio: 1.0, multiplier: 1.0 },
+  { ratio: 1.4, multiplier: 0.45 },
+  { ratio: 1.7, multiplier: 0.16 },
+  { ratio: 1.9, multiplier: 0.04 },
+  { ratio: 2.0, multiplier: 0.0 },
+] as const;
 
 export const NPC_CATEGORY_INTEREST_WEIGHTS = [
   { itemKey: "water", weight: 1.4 },
@@ -101,4 +110,3 @@ export function getDemandCurveMultiplierForHour(hour: number): number {
   const match = NPC_DEMAND_CURVE.find((window) => hour >= window.startHour && hour <= window.endHour);
   return match?.multiplier ?? 1;
 }
-

@@ -519,6 +519,8 @@ export async function recordNpcPurchase(
     tickWindowStartedAt?: string;
   }
 ): Promise<{ listing: MarketListing; transaction: MarketTransaction }> {
+  throw new Error("NPC purchases must be executed through storefront shelf stock, not direct inventory or market listings.");
+
   const listing = await getListing(client, input.listingId);
   if (listing.status !== "active") throw new Error("Listing is not active.");
 
