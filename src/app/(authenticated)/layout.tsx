@@ -16,7 +16,6 @@ export default async function AuthenticatedLayout({
         initials={initials}
         firstName={character.first_name}
         lastName={character.last_name}
-        businessLevel={character.business_level}
       />
       <div className="main-container">
         {children}

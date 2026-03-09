@@ -559,19 +559,6 @@ export default async function DashboardPage() {
               </div>
             </div>
             <div className="card-body">
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Business Level</span>
-                  <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "0.78rem", fontWeight: 600, color: "var(--gold)" }}>Lv. {character.business_level}</span>
-                </div>
-                <div className="mfg-bar-track" style={{ height: 8 }}>
-                  <div className="mfg-bar-fill" style={{ width: "100%", background: "linear-gradient(90deg,var(--gold),#e8b94a)" }}></div>
-                </div>
-                <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: 4 }}>
-                  Progress to next level is not available in the current mechanics.
-                </div>
-              </div>
-
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
                 <div style={{ background: "var(--bg-primary)", borderRadius: "var(--radius-sm)", padding: "10px 12px" }}>
                   <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Storefront Net</div>

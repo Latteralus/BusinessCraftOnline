@@ -10,14 +10,12 @@ interface TopbarProps {
   initials: string;
   firstName: string;
   lastName: string;
-  businessLevel: number;
 }
 
 export function Topbar({
   initials,
   firstName,
   lastName,
-  businessLevel,
 }: TopbarProps) {
   const pathname = usePathname();
   const [playerCount, setPlayerCount] = useState<number | null>(null);
@@ -117,9 +115,9 @@ export function Topbar({
                       <div className="online-player-rank">#{index + 1}</div>
                       <div className="online-player-main">
                         <div className="online-player-name">{player.character_name}</div>
-                        <div className="online-player-meta">Biz Level {player.business_level}</div>
+                        <div className="online-player-meta">Wealth {formatCurrency(player.wealth)}</div>
                       </div>
-                      <div className="online-player-wealth">{formatCurrency(player.wealth)}</div>
+                      <div className="online-player-wealth">Active now</div>
                     </Link>
                   ))}
                 </div>
@@ -151,7 +149,7 @@ export function Topbar({
           <div className="avatar-circle">{initials}</div>
           <div className="avatar-info">
             <div className="avatar-name">{firstName} {lastName}</div>
-            <div className="avatar-level">Biz Level {businessLevel}</div>
+            <div className="avatar-level">Active operator</div>
           </div>
         </div>
       </div>
