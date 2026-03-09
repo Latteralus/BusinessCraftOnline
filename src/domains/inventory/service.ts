@@ -255,6 +255,7 @@ export async function transferItems(
     shippingQueueItem?: ShippingQueueItem | null;
     shippingCost?: number;
     shippingMinutes?: number;
+    referenceId?: string;
   } | null;
 
   if (!result?.transferType) {
@@ -280,30 +281,9 @@ export async function transferItems(
       : toNumber(sourceRow?.total_cost);
     const transferredUnitCost = sourceQuantity > 0 ? sourceTotalCost / sourceQuantity : toNumber(sourceRow?.unit_cost);
     const purchaseUnitCost = input.unitPrice;
-    const transferReferenceId = result.shippingQueueItem?.id ?? randomUUID();
+    const transferReferenceId = result.referenceId ?? result.shippingQueueItem?.id ?? randomUUID();
     const grossTransferAmount = Number((purchaseUnitCost * input.quantity).toFixed(2));
     const transferredTotalCost = Number((transferredUnitCost * input.quantity).toFixed(2));
-
-    const { error: ledgerError } = await client.from("business_accounts").insert([
-      {
-        business_id: input.sourceBusinessId,
-        amount: grossTransferAmount,
-        entry_type: "credit",
-        category: "business_transfer_in",
-        reference_id: transferReferenceId,
-        description: `Inventory transfer sale: ${input.quantity}x ${input.itemKey} @ ${purchaseUnitCost.toFixed(2)}`,
-      },
-      {
-        business_id: input.destinationBusinessId,
-        amount: grossTransferAmount,
-        entry_type: "debit",
-        category: "business_transfer_out",
-        reference_id: transferReferenceId,
-        description: `Inventory transfer purchase: ${input.quantity}x ${input.itemKey} @ ${purchaseUnitCost.toFixed(2)}`,
-      },
-    ]);
-
-    if (ledgerError) throw ledgerError;
 
     const financialEvents: NewBusinessFinancialEvent[] = [
       {

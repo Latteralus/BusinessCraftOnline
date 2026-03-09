@@ -309,7 +309,7 @@ async function settleStoreInventorySale(
       amount: gross,
       entry_type: "credit",
       category: "npc_sale",
-      description: `NPC storefront purchase: ${soldQty}x ${shelfRow.item_key}`,
+      description: `Storefront purchase: ${soldQty}x ${shelfRow.item_key}`,
       reference_id: shelfRow.id,
     },
     {
@@ -317,7 +317,7 @@ async function settleStoreInventorySale(
       amount: fee,
       entry_type: "debit",
       category: "market_fee",
-      description: `NPC storefront fee: ${soldQty}x ${shelfRow.item_key}`,
+      description: `Storefront fee: ${soldQty}x ${shelfRow.item_key}`,
       reference_id: shelfRow.id,
     },
   ]);
