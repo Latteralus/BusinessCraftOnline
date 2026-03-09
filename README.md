@@ -15,7 +15,7 @@ During local development, the local Postgres container uses `pg_net` to `POST` t
    Hosted (recommended): store it in Vault:
    `select vault.create_secret('YOUR_TICK_FUNCTION_SECRET', 'edge_function_tick_secret', 'Tick secret');`
    Local fallback: `ALTER DATABASE postgres SET app.settings.edge_function_tick_secret = 'YOUR_TICK_FUNCTION_SECRET';`
-4. For testing ticks without waiting 10 minutes, you can manually trigger edge functions:
+4. For testing ticks without waiting for cron, you can manually trigger edge functions:
    `supabase functions serve`
    And then cURL them or let the local cron job trigger them.
 

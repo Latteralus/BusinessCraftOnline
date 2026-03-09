@@ -369,7 +369,6 @@ export function Topbar({
         <Link href="/dashboard" prefetch={false} className={pathname === "/dashboard" ? "active" : ""}>Dashboard</Link>
         <Link href="/businesses" prefetch={false} className={pathname === "/businesses" ? "active" : ""}>My Businesses</Link>
         <Link href="/market" prefetch={false} className={pathname === "/market" ? "active" : ""}>Market</Link>
-        <Link href="/production" prefetch={false} className={pathname === "/production" ? "active" : ""}>Manufacturing</Link>
         <Link href="/banking" prefetch={false} className={pathname === "/banking" ? "active" : ""}>Banking</Link>
         <Link href="/contracts" prefetch={false} className={pathname === "/contracts" ? "active" : ""}>Contracts</Link>
         <Link href="/inventory" prefetch={false} className={pathname === "/inventory" ? "active" : ""}>Inventory</Link>

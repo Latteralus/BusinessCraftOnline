@@ -66,4 +66,4 @@ export { BUSINESS_UPGRADE_KEYS };
 export type { BusinessUpgradeKey };
 
 export const EXTRACTION_BASE_RATE_PER_MINUTE = 1;
-export const MANUFACTURING_TICK_MINUTES = 5;
+export const MANUFACTURING_TICK_MINUTES = 1;

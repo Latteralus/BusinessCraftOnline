@@ -1,4 +1,4 @@
-import type { BusinessType, BusinessUpgradeKey } from "@/config/businesses";
+import { MANUFACTURING_TICK_MINUTES, type BusinessType, type BusinessUpgradeKey } from "@/config/businesses";
 import type { EmployeeSkillKey } from "@/config/employees";
 import {
   EXTRACTION_BUSINESS_TYPES as SHARED_EXTRACTION_BUSINESS_TYPES,
@@ -262,6 +262,14 @@ export function getManufacturingRecipesForBusinessType(
   businessType: BusinessType
 ): ManufacturingRecipe[] {
   return MANUFACTURING_RECIPES.filter((recipe) => recipe.businessType === businessType);
+}
+
+export function getManufacturingInputQuantityPerTick(quantityPerMinute: number): number {
+  return quantityPerMinute * MANUFACTURING_TICK_MINUTES;
+}
+
+export function getManufacturingOutputQuantityPerTick(quantityPerMinute: number): number {
+  return quantityPerMinute * MANUFACTURING_TICK_MINUTES;
 }
 
 export function getExtractionProductOptionsForBusinessType(

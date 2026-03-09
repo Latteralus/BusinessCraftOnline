@@ -59,8 +59,8 @@ export const marketStorefrontFilterSchema = z.object({
 export const updateMarketStorefrontSettingsSchema = z.object({
   businessId: z.uuid("Business id is invalid."),
   adBudgetPerTick: z
-    .number({ error: "Ad budget per tick must be a number." })
-    .min(0, "Ad budget per tick cannot be negative."),
+    .number({ error: "Ad budget per minute must be a number." })
+    .min(0, "Ad budget per minute cannot be negative."),
   trafficMultiplier: z
     .number({ error: "Traffic multiplier must be a number." })
     .min(0.5, "Traffic multiplier must be at least 0.5.")

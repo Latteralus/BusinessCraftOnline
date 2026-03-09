@@ -2,7 +2,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { startTickRequest, writeTickRunLog } from "../_shared/tick-runtime.ts";
 import { isWorkerOperational } from "../_shared/employee-status.ts";
-import { getManufacturingRecipeByKey } from "../../../src/config/production.ts";
+import {
+  getManufacturingInputQuantityPerTick,
+  getManufacturingOutputQuantityPerTick,
+  getManufacturingRecipeByKey,
+} from "../../../src/config/production.ts";
 import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
 
 const XP_PER_TICK = 5;
@@ -187,7 +191,7 @@ Deno.serve(async (request) => {
       .map((input) => {
         const resolved = resolveDeterministicQuantity(
           existingInputProgress[input.itemKey] ?? 0,
-          Math.max(0, input.quantity * effects.manufacturingInputUseMultiplier)
+          Math.max(0, getManufacturingInputQuantityPerTick(input.quantity) * effects.manufacturingInputUseMultiplier)
         );
         return {
           itemKey: input.itemKey,
@@ -298,7 +302,7 @@ Deno.serve(async (request) => {
 
     const outputState = resolveDeterministicQuantity(
       toNumber(job.output_progress),
-      Math.max(0, recipe.baseOutputQuantity * effects.manufacturingOutputMultiplier)
+      Math.max(0, getManufacturingOutputQuantityPerTick(recipe.baseOutputQuantity) * effects.manufacturingOutputMultiplier)
     );
     const outputQty = outputState.quantity;
 

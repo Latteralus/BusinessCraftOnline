@@ -669,7 +669,7 @@ export default function MarketClient({ initialData }: Props) {
                 </select>
               </label>
               <label>
-                <FieldLabel>Ad Budget Per Tick</FieldLabel>
+                <FieldLabel>Ad Budget Per Minute</FieldLabel>
                 <input type="number" min={0} step={0.01} value={storefrontAdBudget} onChange={(event) => setStorefrontAdBudget(Number(event.target.value) || 0)} />
               </label>
               <label>

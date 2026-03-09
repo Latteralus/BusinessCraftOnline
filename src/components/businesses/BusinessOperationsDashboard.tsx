@@ -136,7 +136,7 @@ export default function BusinessOperationsDashboard(props: Props) {
             Extraction Control Room
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-            <MiniOpStat label="Throughput" value={`${activeSlots} ${formatItemKey(outputItem)}/tick`} sub={`${production.summary.active} active lanes`} tone="positive" />
+            <MiniOpStat label="Throughput" value={`${activeSlots} ${formatItemKey(outputItem)}/min`} sub={`${production.summary.active} active lanes`} tone="positive" />
             <MiniOpStat label="Slot Utilization" value={formatPercent(utilization)} sub={`${production.summary.active}/${production.maxSlots} slots running`} />
             <MiniOpStat label="Crew Coverage" value={formatPercent(occupancy)} sub={`${production.summary.occupied} staffed`} />
             <MiniOpStat label="Tool Health" value={averageToolHealth > 0 ? `${Math.round(averageToolHealth)} uses avg` : "No tools"} sub={production.summary.toolBroken > 0 ? `${production.summary.toolBroken} blocked` : "All lanes serviceable"} tone={production.summary.toolBroken > 0 ? "negative" : "neutral"} />
@@ -176,7 +176,7 @@ export default function BusinessOperationsDashboard(props: Props) {
       props.manufacturing.lines[0] ??
       null;
     const recipe = leadLine?.configured_recipe ?? null;
-    const perTick = leadLine?.status === "active" && recipe ? recipe.baseOutputQuantity : 0;
+    const perMinute = leadLine?.status === "active" && recipe ? recipe.baseOutputQuantity : 0;
     const inputCoverage = recipe
       ? recipe.inputs.map((input: { itemKey: string; quantity: number }) => {
           const available = props.inventory
@@ -186,11 +186,11 @@ export default function BusinessOperationsDashboard(props: Props) {
             itemKey: input.itemKey,
             available,
             required: input.quantity,
-            coverageTicks: input.quantity > 0 ? Math.floor(available / input.quantity) : 0,
+            coverageMinutes: input.quantity > 0 ? Math.floor(available / input.quantity) : 0,
           };
         })
       : [];
-    const bottleneck = inputCoverage.slice().sort((a: { coverageTicks: number }, b: { coverageTicks: number }) => a.coverageTicks - b.coverageTicks)[0] ?? null;
+    const bottleneck = inputCoverage.slice().sort((a: { coverageMinutes: number }, b: { coverageMinutes: number }) => a.coverageMinutes - b.coverageMinutes)[0] ?? null;
     const workerReady = props.manufacturing.summary.occupied > 0;
 
     return (
@@ -207,9 +207,9 @@ export default function BusinessOperationsDashboard(props: Props) {
             Manufacturing Control Room
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-            <MiniOpStat label="Run Rate" value={recipe ? `${perTick} ${formatItemKey(recipe.outputItemKey)}/tick` : "No recipe"} sub={recipe ? recipe.displayName : "Retool a line to begin"} tone={leadLine?.status === "active" ? "positive" : "neutral"} />
+            <MiniOpStat label="Run Rate" value={recipe ? `${perMinute} ${formatItemKey(recipe.outputItemKey)}/min` : "No recipe"} sub={recipe ? recipe.displayName : "Retool a line to begin"} tone={leadLine?.status === "active" ? "positive" : "neutral"} />
             <MiniOpStat label="Cell Status" value={leadLine ? formatLabel(leadLine.status) : "Idle"} sub={workerReady ? "Worker on station" : "Worker missing"} tone={workerReady ? "positive" : "negative"} />
-            <MiniOpStat label="Input Coverage" value={bottleneck ? `${bottleneck.coverageTicks} ticks` : "N/A"} sub={bottleneck ? `${formatItemKey(bottleneck.itemKey)} is limiting` : "No recipe active"} tone={bottleneck && bottleneck.coverageTicks === 0 ? "negative" : "neutral"} />
+            <MiniOpStat label="Input Coverage" value={bottleneck ? `${bottleneck.coverageMinutes} min` : "N/A"} sub={bottleneck ? `${formatItemKey(bottleneck.itemKey)} is limiting` : "No recipe active"} tone={bottleneck && bottleneck.coverageMinutes === 0 ? "negative" : "neutral"} />
             <MiniOpStat label="Output Buffer" value={`${availableInventoryUnits} units`} sub="Finished stock on hand" />
             <MiniOpStat label="Crew" value={`${props.manufacturing.summary.occupied}/${props.manufacturing.maxLines}`} sub="Workers on production lines" />
           </div>

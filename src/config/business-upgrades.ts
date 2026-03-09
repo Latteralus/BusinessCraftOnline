@@ -92,7 +92,7 @@ export const BUSINESS_UPGRADE_DEFINITIONS: Record<BusinessUpgradeKey, BusinessUp
     key: "extraction_efficiency",
     family: "extraction",
     displayName: "Extraction Efficiency",
-    shortDescription: "Improves extraction output per tick.",
+    shortDescription: "Improves extraction output per minute.",
     immersiveLabel: "Flow routing, drill pacing, and load-out tuning.",
     projectCategory: "equipment",
     appliesTo: ["mine", "water_company", "logging_camp", "oil_well"],

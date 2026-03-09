@@ -1,6 +1,6 @@
 "use client";
 
-import { isStoreBusinessType, MANUFACTURING_TICK_MINUTES } from "@/config/businesses";
+import { isStoreBusinessType } from "@/config/businesses";
 import { useState, useEffect, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
@@ -137,6 +137,18 @@ export default function BusinessDetailsClient({ business, production, manufactur
         !production?.slots?.some((slot) => slot.employee_id === employee.id)
       );
     });
+  const availableWorkersForManufacturing = thisBusinessEmployees.filter((employee) => {
+    const assignment = getAssignmentForBusiness(employee);
+    const effectiveStatus = getWorkerEffectiveStatus(employee.status, employee.shift_ends_at);
+    const isOnExtractionSlot = production?.slots?.some((slot) => slot.employee_id === employee.id) ?? false;
+    const isOnManufacturingLine = manufacturing?.lines?.some((line) => line.employee_id === employee.id) ?? false;
+
+    if (assignment?.role === "production") {
+      return effectiveStatus === "assigned" && !isOnExtractionSlot && !isOnManufacturingLine;
+    }
+
+    return effectiveStatus === "available" && !assignment;
+  });
   async function runBusyAction(action: () => Promise<void>, fallbackMessage: string) {
     if (busy) return;
 
@@ -290,14 +302,19 @@ export default function BusinessDetailsClient({ business, production, manufactur
   async function assignEmployeeToManufacturing(lineId: string) {
     const employeeId = manufacturingAssignSelections[lineId];
     if (!employeeId || busy) return;
-    if (busy) return;
     await runBusyAction(async () => {
-      await apiPost(apiRoutes.employees.assign, {
-        employeeId,
-        businessId: business.id,
-        role: "production",
-        roleSkillKey: "logistics",
-      }, { fallbackError: "Failed to assign employee." });
+      const employee = thisBusinessEmployees.find((candidate) => candidate.id === employeeId);
+      const assignment = employee ? getAssignmentForBusiness(employee) : null;
+
+      if (!assignment) {
+        await apiPost(apiRoutes.employees.assign, {
+          employeeId,
+          businessId: business.id,
+          role: "production",
+          roleSkillKey: "logistics",
+        }, { fallbackError: "Failed to assign employee." });
+      }
+
       await apiPost(apiRoutes.production.assignManufacturingLine, { lineId, employeeId }, { fallbackError: "Failed to assign manufacturing line." });
       setManufacturingAssignSelections((prev) => ({ ...prev, [lineId]: "" }));
       router.refresh();
@@ -786,11 +803,10 @@ export default function BusinessDetailsClient({ business, production, manufactur
                       {manufacturing.lines.map((line) => {
                         const assignedEmp = employees.find((employee) => employee.id === line.employee_id);
                         const recipeDetails = line.configured_recipe ?? line.pending_recipe;
-                        const perMinuteMultiplier = 60 / MANUFACTURING_TICK_MINUTES;
                         const productionNote = recipeDetails
                           ? `Consumes ${recipeDetails.inputs
-                              .map((input) => `${(input.quantity * perMinuteMultiplier).toLocaleString()} ${formatItemKey(input.itemKey)}`)
-                              .join(", ")} and produces ${(recipeDetails.baseOutputQuantity * perMinuteMultiplier).toLocaleString()} ${formatItemKey(recipeDetails.outputItemKey)} per minute`
+                              .map((input) => `${input.quantity.toLocaleString()} ${formatItemKey(input.itemKey)}`)
+                              .join(", ")} and produces ${recipeDetails.baseOutputQuantity.toLocaleString()} ${formatItemKey(recipeDetails.outputItemKey)} per minute`
                           : null;
                         return (
                           <div key={line.id} style={{ display: "flex", justifyContent: "space-between", padding: 12, background: "var(--bg-elevated)", borderRadius: 8, gap: 12, flexWrap: "wrap" }}>
@@ -821,7 +837,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                     style={{ fontSize: "0.75rem", padding: "4px 8px", minWidth: 180 }}
                                   >
                                     <option value="">Select worker...</option>
-                                    {availableEmployees.map((employee) => (
+                                    {availableWorkersForManufacturing.map((employee) => (
                                       <option key={employee.id} value={employee.id}>{employee.first_name} {employee.last_name}</option>
                                     ))}
                                   </select>
@@ -890,11 +906,11 @@ export default function BusinessDetailsClient({ business, production, manufactur
                 <div>{thisBusinessEmployees.length}</div>
               </div>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
-                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Total Wages Per Tick</div>
+                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Total Wages Per Hour</div>
                 <div>{formatCurrency(employees.reduce((sum, employee) => sum + (employee.wage_per_hour || 0), 0))}</div>
               </div>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
-                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>This Business Wages Per Tick</div>
+                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>This Business Wages Per Hour</div>
                 <div>{formatCurrency(thisBusinessEmployees.reduce((sum, employee) => sum + (getAssignmentForBusiness(employee)?.wage_per_hour ?? employee.wage_per_hour ?? 0), 0))}</div>
               </div>
             </div>

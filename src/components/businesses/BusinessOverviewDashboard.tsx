@@ -121,9 +121,9 @@ export default function BusinessOverviewDashboard(props: Props) {
   const throughputHeadline = props.production
     ? `${props.production.summary.active} ${formatItemKey(
         EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[props.production.businessType as keyof typeof EXTRACTION_OUTPUT_ITEM_BY_BUSINESS]
-      )}/tick`
+      )}/min`
     : activeManufacturingLine?.configured_recipe
-      ? `${activeManufacturingLine.configured_recipe.baseOutputQuantity} ${formatItemKey(activeManufacturingLine.configured_recipe.outputItemKey)}/tick`
+      ? `${activeManufacturingLine.configured_recipe.baseOutputQuantity} ${formatItemKey(activeManufacturingLine.configured_recipe.outputItemKey)}/min`
       : isStore
         ? `${props.shelfItems.reduce((sum, row) => sum + row.quantity, 0)} shelf units live`
         : "N/A";
