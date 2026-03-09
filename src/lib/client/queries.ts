@@ -14,7 +14,6 @@ import type { Employee, EmployeeSummary } from "@/domains/employees";
 import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } from "@/domains/inventory";
 import type { MarketListing, MarketStorefrontSetting, MarketTransaction } from "@/domains/market";
 import type { ManufacturingStatusView } from "@/domains/production";
-import type { UpgradeDefinition } from "@/domains/upgrades";
 import type { ChatMessage } from "@/domains/chat";
 import { apiGet } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
@@ -29,7 +28,6 @@ export type BusinessesPageData = {
   summary: BusinessSummary | null;
   cities: City[];
   travelState: TravelState;
-  upgradeDefinitions: UpgradeDefinition[];
 };
 
 export type BankingPageData = {
@@ -85,11 +83,6 @@ export type AuthMeData = {
 
 export type ChatMessagesData = {
   messages: ChatMessage[];
-};
-
-type UpgradeDefinitionsResponse = {
-  definitions: UpgradeDefinition[];
-  error?: string;
 };
 
 type InventoryResponse = {
@@ -163,11 +156,10 @@ export async function fetchTravelState() {
 }
 
 export async function fetchBusinessesPageData(): Promise<BusinessesPageData> {
-  const [businessesJson, citiesJson, travelJson, definitionsJson] = await Promise.all([
+  const [businessesJson, citiesJson, travelJson] = await Promise.all([
     apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to fetch businesses." }),
     apiGet<CitiesResponse>(apiRoutes.cities, { fallbackError: "Failed to fetch cities." }),
     fetchTravelState(),
-    apiGet<UpgradeDefinitionsResponse>(apiRoutes.upgrades.root, { fallbackError: "Failed to fetch upgrade definitions." }),
   ]);
 
   return {
@@ -175,7 +167,6 @@ export async function fetchBusinessesPageData(): Promise<BusinessesPageData> {
     summary: businessesJson.summary ?? null,
     cities: citiesJson.cities ?? [],
     travelState: travelJson,
-    upgradeDefinitions: definitionsJson.definitions ?? [],
   };
 }
 

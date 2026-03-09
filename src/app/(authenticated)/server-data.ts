@@ -26,7 +26,6 @@ import { getEmployeeSummary, getPlayerEmployees } from "@/domains/employees";
 import { getBusinessInventory, getPersonalInventory, getShippingQueue } from "@/domains/inventory";
 import { getMarketListings, getMarketStorefrontSettings, getMarketTransactions } from "@/domains/market";
 import { getManufacturingStatus } from "@/domains/production";
-import { getUpgradeDefinitions } from "@/domains/upgrades";
 import { cache } from "react";
 
 const getAuthedPageContext = cache(async () => {
@@ -103,11 +102,10 @@ export async function loadAuthenticatedShellInitialData(): Promise<Authenticated
 
 export async function loadBusinessesPageData() {
   const { supabase, user, character } = await requireAuthedPageContext();
-  const [businesses, cities, activeTravel, upgradeDefinitions, canBuyBusiness, resolvedCurrentCity] = await Promise.all([
+  const [businesses, cities, activeTravel, canBuyBusiness, resolvedCurrentCity] = await Promise.all([
     getBusinessesWithBalancesCached(supabase, user.id),
     getCitiesCached(supabase),
     getActiveTravel(supabase, user.id).catch(() => null),
-    getUpgradeDefinitions(supabase).catch(() => []),
     canPurchaseBusiness(supabase, user.id).catch(() => false),
     character.current_city_id ? getCityById(supabase, character.current_city_id).catch(() => null) : Promise.resolve(null),
   ]);
@@ -123,7 +121,6 @@ export async function loadBusinessesPageData() {
     summary: summarizeBusinessesWithBalances(businesses),
     cities,
     travelState,
-    upgradeDefinitions,
   };
 }
 

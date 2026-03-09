@@ -28,13 +28,11 @@ import {
   STOREFRONT_TRAFFIC_MULTIPLIER_MAX,
   STOREFRONT_TRAFFIC_MULTIPLIER_MIN,
 } from "../../../shared/economy.ts";
+import { makeNpcShopperName } from "../../../shared/core/npc-shopper-names.ts";
 
 const NPC_CATEGORY_INTEREST_WEIGHT_BY_ITEM = Object.fromEntries(
   NPC_CATEGORY_INTEREST_WEIGHTS.map((entry) => [entry.itemKey, entry.weight])
 ) as Record<string, number>;
-
-const SHOPPER_NAME_PREFIXES = ["Alex", "Jordan", "Taylor", "Morgan", "Casey", "Riley", "Jamie"];
-const SHOPPER_NAME_SUFFIXES = ["Stone", "Reed", "Baker", "Cole", "Hayes", "Fox", "Shaw"];
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
@@ -103,12 +101,6 @@ function pickWeighted<T>(rows: T[], getWeight: (row: T) => number, rng: () => nu
   }
 
   return rows[rows.length - 1];
-}
-
-function makeShopperName(_subTickIndex: number, _shopperIndex: number, rng: () => number): string {
-  const first = SHOPPER_NAME_PREFIXES[randomIntWithRng(rng, 0, SHOPPER_NAME_PREFIXES.length - 1)];
-  const last = SHOPPER_NAME_SUFFIXES[randomIntWithRng(rng, 0, SHOPPER_NAME_SUFFIXES.length - 1)];
-  return `${first} ${last}`;
 }
 
 function getPriceCurveMultiplier(priceRatio: number): number {
@@ -603,6 +595,8 @@ Deno.serve(async (request) => {
       continue;
     }
 
+    const usedShopperNames = new Set<string>();
+
     for (let shopperIndex = 0; shopperIndex < shoppersThisSubtick; shopperIndex += 1) {
       const tier = pickWeighted(NPC_SHOPPER_TIERS as unknown as Array<(typeof NPC_SHOPPER_TIERS)[number]>, (row) => row.spawnWeight, seededRng);
       const shopperBudget = round2(randBetweenWithRng(seededRng, tier.budgetMin, tier.budgetMax));
@@ -616,7 +610,7 @@ Deno.serve(async (request) => {
         NPC_QUALITY_PREFERENCE_MIN,
         NPC_QUALITY_PREFERENCE_MAX
       );
-      const shopperName = makeShopperName(subTickIndex, shopperIndex, seededRng);
+      const shopperName = makeNpcShopperName(seededRng, usedShopperNames);
 
       let remainingBudget = shopperBudget;
       let remainingItems = shopperMaxItems;

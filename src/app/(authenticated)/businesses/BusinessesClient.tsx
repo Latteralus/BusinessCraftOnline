@@ -4,26 +4,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   BusinessType,
 } from "@/domains/businesses";
-import type { UpgradeDefinition, UpgradePreview } from "@/domains/upgrades";
-import { apiGet, apiPost } from "@/lib/client/api";
+import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import { fetchBusinessesPageData, queryKeys, type BusinessesPageData } from "@/lib/client/queries";
 import { formatCurrency, formatLabel } from "@/lib/formatters";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 type Props = {
   initialData: BusinessesPageData;
-};
-
-type UpgradeDefinitionsResponse = {
-  definitions: UpgradeDefinition[];
-  error?: string;
-};
-
-type UpgradePreviewResponse = {
-  preview: UpgradePreview;
-  error?: string;
 };
 
 const TYPE_LABELS: Record<BusinessType, string> = {
@@ -53,63 +42,17 @@ export default function BusinessesClient({ initialData }: Props) {
   const summary = businessesPageQuery.data.summary;
   const cities = businessesPageQuery.data.cities;
   const travelState = businessesPageQuery.data.travelState;
-  const upgradeDefinitions = businessesPageQuery.data.upgradeDefinitions;
 
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<BusinessType>("farm");
   const [createCityId, setCreateCityId] = useState(initialData.travelState.currentCity?.id ?? "");
   const [creating, setCreating] = useState(false);
 
-  const [upgradeBusinessId, setUpgradeBusinessId] = useState("");
-  const [upgradeKey, setUpgradeKey] = useState("extraction_efficiency");
-  const [upgradePreview, setUpgradePreview] = useState<UpgradePreview | null>(null);
-  const [upgrading, setUpgrading] = useState(false);
-
-  const selectedBusiness = useMemo(
-    () => businesses.find((business) => business.id === upgradeBusinessId) ?? null,
-    [businesses, upgradeBusinessId]
-  );
-
-  const upgradeOptions = useMemo(() => {
-    if (!selectedBusiness) return upgradeDefinitions;
-    return upgradeDefinitions.filter((definition) =>
-      definition.applies_to_business_types.includes(selectedBusiness.type)
-    );
-  }, [selectedBusiness, upgradeDefinitions]);
-
   useEffect(() => {
     if (travelState.currentCity?.id) {
       setCreateCityId((current) => current || travelState.currentCity!.id);
     }
   }, [travelState.currentCity?.id]);
-
-  useEffect(() => {
-    if (!upgradeOptions.some((option) => option.upgrade_key === upgradeKey)) {
-      setUpgradeKey(upgradeOptions[0]?.upgrade_key ?? "");
-    }
-  }, [upgradeOptions, upgradeKey]);
-
-  useEffect(() => {
-    async function loadUpgradePreview() {
-      if (!selectedBusiness || !upgradeKey) {
-        setUpgradePreview(null);
-        return;
-      }
-
-      try {
-        const payload = await apiPost<UpgradePreviewResponse>(
-          apiRoutes.upgrades.preview,
-          { businessId: selectedBusiness.id, upgradeKey },
-          { fallbackError: "Failed to load upgrade preview." }
-        );
-        setUpgradePreview(payload.preview ?? null);
-      } catch {
-        setUpgradePreview(null);
-      }
-    }
-
-    void loadUpgradePreview();
-  }, [selectedBusiness, upgradeKey]);
 
   async function submitCreateBusiness() {
     if (creating) return;
@@ -144,29 +87,12 @@ export default function BusinessesClient({ initialData }: Props) {
     }
   }
 
-  async function submitUpgrade() {
-    if (!upgradeBusinessId || upgrading) return;
-    setUpgrading(true);
-    setError(null);
-    try {
-      await apiPost(apiRoutes.businesses.upgrade(upgradeBusinessId), { upgradeKey }, { fallbackError: "Failed to purchase upgrade." });
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.bankingPage }),
-      ]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to purchase upgrade.");
-    } finally {
-      setUpgrading(false);
-    }
-  }
-
   return (
     <div className="anim">
       <header className="lc-page-header">
         <div>
           <h1>Businesses</h1>
-          <p>Register businesses, review balances, and purchase upgrades.</p>
+          <p>Register businesses and review balances.</p>
         </div>
         <div style={{ alignSelf: "center" }}>
           <Link href="/dashboard">Back to Dashboard</Link>
@@ -265,52 +191,6 @@ export default function BusinessesClient({ initialData }: Props) {
               <p style={{ margin: 0, color: "#94a3b8" }}>Value: {formatCurrency(business.value)}</p>
             </Link>
           ))}
-        </div>
-      </section>
-
-      <section>
-        <h2 style={{ marginTop: 0 }}>Purchase Upgrade</h2>
-        <div style={{ display: "grid", gap: 8, maxWidth: 560 }}>
-          <label>
-            Business
-            <select value={upgradeBusinessId} onChange={(event) => setUpgradeBusinessId(event.target.value)} title="Business">
-              <option value="">Select business</option>
-              {businesses.map((business) => (
-                <option key={business.id} value={business.id}>
-                  {business.name} ({formatCurrency(business.balance)})
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Upgrade
-            <select value={upgradeKey} onChange={(event) => setUpgradeKey(event.target.value)} title="Upgrade">
-              <option value="">Select upgrade</option>
-              {upgradeOptions.map((definition) => (
-                <option key={definition.upgrade_key} value={definition.upgrade_key}>
-                  {definition.display_name} ({definition.upgrade_key})
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {selectedBusiness ? (
-            <p style={{ margin: 0, color: "#94a3b8" }}>
-              Selected balance: {formatCurrency(selectedBusiness.balance)}
-            </p>
-          ) : null}
-
-          {upgradePreview ? (
-            <p style={{ margin: 0, color: "#94a3b8" }}>
-              Next Level {upgradePreview.nextLevel} · Cost {formatCurrency(upgradePreview.nextCost)} · Effect{" "}
-              {upgradePreview.nextEffect} {upgradePreview.effectLabel}
-            </p>
-          ) : null}
-
-          <button onClick={submitUpgrade} disabled={!upgradeBusinessId || !upgradeKey || upgrading}>
-            {upgrading ? "Purchasing..." : "Purchase Upgrade"}
-          </button>
         </div>
       </section>
     </div>
