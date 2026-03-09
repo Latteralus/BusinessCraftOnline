@@ -112,17 +112,18 @@ export default function BusinessOverviewDashboard(props: Props) {
   const operationsHeadline = props.production
     ? `${props.production.summary.active}/${props.production.maxSlots} extraction lanes active`
     : props.manufacturing
-      ? `${formatLabel(props.manufacturing.job.status)} manufacturing line`
+      ? `${props.manufacturing.summary.active}/${props.manufacturing.maxLines} production lines active`
       : isStore
         ? `${props.shelfItems.length} active shelf rows`
         : "No live operations";
 
+  const activeManufacturingLine = props.manufacturing?.lines.find((line) => line.status === "active") ?? null;
   const throughputHeadline = props.production
     ? `${props.production.summary.active} ${formatItemKey(
         EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[props.production.businessType as keyof typeof EXTRACTION_OUTPUT_ITEM_BY_BUSINESS]
       )}/tick`
-    : props.manufacturing?.job.active_recipe
-      ? `${props.manufacturing.job.active_recipe.baseOutputQuantity} ${formatItemKey(props.manufacturing.job.active_recipe.outputItemKey)}/tick`
+    : activeManufacturingLine?.configured_recipe
+      ? `${activeManufacturingLine.configured_recipe.baseOutputQuantity} ${formatItemKey(activeManufacturingLine.configured_recipe.outputItemKey)}/tick`
       : isStore
         ? `${props.shelfItems.reduce((sum, row) => sum + row.quantity, 0)} shelf units live`
         : "N/A";
@@ -132,8 +133,8 @@ export default function BusinessOverviewDashboard(props: Props) {
     : 0;
 
   const workforceMax = Math.max(1, assignedEmployees.length, props.production?.maxSlots ?? 0, props.shelfItems.length);
-  const activeOps = props.production?.summary.active ?? (props.manufacturing?.job.status === "active" ? 1 : 0);
-  const blockedOps = props.production?.summary.toolBroken ?? ((props.manufacturing && !props.manufacturing.job.worker_assigned) ? 1 : 0);
+  const activeOps = props.production?.summary.active ?? (props.manufacturing?.summary.active ?? 0);
+  const blockedOps = props.production?.summary.toolBroken ?? (props.manufacturing?.summary.retooling ?? 0);
 
   return (
     <div style={{ display: "grid", gap: 18 }}>

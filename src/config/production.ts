@@ -50,7 +50,46 @@ export const EXTRACTION_SKILL_KEY_BY_BUSINESS: Record<ExtractionBusinessType, Em
 
 export const TOOL_BASE_DURABILITY: Record<ToolItemType, number> = SHARED_TOOL_BASE_DURABILITY;
 
-export const MANUFACTURING_STATUSES = ["active", "idle"] as const;
+export const PRODUCTION_RETOOL_DURATION_MINUTES = 10;
+
+export type ExtractionProductOption = {
+  itemKey: string;
+  displayName: string;
+};
+
+export const EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS: Record<ExtractionBusinessType, readonly ExtractionProductOption[]> = {
+  mine: [
+    { itemKey: "iron_ore", displayName: "Iron Ore" },
+    { itemKey: "copper_ore", displayName: "Copper Ore" },
+    { itemKey: "coal", displayName: "Coal" },
+  ],
+  farm: [
+    { itemKey: "wheat", displayName: "Wheat" },
+    { itemKey: "potato", displayName: "Potatoes" },
+    { itemKey: "red_grape", displayName: "Red Grapes" },
+  ],
+  water_company: [{ itemKey: "water", displayName: "Water" }],
+  logging_camp: [{ itemKey: "raw_wood", displayName: "Raw Wood" }],
+  oil_well: [{ itemKey: "crude_oil", displayName: "Crude Oil" }],
+};
+
+export const EXTRACTION_LINE_LABEL_BY_BUSINESS: Record<ExtractionBusinessType, string> = {
+  mine: "Shaft",
+  farm: "Field",
+  water_company: "Slot",
+  logging_camp: "Camp",
+  oil_well: "Well",
+};
+
+export const EXTRACTION_RETOOL_COST_BY_BUSINESS: Record<ExtractionBusinessType, number> = {
+  mine: 450,
+  farm: 180,
+  water_company: 0,
+  logging_camp: 0,
+  oil_well: 0,
+};
+
+export const MANUFACTURING_STATUSES = ["active", "idle", "resting", "retooling"] as const;
 export type ManufacturingStatus = (typeof MANUFACTURING_STATUSES)[number];
 
 export const MANUFACTURING_BUSINESS_TYPES = [
@@ -73,6 +112,14 @@ export type ManufacturingRecipe = {
   baseOutputQuantity: number;
 };
 
+export const MANUFACTURING_RETOOL_COST_BY_BUSINESS: Record<ManufacturingBusinessType, number> = {
+  sawmill: 300,
+  metalworking_factory: 650,
+  food_processing_plant: 400,
+  winery_distillery: 550,
+  carpentry_workshop: 500,
+};
+
 export const MANUFACTURING_RECIPES: readonly ManufacturingRecipe[] = [
   {
     key: "sawmill_planks",
@@ -81,6 +128,15 @@ export const MANUFACTURING_RECIPES: readonly ManufacturingRecipe[] = [
     skillKey: "carpentry",
     inputs: [{ itemKey: "raw_wood", quantity: 2 }],
     outputItemKey: "wood_plank",
+    baseOutputQuantity: 1,
+  },
+  {
+    key: "sawmill_wood_handles",
+    businessType: "sawmill",
+    displayName: "Wood Handles",
+    skillKey: "carpentry",
+    inputs: [{ itemKey: "raw_wood", quantity: 1 }],
+    outputItemKey: "wood_handle",
     baseOutputQuantity: 1,
   },
   {
@@ -206,6 +262,20 @@ export function getManufacturingRecipesForBusinessType(
   businessType: BusinessType
 ): ManufacturingRecipe[] {
   return MANUFACTURING_RECIPES.filter((recipe) => recipe.businessType === businessType);
+}
+
+export function getExtractionProductOptionsForBusinessType(
+  businessType: BusinessType
+): ExtractionProductOption[] {
+  if (!isExtractionBusinessType(businessType)) return [];
+  return [...EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS[businessType]];
+}
+
+export function getExtractionProductOption(
+  businessType: BusinessType,
+  itemKey: string
+): ExtractionProductOption | null {
+  return getExtractionProductOptionsForBusinessType(businessType).find((option) => option.itemKey === itemKey) ?? null;
 }
 
 export function isManufacturingBusinessType(type: BusinessType): type is ManufacturingBusinessType {

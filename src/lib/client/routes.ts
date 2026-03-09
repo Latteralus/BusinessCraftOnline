@@ -55,8 +55,14 @@ export const apiRoutes = {
   },
   production: {
     assignSlot: "/api/production/slots/assign",
+    retoolSlot: "/api/production/slots/retool",
     unassignSlot: "/api/production/slots/unassign",
     slotStatus: "/api/production/slots/status",
+    assignManufacturingLine: "/api/production/manufacturing/lines/assign",
+    unassignManufacturingLine: "/api/production/manufacturing/lines/unassign",
+    manufacturingLineStatus: "/api/production/manufacturing/lines/status",
+    retoolManufacturingLine: "/api/production/manufacturing/lines/retool",
+    manufacturing: "/api/production/manufacturing",
   },
   stores: {
     shelves: "/api/stores/shelves",

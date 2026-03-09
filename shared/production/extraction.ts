@@ -8,7 +8,7 @@ export const TOOL_BASE_DURABILITY = {
   drill_bit: 80,
 } as const satisfies Record<SharedToolItemType, number>;
 
-export const EXTRACTION_SLOT_STATUSES = ["active", "idle", "resting", "tool_broken"] as const;
+export const EXTRACTION_SLOT_STATUSES = ["active", "idle", "resting", "tool_broken", "retooling"] as const;
 
 export type SharedExtractionSlotStatus = (typeof EXTRACTION_SLOT_STATUSES)[number];
 

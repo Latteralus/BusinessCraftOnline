@@ -83,6 +83,18 @@ async function clearEmployeeExtractionSlots(client: QueryClient, employeeId: str
     .eq("employee_id", employeeId);
 
   if (error) throw error;
+
+  const { error: manufacturingError } = await client
+    .from("manufacturing_lines")
+    .update({
+      employee_id: null,
+      worker_assigned: false,
+      status: "idle",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("employee_id", employeeId);
+
+  if (manufacturingError) throw manufacturingError;
 }
 
 export async function getPlayerEmployees(

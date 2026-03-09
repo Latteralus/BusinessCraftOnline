@@ -124,9 +124,34 @@ Deno.serve(async (request) => {
   const startedAtIso = startedAt.toISOString();
   try {
 
+    const nowIso = new Date().toISOString();
+
+    const { data: readyRetools } = await supabase
+      .from("manufacturing_lines")
+      .select("id, pending_recipe_key")
+      .not("pending_recipe_key", "is", null)
+      .not("retool_complete_at", "is", null)
+      .lte("retool_complete_at", nowIso);
+
+    for (const line of readyRetools ?? []) {
+      await supabase
+        .from("manufacturing_lines")
+        .update({
+          configured_recipe_key: line.pending_recipe_key,
+          pending_recipe_key: null,
+          retool_started_at: null,
+          retool_complete_at: null,
+          status: "idle",
+          output_progress: 0,
+          input_progress: {},
+          updated_at: nowIso,
+        })
+        .eq("id", line.id);
+    }
+
     const { data: jobs, error: jobsError } = await supabase
-      .from("manufacturing_jobs")
-      .select("id, business_id, active_recipe_key, status, output_progress, input_progress, last_tick_at")
+      .from("manufacturing_lines")
+      .select("id, business_id, employee_id, configured_recipe_key, status, output_progress, input_progress, last_tick_at")
       .eq("status", "active");
 
     if (jobsError) {
@@ -143,9 +168,9 @@ Deno.serve(async (request) => {
     let workerlessJobs = 0;
 
     for (const job of jobs ?? []) {
-    if (!job.active_recipe_key) continue;
+    if (!job.configured_recipe_key) continue;
 
-    const recipe = getManufacturingRecipeByKey(job.active_recipe_key);
+    const recipe = getManufacturingRecipeByKey(job.configured_recipe_key);
     if (!recipe) continue;
     const existingInputProgress = normalizeProgressMap(job.input_progress);
 
@@ -171,19 +196,10 @@ Deno.serve(async (request) => {
         };
       });
 
-      const { data: assignment, error: assignmentError } = await supabase
-      .from("employee_assignments")
-      .select("employee_id, assigned_at")
-      .eq("business_id", job.business_id)
-      .eq("role", "production")
-      .order("assigned_at", { ascending: true });
-      if (assignmentError) throw assignmentError;
-
-    const workerAssignment = (assignment ?? []).find((candidate) => Boolean(candidate.employee_id)) ?? null;
-    if (!workerAssignment) {
+    if (!job.employee_id) {
       const { error: workerFlagError } = await supabase
-        .from("manufacturing_jobs")
-        .update({ worker_assigned: false, updated_at: new Date().toISOString() })
+        .from("manufacturing_lines")
+        .update({ worker_assigned: false, status: "idle", updated_at: new Date().toISOString() })
         .eq("id", job.id);
       if (workerFlagError) throw workerFlagError;
       workerlessJobs += 1;
@@ -193,7 +209,7 @@ Deno.serve(async (request) => {
     const { data: employee } = await supabase
       .from("employees")
       .select("id, status, shift_ends_at")
-      .eq("id", workerAssignment.employee_id)
+      .eq("id", job.employee_id)
       .maybeSingle();
 
     if (
@@ -203,8 +219,8 @@ Deno.serve(async (request) => {
       !isWorkerOperational(employee.status, employee.shift_ends_at)
     ) {
       const { error: workerFlagError } = await supabase
-        .from("manufacturing_jobs")
-        .update({ worker_assigned: false, updated_at: new Date().toISOString() })
+        .from("manufacturing_lines")
+        .update({ worker_assigned: false, status: "resting", updated_at: new Date().toISOString() })
         .eq("id", job.id);
       if (workerFlagError) throw workerFlagError;
       workerlessJobs += 1;
@@ -253,7 +269,7 @@ Deno.serve(async (request) => {
 
     if (!canProduce) {
       const { error: workerFlagError } = await supabase
-        .from("manufacturing_jobs")
+        .from("manufacturing_lines")
         .update({ worker_assigned: true, updated_at: new Date().toISOString() })
         .eq("id", job.id);
       if (workerFlagError) throw workerFlagError;
@@ -289,7 +305,7 @@ Deno.serve(async (request) => {
     const { data: skill } = await supabase
       .from("employee_skills")
       .select("id, level, xp")
-      .eq("employee_id", workerAssignment.employee_id)
+      .eq("employee_id", job.employee_id)
       .eq("skill_key", recipe.skillKey)
       .maybeSingle();
 
@@ -328,7 +344,7 @@ Deno.serve(async (request) => {
     );
 
     const { error: jobUpdateError } = await supabase
-      .from("manufacturing_jobs")
+      .from("manufacturing_lines")
       .update({
         worker_assigned: true,
         output_progress: outputState.remainingProgress,
@@ -342,8 +358,6 @@ Deno.serve(async (request) => {
     processed += 1;
     producedTotal += outputQty;
   }
-
-    const nowIso = new Date().toISOString();
 
   const { data: expiredContracts } = await supabase
     .from("contracts")

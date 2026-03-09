@@ -32,19 +32,43 @@ export const setExtractionSlotStatusSchema = z.object({
   status: extractionSlotStatusSchema,
 });
 
+export const retoolExtractionSlotSchema = z.object({
+  slotId: z.uuid("Slot id is invalid."),
+  itemKey: z.string().trim().min(1, "Item key is required.").max(64, "Item key is invalid."),
+});
+
 export const manufacturingStatusQuerySchema = z.object({
   businessId: z.uuid("Business id is invalid."),
 });
 
 export const setManufacturingRecipeSchema = z.object({
-  businessId: z.uuid("Business id is invalid."),
+  lineId: z.uuid("Line id is invalid."),
   recipeKey: manufacturingRecipeKeySchema,
 });
 
 export const startManufacturingSchema = z.object({
-  businessId: z.uuid("Business id is invalid."),
+  lineId: z.uuid("Line id is invalid."),
 });
 
 export const stopManufacturingSchema = z.object({
-  businessId: z.uuid("Business id is invalid."),
+  lineId: z.uuid("Line id is invalid."),
+});
+
+export const assignManufacturingLineSchema = z.object({
+  lineId: z.uuid("Line id is invalid."),
+  employeeId: z.uuid("Employee id is invalid."),
+});
+
+export const unassignManufacturingLineSchema = z.object({
+  lineId: z.uuid("Line id is invalid."),
+});
+
+export const setManufacturingLineStatusSchema = z.object({
+  lineId: z.uuid("Line id is invalid."),
+  status: z.enum(["active", "idle"]),
+});
+
+export const retoolManufacturingLineSchema = z.object({
+  lineId: z.uuid("Line id is invalid."),
+  recipeKey: manufacturingRecipeKeySchema,
 });

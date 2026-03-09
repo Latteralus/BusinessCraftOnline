@@ -46,14 +46,14 @@ export default function ProductionClient({ initialData }: Props) {
     [businesses]
   );
 
-  async function setRecipe(recipeKey: string) {
-    if (!selectedBusinessId || !recipeKey || busy) return;
+  async function setRecipe(lineId: string, recipeKey: string) {
+    if (!lineId || !recipeKey || busy) return;
     setBusy(true);
     setError(null);
     const response = await fetch("/api/production/manufacturing", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ businessId: selectedBusinessId, recipeKey }),
+      body: JSON.stringify({ lineId, recipeKey }),
     });
     const payload = (await response.json()) as ManufacturingResponse;
     setBusy(false);
@@ -65,14 +65,14 @@ export default function ProductionClient({ initialData }: Props) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.productionPage });
   }
 
-  async function setRunning(action: "start" | "stop") {
-    if (!selectedBusinessId || busy) return;
+  async function setRunning(lineId: string, action: "start" | "stop") {
+    if (!lineId || busy) return;
     setBusy(true);
     setError(null);
     const response = await fetch("/api/production/manufacturing", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ businessId: selectedBusinessId, action }),
+      body: JSON.stringify({ lineId, action }),
     });
     const payload = (await response.json()) as ManufacturingResponse;
     setBusy(false);
@@ -131,22 +131,27 @@ export default function ProductionClient({ initialData }: Props) {
 
         {manufacturing ? (
           <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-            <p style={{ margin: 0 }}><strong>Status:</strong> {manufacturing.job.status}</p>
-            <p style={{ margin: 0 }}><strong>Worker assigned:</strong> {manufacturing.job.worker_assigned ? "Yes" : "No"}</p>
-            <p style={{ margin: 0 }}><strong>Last Tick:</strong> {manufacturing.job.last_tick_at ?? "Never"}</p>
-            <label>
-              Active Recipe
-              <select value={manufacturing.job.active_recipe_key ?? ""} onChange={(event) => void setRecipe(event.target.value)} title="Recipe" disabled={busy}>
-                <option value="">Select recipe</option>
-                {manufacturing.job.recipes.map((recipe) => (
-                  <option key={recipe.key} value={recipe.key}>{recipe.displayName}</option>
-                ))}
-              </select>
-            </label>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => void setRunning("start")} disabled={busy || !manufacturing.job.active_recipe_key || !manufacturing.job.worker_assigned}>Start</button>
-              <button onClick={() => void setRunning("stop")} disabled={busy}>Stop</button>
-            </div>
+            <p style={{ margin: 0 }}><strong>Lines:</strong> {manufacturing.summary.active} active / {manufacturing.maxLines} total</p>
+            {manufacturing.lines.map((line) => (
+              <div key={line.id} style={{ display: "grid", gap: 6, padding: 12, border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+                <p style={{ margin: 0 }}><strong>Line #{line.line_number}:</strong> {line.status}</p>
+                <p style={{ margin: 0 }}><strong>Worker assigned:</strong> {line.worker_assigned ? "Yes" : "No"}</p>
+                <p style={{ margin: 0 }}><strong>Last Tick:</strong> {line.last_tick_at ?? "Never"}</p>
+                <label>
+                  Tooling
+                  <select value={line.configured_recipe_key ?? ""} onChange={(event) => void setRecipe(line.id, event.target.value)} title="Recipe" disabled={busy || line.status === "retooling"}>
+                    <option value="">Select recipe</option>
+                    {line.available_recipes.map((recipe) => (
+                      <option key={recipe.key} value={recipe.key}>{recipe.displayName}</option>
+                    ))}
+                  </select>
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => void setRunning(line.id, "start")} disabled={busy || !line.configured_recipe_key || !line.worker_assigned || line.status === "retooling"}>Start</button>
+                  <button onClick={() => void setRunning(line.id, "stop")} disabled={busy}>Stop</button>
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <p style={{ marginTop: 12, color: "#94a3b8" }}>Select a manufacturing business to manage its job.</p>

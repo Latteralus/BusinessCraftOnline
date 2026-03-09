@@ -72,7 +72,9 @@ export default function BusinessDetailsClient({ business, production, manufactur
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
-  const [businessAssignEmployeeId, setBusinessAssignEmployeeId] = useState("");
+  const [slotRetoolSelections, setSlotRetoolSelections] = useState<Record<string, string>>({});
+  const [manufacturingAssignSelections, setManufacturingAssignSelections] = useState<Record<string, string>>({});
+  const [manufacturingRetoolSelections, setManufacturingRetoolSelections] = useState<Record<string, string>>({});
   const [marketActionItem, setMarketActionItem] = useState<{ id: string; type: "market" | "personal_transfer" | "business_transfer"; available: number } | null>(null);
   const [actionQuantity, setActionQuantity] = useState(1);
   const [actionPrice, setActionPrice] = useState(1);
@@ -135,7 +137,6 @@ export default function BusinessDetailsClient({ business, production, manufactur
         !production?.slots?.some((slot) => slot.employee_id === employee.id)
       );
     });
-
   async function runBusyAction(action: () => Promise<void>, fallbackMessage: string) {
     if (busy) return;
 
@@ -286,16 +287,61 @@ export default function BusinessDetailsClient({ business, production, manufactur
     }, "Error settling employee wages");
   }
 
-  async function assignEmployeeToThisBusiness(employeeId: string) {
+  async function assignEmployeeToManufacturing(lineId: string) {
+    const employeeId = manufacturingAssignSelections[lineId];
+    if (!employeeId || busy) return;
     if (busy) return;
     await runBusyAction(async () => {
-      await assignEmployeeToBusinessAndMaybeSlot(employeeId);
-
-      if (employeeId === businessAssignEmployeeId) {
-        setBusinessAssignEmployeeId("");
-      }
+      await apiPost(apiRoutes.employees.assign, {
+        employeeId,
+        businessId: business.id,
+        role: "production",
+        roleSkillKey: "logistics",
+      }, { fallbackError: "Failed to assign employee." });
+      await apiPost(apiRoutes.production.assignManufacturingLine, { lineId, employeeId }, { fallbackError: "Failed to assign manufacturing line." });
+      setManufacturingAssignSelections((prev) => ({ ...prev, [lineId]: "" }));
       router.refresh();
     }, "Error assigning employee");
+  }
+
+  async function retoolSlot(slotId: string) {
+    const itemKey = slotRetoolSelections[slotId];
+    if (!itemKey || busy) return;
+    await runBusyAction(async () => {
+      await apiPost(apiRoutes.production.retoolSlot, { slotId, itemKey }, { fallbackError: "Failed to retool production slot." });
+      setSlotRetoolSelections((prev) => ({ ...prev, [slotId]: "" }));
+      router.refresh();
+    }, "Error retooling slot");
+  }
+
+  async function assignManufacturingWorker(lineId: string) {
+    await assignEmployeeToManufacturing(lineId);
+  }
+
+  async function unassignManufacturingWorker(lineId: string) {
+    if (busy) return;
+    await runBusyAction(async () => {
+      await apiPost(apiRoutes.production.unassignManufacturingLine, { lineId }, { fallbackError: "Failed to unassign manufacturing line." });
+      router.refresh();
+    }, "Error unassigning manufacturing line");
+  }
+
+  async function setManufacturingLineRunning(lineId: string, status: "active" | "idle") {
+    if (busy) return;
+    await runBusyAction(async () => {
+      await apiPost(apiRoutes.production.manufacturingLineStatus, { lineId, status }, { fallbackError: "Failed to update manufacturing line status." });
+      router.refresh();
+    }, "Error updating manufacturing line status");
+  }
+
+  async function retoolManufacturingLine(lineId: string) {
+    const recipeKey = manufacturingRetoolSelections[lineId];
+    if (!recipeKey || busy) return;
+    await runBusyAction(async () => {
+      await apiPost(apiRoutes.production.retoolManufacturingLine, { lineId, recipeKey }, { fallbackError: "Failed to retool manufacturing line." });
+      setManufacturingRetoolSelections((prev) => ({ ...prev, [lineId]: "" }));
+      router.refresh();
+    }, "Error retooling manufacturing line");
   }
 
   async function handleActionSubmit(item: BusinessInventoryItem) {
@@ -637,106 +683,91 @@ export default function BusinessDetailsClient({ business, production, manufactur
 	                  <div style={{ fontWeight: 600 }}>{production ? "Extraction" : "Manufacturing"}</div>
 	                </div>
 
-                  <div style={{ marginBottom: 12, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)" }}>
-                    <div style={{ fontSize: "0.8rem", fontWeight: 600, marginBottom: 8 }}>Assign Employee to This Business</div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                      <select
-                        title="Select employee"
-                        value={businessAssignEmployeeId}
-                        onChange={(e) => setBusinessAssignEmployeeId(e.target.value)}
-                        style={{ fontSize: "0.75rem", padding: "4px 8px", minWidth: 180 }}
-                      >
-                        <option value="">Select unassigned employee...</option>
-                        {availableEmployees.map((employee) => (
-                          <option key={employee.id} value={employee.id}>
-                            {employee.first_name} {employee.last_name}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => assignEmployeeToThisBusiness(businessAssignEmployeeId)}
-                        disabled={busy || !businessAssignEmployeeId}
-                        style={{ fontSize: "0.75rem", padding: "4px 8px" }}
-                      >
-                        Assign
-                      </button>
-                    </div>
-                  </div>
-	
-	                {production && production.slots && (
-	                  <div>
-	                    <h4 style={{ marginBottom: 8, fontSize: "0.9rem" }}>Extraction Slots</h4>
+                {production && production.slots && (
+                  <div>
+                    <h4 style={{ marginBottom: 8, fontSize: "0.9rem" }}>{business.type === "farm" ? "Fields" : "Extraction Slots"}</h4>
                     {production.slots.length > 0 ? (
                       <div style={{ display: "grid", gap: 8 }}>
                         {production.slots.map((slot) => {
-                          // Find the assigned employee object directly from the passed props
-                          const assignedEmp = employees.find(e => e.id === slot.employee_id);
-                          
+                          const assignedEmp = employees.find((employee) => employee.id === slot.employee_id);
+                          const outputOptions = production.businessType === "farm"
+                            ? [
+                                { itemKey: "wheat", displayName: "Wheat" },
+                                { itemKey: "potato", displayName: "Potatoes" },
+                                { itemKey: "red_grape", displayName: "Red Grapes" },
+                              ]
+                            : production.businessType === "mine"
+                              ? [
+                                  { itemKey: "iron_ore", displayName: "Iron Ore" },
+                                  { itemKey: "copper_ore", displayName: "Copper Ore" },
+                                  { itemKey: "coal", displayName: "Coal" },
+                                ]
+                              : [];
+
                           return (
                             <div key={slot.id} style={{ display: "flex", justifyContent: "space-between", padding: 12, background: "var(--bg-elevated)", borderRadius: 8, flexWrap: "wrap", gap: 12 }}>
                               <div>
-                                <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Slot #{slot.slot_number}</div>
+                                <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>{slot.line_label} #{slot.slot_number}</div>
                                 <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                                   Worker: {assignedEmp ? `${assignedEmp.first_name}` : "None"}
                                 </div>
+                                <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                                  {business.type === "farm" ? "Crop" : "Output"}: {slot.configured_output?.displayName ?? "Not configured"}
+                                </div>
+                                {slot.pending_output ? (
+                                  <div style={{ fontSize: "0.75rem", color: "var(--accent-blue)", marginTop: 4 }}>
+                                    Retooling to {slot.pending_output.displayName}
+                                  </div>
+                                ) : null}
                                 {!assignedEmp && availableWorkersForSlots.length > 0 && (
                                   <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
                                     <select
                                       title="Select worker"
                                       value={assignSelections[slot.id] || ""}
-                                      onChange={(e) => setAssignSelections(prev => ({ ...prev, [slot.id]: e.target.value }))}
+                                      onChange={(e) => setAssignSelections((prev) => ({ ...prev, [slot.id]: e.target.value }))}
                                       style={{ fontSize: "0.75rem", padding: "4px 8px" }}
                                     >
                                       <option value="">Select worker...</option>
-                                      {availableWorkersForSlots.map(w => (
-                                        <option key={w.id} value={w.id}>{w.first_name} {w.last_name}</option>
+                                      {availableWorkersForSlots.map((worker) => (
+                                        <option key={worker.id} value={worker.id}>{worker.first_name} {worker.last_name}</option>
                                       ))}
                                     </select>
-                                    <button 
-                                      onClick={() => assignSlot(slot.id)}
-                                      disabled={busy || !assignSelections[slot.id]}
-                                      style={{ fontSize: "0.75rem", padding: "4px 8px" }}
-                                    >
-                                      Assign
-                                    </button>
+                                    <button onClick={() => assignSlot(slot.id)} disabled={busy || !assignSelections[slot.id]} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>Assign</button>
                                   </div>
                                 )}
-                                {assignedEmp && (
-                                  <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-                                    <button
-                                      onClick={() => unassignSlot(slot.id)}
-                                      disabled={busy}
+                                {assignedEmp ? (
+                                  <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                    <button onClick={() => unassignSlot(slot.id)} disabled={busy} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>Unassign</button>
+                                    <button onClick={() => setSlotStatus(slot.id, slot.status === "active" ? "idle" : "active")} disabled={busy || slot.status === "retooling"} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>
+                                      {slot.status === "active" ? "Stop" : "Start"}
+                                    </button>
+                                  </div>
+                                ) : null}
+                                {outputOptions.length > 0 ? (
+                                  <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                    <select
+                                      title="Retool slot"
+                                      value={slotRetoolSelections[slot.id] || ""}
+                                      onChange={(e) => setSlotRetoolSelections((prev) => ({ ...prev, [slot.id]: e.target.value }))}
+                                      disabled={busy || slot.status === "retooling"}
                                       style={{ fontSize: "0.75rem", padding: "4px 8px" }}
                                     >
-                                      Unassign
-                                    </button>
-                                    {slot.status === "active" ? (
-                                      <button
-                                        onClick={() => setSlotStatus(slot.id, "idle")}
-                                        disabled={busy}
-                                        style={{ fontSize: "0.75rem", padding: "4px 8px" }}
-                                      >
-                                        Stop
-                                      </button>
-                                    ) : (
-                                      <button
-                                        onClick={() => setSlotStatus(slot.id, "active")}
-                                        disabled={busy}
-                                        style={{ fontSize: "0.75rem", padding: "4px 8px" }}
-                                      >
-                                        Start
-                                      </button>
-                                    )}
+                                      <option value="">{business.type === "farm" ? "Select crop..." : "Select output..."}</option>
+                                      {outputOptions.map((option) => (
+                                        <option key={option.itemKey} value={option.itemKey}>{option.displayName}</option>
+                                      ))}
+                                    </select>
+                                    <button onClick={() => retoolSlot(slot.id)} disabled={busy || slot.status === "retooling" || !slotRetoolSelections[slot.id]} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>Retool</button>
                                   </div>
-                                )}
+                                ) : null}
                               </div>
                               <div style={{ textAlign: "right" }}>
                                 <span className={`status-badge ${slot.status === 'active' ? 'status-producing' : ''}`}>{slot.status}</span>
-                                {slot.tool && (
+                                {slot.tool ? (
                                   <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
                                     Tool: {formatItemKey(slot.tool.item_type)} ({slot.tool.uses_remaining} uses)
                                   </div>
-                                )}
+                                ) : null}
                               </div>
                             </div>
                           );
@@ -748,19 +779,72 @@ export default function BusinessDetailsClient({ business, production, manufactur
                   </div>
                 )}
 
-                {manufacturing && manufacturing.job && (
+                {manufacturing && manufacturing.lines.length > 0 && (
                   <div>
-                    <h4 style={{ marginBottom: 8, fontSize: "0.9rem" }}>Manufacturing Job</h4>
-                    <div style={{ display: "flex", justifyContent: "space-between", padding: 12, background: "var(--bg-elevated)", borderRadius: 8 }}>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>{manufacturing.job.active_recipe_key ? manufacturing.job.active_recipe_key : "No Recipe Active"}</div>
-                        <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                          Worker Assigned: {manufacturing.job.worker_assigned ? "Yes" : "No"}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <span className={`status-badge ${manufacturing.job.status === 'active' ? 'status-producing' : ''}`}>{manufacturing.job.status}</span>
-                      </div>
+                    <h4 style={{ marginBottom: 8, fontSize: "0.9rem" }}>Production Lines</h4>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {manufacturing.lines.map((line) => {
+                        const assignedEmp = employees.find((employee) => employee.id === line.employee_id);
+                        return (
+                          <div key={line.id} style={{ display: "flex", justifyContent: "space-between", padding: 12, background: "var(--bg-elevated)", borderRadius: 8, gap: 12, flexWrap: "wrap" }}>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Line #{line.line_number}</div>
+                              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                                Tooled For: {line.configured_recipe?.displayName ?? "Not configured"}
+                              </div>
+                              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                                Worker: {assignedEmp ? `${assignedEmp.first_name} ${assignedEmp.last_name}` : "None"}
+                              </div>
+                              {line.pending_recipe ? (
+                                <div style={{ fontSize: "0.75rem", color: "var(--accent-blue)", marginTop: 4 }}>
+                                  Retooling to {line.pending_recipe.displayName}
+                                </div>
+                              ) : null}
+                              {!assignedEmp ? (
+                                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                  <select
+                                    title="Select manufacturing worker"
+                                    value={manufacturingAssignSelections[line.id] || ""}
+                                    onChange={(e) => setManufacturingAssignSelections((prev) => ({ ...prev, [line.id]: e.target.value }))}
+                                    style={{ fontSize: "0.75rem", padding: "4px 8px", minWidth: 180 }}
+                                  >
+                                    <option value="">Select worker...</option>
+                                    {availableEmployees.map((employee) => (
+                                      <option key={employee.id} value={employee.id}>{employee.first_name} {employee.last_name}</option>
+                                    ))}
+                                  </select>
+                                  <button onClick={() => assignManufacturingWorker(line.id)} disabled={busy || !manufacturingAssignSelections[line.id] || line.status === "retooling"} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>Assign</button>
+                                </div>
+                              ) : (
+                                <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                  <button onClick={() => unassignManufacturingWorker(line.id)} disabled={busy} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>Unassign</button>
+                                  <button onClick={() => setManufacturingLineRunning(line.id, line.status === "active" ? "idle" : "active")} disabled={busy || line.status === "retooling" || !line.configured_recipe} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>
+                                    {line.status === "active" ? "Stop" : "Start"}
+                                  </button>
+                                </div>
+                              )}
+                              <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                <select
+                                  title="Retool manufacturing line"
+                                  value={manufacturingRetoolSelections[line.id] || ""}
+                                  onChange={(e) => setManufacturingRetoolSelections((prev) => ({ ...prev, [line.id]: e.target.value }))}
+                                  disabled={busy || line.status === "retooling"}
+                                  style={{ fontSize: "0.75rem", padding: "4px 8px", minWidth: 180 }}
+                                >
+                                  <option value="">Select recipe...</option>
+                                  {line.available_recipes.map((recipe) => (
+                                    <option key={recipe.key} value={recipe.key}>{recipe.displayName}</option>
+                                  ))}
+                                </select>
+                                <button onClick={() => retoolManufacturingLine(line.id)} disabled={busy || line.status === "retooling" || !manufacturingRetoolSelections[line.id]} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>Retool</button>
+                              </div>
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                              <span className={`status-badge ${line.status === 'active' ? 'status-producing' : ''}`}>{line.status}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

@@ -13,6 +13,12 @@ type EmployeeRow = {
   shift_ends_at: string | null;
 };
 
+type ManufacturingLineRow = {
+  id: string;
+  employee_id: string | null;
+  worker_assigned: boolean;
+};
+
 export async function getOperationalProductionWorkerForBusiness(
   client: QueryClient,
   businessId: string
@@ -56,29 +62,48 @@ export async function syncManufacturingWorkerAssigned(
   client: QueryClient,
   businessId: string
 ): Promise<boolean> {
-  const workerId = await getOperationalProductionWorkerForBusiness(client, businessId);
-  const workerAssigned = Boolean(workerId);
+  const { data: lineRows, error: lineError } = await client
+    .from("manufacturing_lines")
+    .select("id, employee_id, worker_assigned")
+    .eq("business_id", businessId);
+  if (lineError) throw lineError;
 
-  const { data: currentJob, error: currentJobError } = await client
-    .from("manufacturing_jobs")
-    .select("id, worker_assigned")
-    .eq("business_id", businessId)
-    .maybeSingle();
+  const lines = (lineRows as ManufacturingLineRow[] | null) ?? [];
+  const employeeIds = [...new Set(lines.map((line) => line.employee_id).filter(Boolean))] as string[];
+  if (employeeIds.length === 0) return false;
 
-  if (currentJobError) throw currentJobError;
-  if (!currentJob) return workerAssigned;
+  const { data: employeeRows, error: employeeError } = await client
+    .from("employees")
+    .select("id, status, shift_ends_at")
+    .in("id", employeeIds);
+  if (employeeError) throw employeeError;
 
-  if (Boolean(currentJob.worker_assigned) !== workerAssigned) {
-    const { error } = await client
-      .from("manufacturing_jobs")
-      .update({
-        worker_assigned: workerAssigned,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", currentJob.id);
+  const employeeById = new Map(
+    (((employeeRows as EmployeeRow[] | null) ?? []) as EmployeeRow[]).map((row) => [row.id, row])
+  );
 
-    if (error) throw error;
+  let hasAssignedWorker = false;
+  for (const line of lines) {
+    const employee = line.employee_id ? employeeById.get(line.employee_id) : null;
+    const workerAssigned = employee
+      ? employee.status !== "fired" &&
+        employee.status !== "unpaid" &&
+        isWorkerOperational(employee.status, employee.shift_ends_at)
+      : false;
+
+    if (workerAssigned) hasAssignedWorker = true;
+
+    if (Boolean(line.worker_assigned) !== workerAssigned) {
+      const { error: updateError } = await client
+        .from("manufacturing_lines")
+        .update({
+          worker_assigned: workerAssigned,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", line.id);
+      if (updateError) throw updateError;
+    }
   }
 
-  return workerAssigned;
+  return hasAssignedWorker;
 }

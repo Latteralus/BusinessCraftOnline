@@ -170,10 +170,15 @@ export default function BusinessOperationsDashboard(props: Props) {
   }
 
   if (props.manufacturing) {
-    const recipe = props.manufacturing.job.active_recipe;
-    const perTick = props.manufacturing.job.status === "active" && recipe ? recipe.baseOutputQuantity : 0;
+    const leadLine =
+      props.manufacturing.lines.find((line) => line.status === "active") ??
+      props.manufacturing.lines.find((line) => line.configured_recipe) ??
+      props.manufacturing.lines[0] ??
+      null;
+    const recipe = leadLine?.configured_recipe ?? null;
+    const perTick = leadLine?.status === "active" && recipe ? recipe.baseOutputQuantity : 0;
     const inputCoverage = recipe
-      ? recipe.inputs.map((input) => {
+      ? recipe.inputs.map((input: { itemKey: string; quantity: number }) => {
           const available = props.inventory
             .filter((row) => row.item_key === input.itemKey)
             .reduce((sum, row) => sum + Math.max(0, row.quantity - row.reserved_quantity), 0);
@@ -185,8 +190,8 @@ export default function BusinessOperationsDashboard(props: Props) {
           };
         })
       : [];
-    const bottleneck = inputCoverage.slice().sort((a, b) => a.coverageTicks - b.coverageTicks)[0] ?? null;
-    const workerReady = props.manufacturing.job.worker_assigned;
+    const bottleneck = inputCoverage.slice().sort((a: { coverageTicks: number }, b: { coverageTicks: number }) => a.coverageTicks - b.coverageTicks)[0] ?? null;
+    const workerReady = props.manufacturing.summary.occupied > 0;
 
     return (
       <div style={{ display: "grid", gap: 18, marginBottom: 18 }}>
@@ -202,25 +207,24 @@ export default function BusinessOperationsDashboard(props: Props) {
             Manufacturing Control Room
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-            <MiniOpStat label="Run Rate" value={recipe ? `${perTick} ${formatItemKey(recipe.outputItemKey)}/tick` : "No recipe"} sub={recipe ? recipe.displayName : "Configure a recipe to begin"} tone={props.manufacturing.job.status === "active" ? "positive" : "neutral"} />
-            <MiniOpStat label="Cell Status" value={formatLabel(props.manufacturing.job.status)} sub={workerReady ? "Worker on station" : "Worker missing"} tone={workerReady ? "positive" : "negative"} />
+            <MiniOpStat label="Run Rate" value={recipe ? `${perTick} ${formatItemKey(recipe.outputItemKey)}/tick` : "No recipe"} sub={recipe ? recipe.displayName : "Retool a line to begin"} tone={leadLine?.status === "active" ? "positive" : "neutral"} />
+            <MiniOpStat label="Cell Status" value={leadLine ? formatLabel(leadLine.status) : "Idle"} sub={workerReady ? "Worker on station" : "Worker missing"} tone={workerReady ? "positive" : "negative"} />
             <MiniOpStat label="Input Coverage" value={bottleneck ? `${bottleneck.coverageTicks} ticks` : "N/A"} sub={bottleneck ? `${formatItemKey(bottleneck.itemKey)} is limiting` : "No recipe active"} tone={bottleneck && bottleneck.coverageTicks === 0 ? "negative" : "neutral"} />
             <MiniOpStat label="Output Buffer" value={`${availableInventoryUnits} units`} sub="Finished stock on hand" />
-            <MiniOpStat label="Crew" value={`${assignedEmployees.length}`} sub="Workers attached to this site" />
+            <MiniOpStat label="Crew" value={`${props.manufacturing.summary.occupied}/${props.manufacturing.maxLines}`} sub="Workers on production lines" />
           </div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)", gap: 18 }}>
           <HorizontalBarChart
-            title="Input Readiness"
+            title="Line Status"
             rows={
-              inputCoverage.length > 0
-                ? inputCoverage.map((row) => ({
-                    label: `${formatItemKey(row.itemKey)} (${row.required}/tick)`,
-                    value: row.coverageTicks,
-                    color: row.coverageTicks === 0 ? "#ef4444" : row.coverageTicks < 3 ? "#f59e0b" : "#22c55e",
-                  }))
-                : [{ label: "No active recipe", value: 0, color: "#334155" }]
+              [
+                { label: "Active", value: props.manufacturing.summary.active, color: "#22c55e" },
+                { label: "Idle", value: props.manufacturing.summary.idle, color: "#60a5fa" },
+                { label: "Resting", value: props.manufacturing.summary.resting, color: "#f59e0b" },
+                { label: "Retooling", value: props.manufacturing.summary.retooling, color: "#c084fc" },
+              ]
             }
           />
           <OpsTable
@@ -228,7 +232,7 @@ export default function BusinessOperationsDashboard(props: Props) {
             rows={[
               { label: "Recipe", value: recipe ? recipe.displayName : "No active recipe" },
               { label: "Worker Assigned", value: workerReady ? "Yes" : "No" },
-              { label: "Line Status", value: formatLabel(props.manufacturing.job.status) },
+              { label: "Line Status", value: leadLine ? formatLabel(leadLine.status) : "Idle" },
               { label: "Bottleneck", value: bottleneck ? formatItemKey(bottleneck.itemKey) : "None" },
               { label: "Inventory Ready", value: `${availableInventoryUnits} units` },
             ]}

@@ -18,6 +18,7 @@ type ExtractionSlotRow = {
   employee_id: string | null;
   status: "active" | "idle" | "resting" | "tool_broken";
   tool_item_key: "pickaxe" | "axe" | "drill_bit" | null;
+  configured_item_key: string | null;
   input_progress: number;
   output_progress: number;
   last_extracted_at: string | null;
@@ -71,6 +72,7 @@ function parseExtractionSlotRows(value: unknown): ExtractionSlotRow[] {
     const employeeId = raw.employee_id === null ? null : readString(raw.employee_id);
     const status = readString(raw.status);
     const toolItemKey = raw.tool_item_key === null ? null : readString(raw.tool_item_key);
+    const configuredItemKey = raw.configured_item_key === null ? null : readString(raw.configured_item_key);
     const inputProgress = readNumber(raw.input_progress);
     const outputProgress = readNumber(raw.output_progress);
     const lastExtractedAt = raw.last_extracted_at === null ? null : readString(raw.last_extracted_at);
@@ -80,6 +82,7 @@ function parseExtractionSlotRows(value: unknown): ExtractionSlotRow[] {
       !businessId ||
       slotNumber === null ||
       employeeId === undefined ||
+      configuredItemKey === undefined ||
       inputProgress === null ||
       outputProgress === null ||
       lastExtractedAt === undefined
@@ -94,6 +97,7 @@ function parseExtractionSlotRows(value: unknown): ExtractionSlotRow[] {
       employee_id: employeeId,
       status: status as ExtractionSlotRow["status"],
       tool_item_key: toolItemKey as ExtractionSlotRow["tool_item_key"],
+      configured_item_key: configuredItemKey,
       input_progress: inputProgress,
       output_progress: outputProgress,
       last_extracted_at: lastExtractedAt,
@@ -282,7 +286,7 @@ Deno.serve(async (request) => {
 
     const { data: slotRows, error: slotError } = await supabase
       .from("extraction_slots")
-      .select("id, business_id, slot_number, employee_id, status, tool_item_key, input_progress, output_progress, last_extracted_at")
+      .select("id, business_id, slot_number, employee_id, status, tool_item_key, configured_item_key, input_progress, output_progress, last_extracted_at")
       .eq("status", "active");
 
     if (slotError) {
@@ -311,7 +315,9 @@ Deno.serve(async (request) => {
       continue;
     }
 
-    const outputItem = EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[typedBusiness.type as keyof typeof EXTRACTION_OUTPUT_ITEM_BY_BUSINESS];
+    const outputItem =
+      slot.configured_item_key ??
+      EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[typedBusiness.type as keyof typeof EXTRACTION_OUTPUT_ITEM_BY_BUSINESS];
     if (!outputItem) {
       await failSlot(supabase, slot.id, "idle");
       continue;
