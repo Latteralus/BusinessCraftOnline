@@ -145,10 +145,6 @@ export function Topbar({
   }, [isChatOpen]);
 
   useEffect(() => {
-    if (!isChatOpen) {
-      return;
-    }
-
     let isCancelled = false;
     let removeChannel: (() => void) | null = null;
 
@@ -194,6 +190,7 @@ export function Topbar({
             queryClient.setQueryData(queryKeys.chatMessages, (current: { messages?: ChatMessage[] } | undefined) => ({
               messages: mergeChatMessages(current?.messages ?? [], [message]),
             }));
+            setChatMessages((current) => mergeChatMessages(current, [message]));
             setChatError(null);
             setIsChatLoading(false);
 
@@ -215,7 +212,7 @@ export function Topbar({
       isCancelled = true;
       removeChannel?.();
     };
-  }, [isChatOpen, queryClient]);
+  }, [queryClient]);
 
   useEffect(() => {
     if (!isChatOpen) {

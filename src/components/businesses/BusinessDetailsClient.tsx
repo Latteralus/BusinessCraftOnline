@@ -481,9 +481,6 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                 <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                                   On shelf: {item.quantity} | Price: {formatCurrency(item.unit_price)} | Suggested: {formatCurrency(pricingGuide.suggested)}
                                 </div>
-                                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
-                                  NPC range: {formatCurrency(pricingGuide.range.min)} to {formatCurrency(pricingGuide.range.max)}
-                                </div>
                               </div>
                               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                                 <button
@@ -574,9 +571,6 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                       <div style={{ fontSize: "0.85rem", fontWeight: 500 }}>Shelf setup:</div>
                                       <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
                                         Suggested: {formatCurrency(pricingGuide.suggested)} base
-                                      </div>
-                                      <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                                        NPC range: {formatCurrency(pricingGuide.range.min)} to {formatCurrency(pricingGuide.range.max)}
                                       </div>
                                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                                         <label style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Qty:</label>
