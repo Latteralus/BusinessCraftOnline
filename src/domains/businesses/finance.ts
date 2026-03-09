@@ -56,6 +56,7 @@ type LedgerEvent = {
   description: string;
   category: string;
   referenceId: string | null;
+  entryType: "credit" | "debit";
 };
 
 type DerivedFinancialEvent = {
@@ -126,6 +127,9 @@ export type BusinessFinanceRecentEvent = {
   amount: number;
   accountCode: string;
   source: "ledger" | "financial_event";
+  sourceLabel: string;
+  accountLabel: string;
+  postingType: "debit" | "credit";
 };
 
 export type BusinessFinancePeriodSnapshot = {
@@ -213,7 +217,119 @@ function toLedgerEvent(entry: BusinessAccountEntry): LedgerEvent {
     description: entry.description,
     category: entry.category,
     referenceId: entry.reference_id,
+    entryType: entry.entry_type,
   };
+}
+
+function toTitleCase(value: string): string {
+  return value
+    .split(/[\s_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatQuantity(quantity: number, itemKey: string): string {
+  return `${quantity} ${quantity === 1 ? "unit" : "units"} of ${toTitleCase(itemKey)}`;
+}
+
+function formatLedgerDescription(description: string, category: string): string {
+  const wageMatch = description.match(/^Wage payment:\s*(.+)$/i);
+  if (wageMatch) {
+    return `Payroll disbursement, ${wageMatch[1].trim()}`;
+  }
+
+  const saleMatch = description.match(/^(?:NPC|PLAYER)\s+market sale:\s*(\d+)x\s+(.+)$/i);
+  if (saleMatch) {
+    return `Marketplace sale proceeds, ${formatQuantity(Number(saleMatch[1]), saleMatch[2].trim())}`;
+  }
+
+  const feeMatch = description.match(/^Market fee:\s*(\d+)x\s+(.+)$/i);
+  if (feeMatch) {
+    return `Marketplace transaction fee, ${formatQuantity(Number(feeMatch[1]), feeMatch[2].trim())}`;
+  }
+
+  const purchaseMatch = description.match(/^Market purchase:\s*(\d+)x\s+(.+)$/i);
+  if (purchaseMatch) {
+    return `Inventory purchase, ${formatQuantity(Number(purchaseMatch[1]), purchaseMatch[2].trim())}`;
+  }
+
+  switch (category) {
+    case "opening_capital":
+      return "Initial capital contribution";
+    case "owner_transfer_in":
+      return "Owner capital contribution";
+    case "owner_transfer_out":
+      return "Owner draw distribution";
+    case "business_transfer_in":
+      return "Intercompany transfer received";
+    case "business_transfer_out":
+      return "Intercompany transfer disbursed";
+    case "startup_purchase":
+      return "Business setup expenditure";
+    case "upgrade_purchase":
+      return "Capital improvement expenditure";
+    case "storefront_ads":
+      return "Storefront advertising expense";
+    default:
+      return description;
+  }
+}
+
+function formatFinancialEventDescription(event: DerivedFinancialEvent): string {
+  switch (event.accountCode) {
+    case "revenue":
+      return event.quantity && event.itemKey
+        ? `Revenue recognized, ${formatQuantity(event.quantity, event.itemKey)}`
+        : "Revenue recognized";
+    case "cogs":
+      return event.quantity && event.itemKey
+        ? `Cost of goods sold recognized, ${formatQuantity(event.quantity, event.itemKey)}`
+        : "Cost of goods sold recognized";
+    case "inventory":
+      return event.quantity && event.itemKey
+        ? `Inventory movement recorded, ${formatQuantity(event.quantity, event.itemKey)}`
+        : "Inventory movement recorded";
+    case "operating_expense":
+      return event.quantity && event.itemKey
+        ? `Operating expense recognized, ${formatQuantity(event.quantity, event.itemKey)}`
+        : "Operating expense recognized";
+    default:
+      return event.description;
+  }
+}
+
+function getAccountLabel(accountCode: string): string {
+  switch (accountCode) {
+    case "operating_expense":
+      return "Operating Expense";
+    case "owner_equity":
+      return "Owner Equity";
+    case "owner_draw":
+      return "Owner Draw";
+    case "intercompany":
+      return "Intercompany";
+    case "cogs":
+      return "Cost of Goods Sold";
+    default:
+      return toTitleCase(accountCode);
+  }
+}
+
+function getPostingType(event: LedgerEvent | DerivedFinancialEvent): "debit" | "credit" {
+  if (event.source === "ledger") {
+    return event.entryType;
+  }
+
+  switch (event.accountCode) {
+    case "revenue":
+    case "owner_equity":
+    case "liability":
+    case "other_income_expense":
+      return "credit";
+    default:
+      return "debit";
+  }
 }
 
 function getInventoryUnitCost(row: InventorySnapshotRow): { unitCost: number; estimated: boolean } {
@@ -272,10 +388,16 @@ function toRecentEvent(event: LedgerEvent | DerivedFinancialEvent): BusinessFina
   return {
     id: event.id,
     occurredAt: event.effectiveAt,
-    label: event.description,
+    label:
+      event.source === "ledger"
+        ? formatLedgerDescription(event.description, event.category)
+        : formatFinancialEventDescription(event),
     amount: round2(event.amount),
     accountCode: event.accountCode,
     source: event.source,
+    sourceLabel: event.source === "ledger" ? "Ledger Posting" : "System Adjustment",
+    accountLabel: getAccountLabel(event.accountCode),
+    postingType: getPostingType(event),
   };
 }
 

@@ -15,6 +15,16 @@ function formatSignedCurrency(value: number) {
   return `${value >= 0 ? "+" : "-"}${formatCurrency(Math.abs(value))}`;
 }
 
+function formatLedgerTimestamp(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 function MiniStat(props: { label: string; value: string; sub?: string; tone?: "neutral" | "positive" | "negative" }) {
   const toneColor =
     props.tone === "positive" ? "#86efac" : props.tone === "negative" ? "#fca5a5" : "var(--text-primary)";
@@ -287,31 +297,91 @@ export default function BusinessFinanceDashboardPanel({ financeDashboard, initia
           padding: 18,
         }}
       >
-        <div style={{ fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase", color: "#cbd5e1", marginBottom: 12 }}>
-          Activity Tape
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase", color: "#cbd5e1" }}>
+            Transaction Log
+          </div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+            Journal-style activity feed
+          </div>
         </div>
-        <div style={{ display: "grid", gap: 8 }}>
-          {snapshot.recentEvents.map((event) => (
+        <div style={{ overflowX: "auto" }}>
+          <div
+            style={{
+              minWidth: 700,
+              display: "grid",
+              gap: 10,
+            }}
+          >
             <div
-              key={event.id}
               style={{
                 display: "grid",
-                gridTemplateColumns: "auto 1fr auto",
+                gridTemplateColumns: "minmax(120px, 170px) minmax(220px, 1.6fr) minmax(140px, 0.9fr) minmax(88px, 0.55fr) minmax(100px, 0.7fr)",
                 gap: 12,
-                alignItems: "center",
-                borderBottom: "1px solid rgba(148, 163, 184, 0.08)",
-                paddingBottom: 8,
-                fontVariantNumeric: "tabular-nums",
+                padding: "0 0 8px",
+                borderBottom: "1px solid rgba(148, 163, 184, 0.12)",
+                marginBottom: 0,
+                fontSize: 11,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: "var(--text-muted)",
               }}
             >
-              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{new Date(event.occurredAt).toLocaleString()}</div>
-              <div>
-                <div style={{ color: "#e2e8f0" }}>{event.label}</div>
-                <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>{event.source} · {event.accountCode}</div>
-              </div>
-              <div style={{ color: event.amount >= 0 ? "#86efac" : "#fca5a5", fontWeight: 700 }}>{formatSignedCurrency(event.amount)}</div>
+              <div>Posted</div>
+              <div>Description</div>
+              <div>Account</div>
+              <div>Type</div>
+              <div style={{ textAlign: "right" }}>Amount</div>
             </div>
-          ))}
+            {snapshot.recentEvents.map((event) => (
+              <div
+                key={event.id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(120px, 170px) minmax(220px, 1.6fr) minmax(140px, 0.9fr) minmax(88px, 0.55fr) minmax(100px, 0.7fr)",
+                  gap: 12,
+                  alignItems: "start",
+                  borderBottom: "1px solid rgba(148, 163, 184, 0.08)",
+                  paddingBottom: 10,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                <div>
+                  <div style={{ color: "#cbd5e1", fontSize: 12, fontWeight: 600 }}>{formatLedgerTimestamp(event.occurredAt)}</div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{event.sourceLabel}</div>
+                </div>
+                <div>
+                  <div style={{ color: "#e2e8f0", fontWeight: 600 }}>{event.label}</div>
+                  <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+                    {event.source === "ledger" ? "Cash-impacting entry" : "Accrual or inventory adjustment"}
+                  </div>
+                </div>
+                <div style={{ color: "#cbd5e1", fontSize: 12 }}>{event.accountLabel}</div>
+                <div>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      minWidth: 58,
+                      padding: "4px 8px",
+                      borderRadius: 999,
+                      border: `1px solid ${event.postingType === "credit" ? "rgba(52, 211, 153, 0.35)" : "rgba(96, 165, 250, 0.35)"}`,
+                      background: event.postingType === "credit" ? "rgba(5, 150, 105, 0.12)" : "rgba(37, 99, 235, 0.12)",
+                      color: event.postingType === "credit" ? "#86efac" : "#93c5fd",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    {event.postingType}
+                  </span>
+                </div>
+                <div style={{ color: "#f8fafc", fontWeight: 700, textAlign: "right" }}>{formatCurrency(event.amount)}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
