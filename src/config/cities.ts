@@ -12,17 +12,3 @@ export const CITIES = [
   { name: "Denver", state: "Colorado", region: "Mountain", slug: "denver" },
   { name: "Atlanta", state: "Georgia", region: "Southeast", slug: "atlanta" },
 ] as const;
-
-export const TRAVEL_TIERS = {
-  same_region: { minutes: 30, cost: 50 },
-  adjacent_region: { minutes: 90, cost: 120 },
-  cross_country: { minutes: 240, cost: 280 },
-  far_cross_country: { minutes: 180, cost: 200 },
-} as const;
-
-export const SHIPPING_COST_PER_UNIT_BY_TIER = {
-  same_region: 0.05,
-  adjacent_region: 0.12,
-  cross_country: 0.25,
-  far_cross_country: 0.3,
-} as const;

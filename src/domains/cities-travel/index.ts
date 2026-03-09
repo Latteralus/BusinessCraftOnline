@@ -1,5 +1,4 @@
 export {
-  calculateTravelQuote,
   canPurchaseBusiness,
   cancelTravel,
   completeTravel,
@@ -8,6 +7,13 @@ export {
   getCityById,
   startTravel,
 } from "./service";
+
+export {
+  calculateShippingQuote,
+  calculateTravelQuote,
+  classifyTravelTier,
+  getTravelTierDetails,
+} from "./topology";
 
 export { completeTravelSchema, startTravelSchema } from "./validations";
 

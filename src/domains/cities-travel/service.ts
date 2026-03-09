@@ -1,57 +1,13 @@
-import { TRAVEL_TIERS, type CityRegion } from "@/config/cities";
 import type {
   City,
   StartTravelInput,
   TravelLog,
-  TravelQuote,
-  TravelTier,
 } from "./types";
+import { calculateTravelQuote } from "./topology";
 
 type QueryClient = {
   from: (table: string) => any;
 };
-
-const ADJACENT_REGIONS: Record<CityRegion, CityRegion[]> = {
-  Northeast: ["Midwest", "Southeast"],
-  West: ["Southwest", "Mountain"],
-  Midwest: ["Northeast", "South", "Mountain"],
-  South: ["Midwest", "Southeast", "Southwest"],
-  Southwest: ["West", "South", "Mountain"],
-  Mountain: ["West", "Midwest", "Southwest"],
-  Southeast: ["Northeast", "South"],
-};
-
-const FAR_CROSS_COUNTRY_PAIRS = new Set([
-  "southeast:mountain",
-  "mountain:southeast",
-]);
-
-export function calculateTravelQuote(from: City, to: City): TravelQuote {
-  if (from.id === to.id) {
-    throw new Error("Origin and destination cannot be the same city.");
-  }
-
-  let tier: TravelTier = "cross_country";
-
-  if (from.region === to.region) {
-    tier = "same_region";
-  } else if (
-    FAR_CROSS_COUNTRY_PAIRS.has(
-      `${from.region.toLowerCase()}:${to.region.toLowerCase()}`
-    )
-  ) {
-    tier = "far_cross_country";
-  } else if (ADJACENT_REGIONS[from.region].includes(to.region)) {
-    tier = "adjacent_region";
-  }
-
-  const details = TRAVEL_TIERS[tier];
-  return {
-    tier,
-    minutes: details.minutes,
-    cost: details.cost,
-  };
-}
 
 export async function getCities(client: QueryClient): Promise<City[]> {
   const { data, error } = await client

@@ -1,5 +1,4 @@
-import { SHIPPING_COST_PER_UNIT_BY_TIER } from "@/config/cities";
-import { calculateTravelQuote, getCityById } from "@/domains/cities-travel";
+import { calculateShippingQuote, getCityById } from "@/domains/cities-travel";
 import { toNumber } from "@/lib/core/number";
 import type {
   BusinessInventoryItem,
@@ -114,12 +113,11 @@ async function resolveShippingPlan(client: QueryClient, input: TransferItemsInpu
     throw new Error("Source or destination city does not exist.");
   }
 
-  const quote = calculateTravelQuote(sourceCity, destinationCity);
-  const costPerUnit = SHIPPING_COST_PER_UNIT_BY_TIER[quote.tier];
+  const quote = calculateShippingQuote(sourceCity, destinationCity, input.quantity);
 
   return {
     transferType: "shipping" as const,
-    shippingCost: Number((input.quantity * costPerUnit).toFixed(2)),
+    shippingCost: quote.totalCost,
     shippingMinutes: quote.minutes,
   };
 }
