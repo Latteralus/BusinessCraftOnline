@@ -2,14 +2,14 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { OnlinePlayerPreview } from "@/domains/auth-character";
 import type { ChatMessage } from "@/domains/chat";
 import { formatCurrency } from "@/lib/formatters";
 import { apiPost } from "@/lib/client/api";
-import { fetchAppShell, fetchAuthMe, fetchChatMessages, prefetchableRoutes, queryKeys } from "@/lib/client/queries";
+import { fetchAppShell, fetchChatMessages, queryKeys, type AppShellData } from "@/lib/client/queries";
 
 const CHAT_MESSAGE_LIMIT = 50;
 
@@ -45,15 +45,16 @@ interface TopbarProps {
   initials?: string;
   firstName?: string;
   lastName?: string;
+  initialAppShell?: AppShellData;
 }
 
 export function Topbar({
   initials,
   firstName,
   lastName,
+  initialAppShell,
 }: TopbarProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const [identity, setIdentity] = useState(() => ({
     initials: initials ?? "··",
@@ -61,9 +62,9 @@ export function Topbar({
     lastName: lastName ?? "",
     loaded: Boolean(initials && firstName && lastName),
   }));
-  const [playerCount, setPlayerCount] = useState<number | null>(null);
-  const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayerPreview[]>([]);
-  const [notificationsCount, setNotificationsCount] = useState<number | null>(null);
+  const [playerCount, setPlayerCount] = useState<number | null>(initialAppShell?.playerCount ?? null);
+  const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayerPreview[]>(initialAppShell?.onlinePlayers ?? []);
+  const [notificationsCount, setNotificationsCount] = useState<number | null>(initialAppShell?.notificationsCount ?? null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [chatInput, setChatInput] = useState("");
@@ -77,24 +78,19 @@ export function Topbar({
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const isChatOpenRef = useRef(false);
 
-  const authMeQuery = useQuery({
-    queryKey: queryKeys.authMe,
-    queryFn: fetchAuthMe,
-    staleTime: 5 * 60_000,
-    enabled: !identity.loaded,
-  });
-
   const appShellQuery = useQuery({
     queryKey: queryKeys.appShell,
     queryFn: fetchAppShell,
-    refetchInterval: 60_000,
-    staleTime: 30_000,
+    initialData: initialAppShell,
+    refetchInterval: 3 * 60_000,
+    staleTime: 2 * 60_000,
   });
 
   const chatQuery = useQuery({
     queryKey: queryKeys.chatMessages,
     queryFn: fetchChatMessages,
     staleTime: 10_000,
+    enabled: isChatOpen,
   });
 
   useEffect(() => {
@@ -105,20 +101,6 @@ export function Topbar({
       loaded: Boolean(initials && firstName && lastName),
     });
   }, [firstName, initials, lastName]);
-
-  useEffect(() => {
-    const character = authMeQuery.data?.character;
-    if (!character?.first_name || !character.last_name) {
-      return;
-    }
-
-    setIdentity({
-      initials: `${character.first_name[0] ?? ""}${character.last_name[0] ?? ""}` || "··",
-      firstName: character.first_name,
-      lastName: character.last_name,
-      loaded: true,
-    });
-  }, [authMeQuery.data]);
 
   useEffect(() => {
     if (!appShellQuery.data) {
@@ -154,14 +136,6 @@ export function Topbar({
 
     return () => window.clearInterval(heartbeat);
   }, []);
-
-  useEffect(() => {
-    for (const route of prefetchableRoutes) {
-      if (route !== pathname) {
-        router.prefetch(route);
-      }
-    }
-  }, [pathname, router]);
 
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
@@ -237,7 +211,7 @@ export function Topbar({
       isCancelled = true;
       removeChannel?.();
     };
-  }, [queryClient]);
+  }, [isChatOpen, queryClient]);
 
   useEffect(() => {
     if (!isChatOpen) {

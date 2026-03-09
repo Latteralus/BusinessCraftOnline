@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { getCharacter, getPlayer } from "@/domains/auth-character";
+import { getCharacter, getOnlinePlayerPreviews, getPlayer } from "@/domains/auth-character";
+import type { OnlinePlayerPreview } from "@/domains/auth-character";
 import {
   type BankingLoanState,
   calculateMaxLoanForBusinessLevel,
@@ -23,11 +24,7 @@ import {
 import { getContracts } from "@/domains/contracts";
 import { getEmployeeSummary, getPlayerEmployees } from "@/domains/employees";
 import { getBusinessInventory, getPersonalInventory, getShippingQueue } from "@/domains/inventory";
-import {
-  getMarketListings,
-  getMarketStorefrontSettings,
-  getMarketTransactions,
-} from "@/domains/market";
+import { getMarketListings, getMarketStorefrontSettings, getMarketTransactions } from "@/domains/market";
 import { getManufacturingStatus } from "@/domains/production";
 import { getUpgradeDefinitions } from "@/domains/upgrades";
 import { cache } from "react";
@@ -54,11 +51,61 @@ export async function requireAuthedPageContext() {
   return getAuthedPageContext();
 }
 
+const getBusinessesWithBalancesCached = cache(async (supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string) =>
+  getBusinessesWithBalances(supabase, userId).catch(() => [])
+);
+
+const getCitiesCached = cache(async (supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) =>
+  getCities(supabase).catch(() => [])
+);
+
+const getBankingSnapshotCached = cache(async (supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string) =>
+  getBankingSnapshot(supabase, userId).catch(() => ({ accounts: [], activeLoan: null }))
+);
+
+const getStorefrontSettingsCached = cache(async (supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string) =>
+  getMarketStorefrontSettings(supabase, userId).catch(() => [])
+);
+
+export type AuthenticatedShellInitialData = {
+  identity: {
+    initials: string;
+    firstName: string;
+    lastName: string;
+  };
+  appShell: {
+    playerCount: number;
+    onlinePlayers: OnlinePlayerPreview[];
+    notificationsCount: number;
+  };
+};
+
+export async function loadAuthenticatedShellInitialData(): Promise<AuthenticatedShellInitialData> {
+  const { supabase, user, character } = await requireAuthedPageContext();
+  const [onlinePlayers, storefrontSettings] = await Promise.all([
+    getOnlinePlayerPreviews(supabase, 300).catch(() => []),
+    getStorefrontSettingsCached(supabase, user.id),
+  ]);
+
+  return {
+    identity: {
+      initials: `${character.first_name[0] ?? ""}${character.last_name[0] ?? ""}` || "··",
+      firstName: character.first_name,
+      lastName: character.last_name,
+    },
+    appShell: {
+      playerCount: onlinePlayers.length,
+      onlinePlayers,
+      notificationsCount: storefrontSettings.filter((row: { is_ad_enabled: boolean }) => row.is_ad_enabled).length,
+    },
+  };
+}
+
 export async function loadBusinessesPageData() {
   const { supabase, user, character } = await requireAuthedPageContext();
   const [businesses, cities, activeTravel, upgradeDefinitions, canBuyBusiness, resolvedCurrentCity] = await Promise.all([
-    getBusinessesWithBalances(supabase, user.id).catch(() => []),
-    getCities(supabase).catch(() => []),
+    getBusinessesWithBalancesCached(supabase, user.id),
+    getCitiesCached(supabase),
     getActiveTravel(supabase, user.id).catch(() => null),
     getUpgradeDefinitions(supabase).catch(() => []),
     canPurchaseBusiness(supabase, user.id).catch(() => false),
@@ -83,10 +130,10 @@ export async function loadBusinessesPageData() {
 export async function loadBankingPageData() {
   const { supabase, user, character } = await requireAuthedPageContext();
   const [snapshot, loanSummary, transactions, businesses] = await Promise.all([
-    getBankingSnapshot(supabase, user.id).catch(() => ({ accounts: [], activeLoan: null })),
+    getBankingSnapshotCached(supabase, user.id),
     getLoanSummary(supabase, user.id, character.business_level).catch(() => null),
     getTransactionHistory(supabase, user.id, { limit: 30 }).catch(() => []),
-    getBusinessesWithBalances(supabase, user.id).catch(() => []),
+    getBusinessesWithBalancesCached(supabase, user.id),
   ]);
   const loanData: BankingLoanState = {
     summary: loanSummary,
@@ -108,9 +155,9 @@ export async function loadInventoryPageData() {
       getPersonalInventory(supabase, user.id).catch(() => []),
       getBusinessInventory(supabase, user.id).catch(() => []),
       getShippingQueue(supabase, user.id).catch(() => []),
-      getBankingSnapshot(supabase, user.id).catch(() => ({ accounts: [] })),
-      getBusinessesWithBalances(supabase, user.id).catch(() => []),
-      getCities(supabase).catch(() => []),
+      getBankingSnapshotCached(supabase, user.id),
+      getBusinessesWithBalancesCached(supabase, user.id),
+      getCitiesCached(supabase),
     ]);
 
   const businessNamesById: Record<string, string> = {};
@@ -139,7 +186,7 @@ export async function loadEmployeesPageData() {
   const [employees, summary, businesses] = await Promise.all([
     getPlayerEmployees(supabase, user.id).catch(() => []),
     getEmployeeSummary(supabase, user.id).catch(() => null),
-    getBusinessesWithBalances(supabase, user.id).catch(() => []),
+    getBusinessesWithBalancesCached(supabase, user.id),
   ]);
 
   return {
@@ -152,7 +199,7 @@ export async function loadEmployeesPageData() {
 export async function loadContractsPageData() {
   const { supabase, user } = await requireAuthedPageContext();
   const [businesses, contracts] = await Promise.all([
-    getBusinessesWithBalances(supabase, user.id).catch(() => []),
+    getBusinessesWithBalancesCached(supabase, user.id),
     getContracts(supabase, user.id).catch(() => []),
   ]);
 
@@ -161,7 +208,7 @@ export async function loadContractsPageData() {
 
 export async function loadProductionPageData() {
   const { supabase, user } = await requireAuthedPageContext();
-  const businesses = await getBusinessesWithBalances(supabase, user.id).catch(() => []);
+  const businesses = await getBusinessesWithBalancesCached(supabase, user.id);
   const manufacturingBusinesses = businesses.filter((business) =>
     [
       "sawmill",
@@ -186,10 +233,10 @@ export async function loadProductionPageData() {
 export async function loadMarketPageData() {
   const { supabase, user } = await requireAuthedPageContext();
   const [businesses, listings, transactions, storefront] = await Promise.all([
-    getBusinessesWithBalances(supabase, user.id).catch(() => []),
+    getBusinessesWithBalancesCached(supabase, user.id),
     getMarketListings(supabase, user.id).catch(() => []),
     getMarketTransactions(supabase, user.id, 40).catch(() => []),
-    getMarketStorefrontSettings(supabase, user.id).catch(() => []),
+    getStorefrontSettingsCached(supabase, user.id),
   ]);
 
   return { businesses, listings, transactions, storefront };

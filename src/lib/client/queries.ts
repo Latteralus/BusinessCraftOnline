@@ -1,3 +1,4 @@
+import type { OnlinePlayerPreview } from "@/domains/auth-character";
 import type { BusinessesResponse, BusinessSummary, BusinessWithBalance } from "@/domains/businesses";
 import type {
   BankAccountWithBalance,
@@ -74,11 +75,7 @@ export type ProductionPageData = {
 
 export type AppShellData = {
   playerCount: number;
-  onlinePlayers: Array<{
-    player_id: string;
-    character_name: string;
-    wealth: number;
-  }>;
+  onlinePlayers: OnlinePlayerPreview[];
   notificationsCount: number;
 };
 
@@ -132,7 +129,6 @@ type ManufacturingResponse = {
 };
 
 export const queryKeys = {
-  authMe: ["auth", "me"] as const,
   appShell: ["app-shell"] as const,
   chatMessages: ["chat", "messages"] as const,
   businessesPage: ["page", "businesses"] as const,
@@ -145,10 +141,6 @@ export const queryKeys = {
   productionStatus: (businessId: string) => ["production", "manufacturing", businessId] as const,
   travelState: ["travel", "state"] as const,
 } as const;
-
-export async function fetchAuthMe() {
-  return apiGet<AuthMeData>("/api/auth/me", { fallbackError: "Failed to load profile." });
-}
 
 export async function fetchAppShell() {
   const payload = await apiGet<AppShellData>("/api/app-shell", { fallbackError: "Failed to load app shell." });
@@ -298,14 +290,3 @@ export async function fetchProductionPageData(): Promise<ProductionPageData> {
     manufacturing,
   };
 }
-
-export const prefetchableRoutes = [
-  "/dashboard",
-  "/businesses",
-  "/market",
-  "/production",
-  "/banking",
-  "/contracts",
-  "/inventory",
-  "/employees",
-] as const;

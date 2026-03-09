@@ -82,7 +82,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
 
   useAutoRefresh(() => {
     router.refresh();
-  }, { intervalMs: 8000, enabled: !busy });
+  }, { intervalMs: 30_000, enabled: !busy && activeTab !== "employees" && activeTab !== "inventory" });
 
   useEffect(() => {
     if (initialTab && ["overview", "finance", "operations", "employees", "inventory", "upgrades"].includes(initialTab)) {

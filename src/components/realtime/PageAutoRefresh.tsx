@@ -7,7 +7,7 @@ type Props = {
   intervalMs?: number;
 };
 
-export function PageAutoRefresh({ intervalMs = 10000 }: Props) {
+export function PageAutoRefresh({ intervalMs = 30000 }: Props) {
   const router = useRouter();
 
   useAutoRefresh(() => {

@@ -21,7 +21,6 @@ export default function MarketClient({ initialData }: Props) {
     queryKey: queryKeys.marketPage,
     queryFn: fetchMarketPageData,
     initialData,
-    refetchInterval: 15_000,
   });
   const businesses = marketPageQuery.data.businesses;
   const listings = marketPageQuery.data.listings;

@@ -2,49 +2,11 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@supabase/supabase-js";
-import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { fetchAppShell, fetchBankingPageData, fetchBusinessesPageData, fetchContractsPageData, fetchEmployeesPageData, fetchInventoryPageData, fetchMarketPageData, fetchProductionPageData, prefetchableRoutes, queryKeys } from "@/lib/client/queries";
-
-const PREFETCHERS: Array<{ key: readonly unknown[]; fn: () => Promise<unknown> }> = [
-  { key: queryKeys.businessesPage, fn: fetchBusinessesPageData },
-  { key: queryKeys.marketPage, fn: fetchMarketPageData },
-  { key: queryKeys.bankingPage, fn: fetchBankingPageData },
-  { key: queryKeys.inventoryPage, fn: fetchInventoryPageData },
-  { key: queryKeys.employeesPage, fn: fetchEmployeesPageData },
-  { key: queryKeys.contractsPage, fn: fetchContractsPageData },
-  { key: queryKeys.productionPage, fn: fetchProductionPageData },
-] as const;
+import { queryKeys } from "@/lib/client/queries";
 
 export function AuthenticatedShellDataLayer() {
-  const router = useRouter();
-  const pathname = usePathname();
   const queryClient = useQueryClient();
-
-  useEffect(() => {
-    for (const route of prefetchableRoutes) {
-      if (route !== pathname) {
-        router.prefetch(route);
-      }
-    }
-
-    const timer = window.setTimeout(() => {
-      for (const entry of PREFETCHERS) {
-        void queryClient.prefetchQuery({
-          queryKey: entry.key,
-          queryFn: entry.fn,
-          staleTime: 15_000,
-        });
-      }
-      void queryClient.prefetchQuery({
-        queryKey: queryKeys.appShell,
-        queryFn: fetchAppShell,
-        staleTime: 30_000,
-      });
-    }, 1_500);
-
-    return () => window.clearTimeout(timer);
-  }, [pathname, queryClient, router]);
 
   useEffect(() => {
     let cancelled = false;
