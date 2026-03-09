@@ -33,8 +33,10 @@ export type ShippingQueueItem = {
   from_city_id: string;
   to_city_id: string;
   item_key: string;
+  quality: number;
   quantity: number;
   cost: number;
+  declared_unit_price?: number | null;
   dispatched_at: string;
   arrives_at: string;
   destination_type: InventoryLocationType;
@@ -54,6 +56,7 @@ export type TransferItemsInput = {
   quantity: number;
   quality: number;
   fundingAccountId?: string;
+  unitPrice?: number;
   shippingCost?: number;
   shippingMinutes?: number;
 };

@@ -25,6 +25,10 @@ export const transferItemsSchema = z
       .min(1, "Quality must be at least 1.")
       .max(100, "Quality must be at most 100."),
     fundingAccountId: z.uuid("Funding account id is invalid.").optional(),
+    unitPrice: z
+      .number({ error: "Unit price must be a number." })
+      .min(1, "Unit price must be at least $1.")
+      .optional(),
   })
   .superRefine((value, context) => {
     if (value.sourceType === "business" && !value.sourceBusinessId) {
@@ -62,6 +66,16 @@ export const transferItemsSchema = z
           code: "custom",
           message: "Source and destination business must be different.",
           path: ["destinationBusinessId"],
+        });
+      }
+    }
+
+    if (value.sourceType === "business" && value.destinationType === "business") {
+      if (value.unitPrice === undefined || value.unitPrice === null || value.unitPrice < 1) {
+        context.addIssue({
+          code: "custom",
+          message: "Unit price is required for business-to-business transfers and must be at least $1.",
+          path: ["unitPrice"],
         });
       }
     }

@@ -32,6 +32,7 @@ export default function InventoryClient({ initialData }: Props) {
   const [itemKey, setItemKey] = useState(availableItemKeys[0] ?? "");
   const [quantity, setQuantity] = useState("1");
   const [quality, setQuality] = useState("40");
+  const [unitPrice, setUnitPrice] = useState("1");
   const [fundingAccountId, setFundingAccountId] = useState(initialData.accounts.find((a) => a.account_type === "checking")?.id ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +49,7 @@ export default function InventoryClient({ initialData }: Props) {
   );
 
   type TransferResponse = {
-    transferType?: "shipping" | "instant";
+    transferType?: "shipping" | "same_city";
     shippingMinutes?: number;
     shippingCost?: number;
     error?: string;
@@ -77,6 +78,7 @@ export default function InventoryClient({ initialData }: Props) {
           quantity: Number(quantity),
           quality: Number(quality),
           fundingAccountId,
+          unitPrice: sourceType === "business" && destinationType === "business" ? Number(unitPrice) : undefined,
         },
         { fallbackError: "Transfer failed." }
       );
@@ -183,6 +185,12 @@ export default function InventoryClient({ initialData }: Props) {
             Quality
             <input type="number" min="1" max="100" value={quality} onChange={(event) => setQuality(event.target.value)} />
           </label>
+          {sourceType === "business" && destinationType === "business" ? (
+            <label>
+              Price Per Unit
+              <input type="number" min="1" step="0.01" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} />
+            </label>
+          ) : null}
           <label>
             Funding Account (for shipping)
             <select value={fundingAccountId} onChange={(event) => setFundingAccountId(event.target.value)}>
@@ -194,7 +202,7 @@ export default function InventoryClient({ initialData }: Props) {
               ))}
             </select>
           </label>
-          <button onClick={submitTransfer} disabled={submitting || !itemKey.trim() || Number(quantity) <= 0 || Number(quality) < 1 || Number(quality) > 100}>
+          <button onClick={submitTransfer} disabled={submitting || !itemKey.trim() || Number(quantity) <= 0 || Number(quality) < 1 || Number(quality) > 100 || (sourceType === "business" && destinationType === "business" && Number(unitPrice) < 1)}>
             {submitting ? "Submitting..." : "Submit Transfer"}
           </button>
         </div>
