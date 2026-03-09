@@ -1,6 +1,7 @@
 export {
   addBusinessAccountEntry,
   createBusiness,
+  deleteBusiness,
   getBusinessBalance,
   getBusinessById,
   getBusinessDetail,
@@ -12,6 +13,7 @@ export {
   getBusinessesWithBalances,
   getPlayerBusinesses,
   purchaseUpgrade,
+  renameBusiness,
   summarizeBusinessesWithBalances,
 } from "./service";
 
@@ -19,6 +21,7 @@ export {
   businessListFilterSchema,
   createBusinessSchema,
   purchaseUpgradeSchema,
+  renameBusinessSchema,
 } from "./validations";
 
 export type {
@@ -49,4 +52,5 @@ export type {
   IncomeStatementRow,
   PurchaseUpgradeInput,
   PurchaseUpgradeResult,
+  RenameBusinessInput,
 } from "./types";

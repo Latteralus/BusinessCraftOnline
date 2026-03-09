@@ -25,6 +25,14 @@ export const purchaseUpgradeSchema = z.object({
   upgradeKey: businessUpgradeKeySchema,
 });
 
+export const renameBusinessSchema = z.object({
+  name: z
+    .string({ error: "Business name is required." })
+    .trim()
+    .min(3, "Business name must be at least 3 characters.")
+    .max(80, "Business name must be 80 characters or less."),
+});
+
 export const businessListFilterSchema = z.object({
   type: businessTypeSchema.optional(),
   cityId: z.uuid("City id is invalid.").optional(),
@@ -32,3 +40,4 @@ export const businessListFilterSchema = z.object({
 
 export type CreateBusinessInput = z.infer<typeof createBusinessSchema>;
 export type PurchaseUpgradeInput = z.infer<typeof purchaseUpgradeSchema>;
+export type RenameBusinessInput = z.infer<typeof renameBusinessSchema>;

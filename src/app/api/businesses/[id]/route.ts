@@ -1,5 +1,15 @@
-import { getBusinessDetail } from "@/domains/businesses";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import {
+  deleteBusiness,
+  getBusinessDetail,
+  renameBusiness,
+  renameBusinessSchema,
+} from "@/domains/businesses";
+import {
+  fail,
+  handleAuthedJsonRequest,
+  handleAuthedRequest,
+  notFound,
+} from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 type Params = {
@@ -8,28 +18,45 @@ type Params = {
 
 export async function GET(_request: Request, { params }: Params) {
   const { id } = await params;
-
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  try {
+  return handleAuthedRequest(async ({ supabase, user }) => {
     const business = await getBusinessDetail(supabase, user.id, id);
 
     if (!business) {
-      return NextResponse.json({ error: "Business not found." }, { status: 404 });
+      return notFound("Business not found.");
     }
 
     return NextResponse.json({ business });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch business." },
-      { status: 500 }
-    );
-  }
+  }, { errorMessage: "Failed to fetch business.", errorStatus: 500 });
+}
+
+export async function PATCH(request: Request, { params }: Params) {
+  const { id } = await params;
+
+  return handleAuthedJsonRequest(
+    request,
+    renameBusinessSchema,
+    "Invalid business rename payload.",
+    async ({ supabase, user }, data) => {
+      const business = await renameBusiness(supabase, user.id, id, data);
+      return NextResponse.json({ business });
+    },
+    { errorMessage: "Failed to rename business." }
+  );
+}
+
+export async function DELETE(_request: Request, { params }: Params) {
+  const { id } = await params;
+
+  return handleAuthedRequest(async ({ supabase, user }) => {
+    try {
+      await deleteBusiness(supabase, user.id, id);
+    } catch (error) {
+      if (error instanceof Error && error.message === "Business not found.") {
+        return notFound("Business not found.");
+      }
+      return fail(error, "Failed to delete business.");
+    }
+
+    return NextResponse.json({ success: true });
+  }, { errorMessage: "Failed to delete business." });
 }

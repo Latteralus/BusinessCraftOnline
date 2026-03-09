@@ -19,6 +19,7 @@ import type {
   Business,
   BusinessAccountEntry,
   BusinessDetail,
+  RenameBusinessInput,
   BusinessSummary,
   BusinessUpgrade,
   BusinessUpgradeProject,
@@ -300,6 +301,49 @@ export async function addBusinessAccountEntry(
 
   if (error) throw error;
   return normalizeAccountEntry(data as BusinessAccountEntry);
+}
+
+export async function renameBusiness(
+  client: QueryClient,
+  playerId: string,
+  businessId: string,
+  input: RenameBusinessInput
+): Promise<Business> {
+  const business = await getBusinessById(client, playerId, businessId);
+  if (!business) throw new Error("Business not found.");
+
+  const trimmedName = input.name.trim();
+  if (trimmedName === business.name) {
+    return business;
+  }
+
+  const { data, error } = await client
+    .from("businesses")
+    .update({ name: trimmedName })
+    .eq("id", businessId)
+    .eq("player_id", playerId)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return normalizeBusiness(data as Business);
+}
+
+export async function deleteBusiness(
+  client: QueryClient,
+  playerId: string,
+  businessId: string
+): Promise<void> {
+  const business = await getBusinessById(client, playerId, businessId);
+  if (!business) throw new Error("Business not found.");
+
+  const { error } = await client
+    .from("businesses")
+    .delete()
+    .eq("id", businessId)
+    .eq("player_id", playerId);
+
+  if (error) throw error;
 }
 
 export async function purchaseUpgrade(

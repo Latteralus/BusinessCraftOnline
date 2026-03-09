@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { calculateShippingQuote, getCityById } from "@/domains/cities-travel";
 import { computeWeightedAverageCost } from "@/domains/businesses/financial-events";
 import { insertBusinessFinancialEvents } from "@/domains/businesses/financial-events";
@@ -279,7 +280,7 @@ export async function transferItems(
       : toNumber(sourceRow?.total_cost);
     const transferredUnitCost = sourceQuantity > 0 ? sourceTotalCost / sourceQuantity : toNumber(sourceRow?.unit_cost);
     const purchaseUnitCost = input.unitPrice;
-    const transferReferenceId = result.shippingQueueItem?.id ?? `${input.sourceBusinessId}:${input.destinationBusinessId}:${input.itemKey}:${Date.now()}`;
+    const transferReferenceId = result.shippingQueueItem?.id ?? randomUUID();
     const grossTransferAmount = Number((purchaseUnitCost * input.quantity).toFixed(2));
     const transferredTotalCost = Number((transferredUnitCost * input.quantity).toFixed(2));
 

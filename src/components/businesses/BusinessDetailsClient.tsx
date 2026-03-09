@@ -18,17 +18,18 @@ import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import type { UpgradeDefinition } from "@/domains/upgrades";
 import { calculateUpgradePreview, formatInstallTimeMinutes } from "@/domains/upgrades";
 import { BASE_WAGE_PER_HOUR } from "@/config/employees";
-import { apiDelete, apiPost } from "@/lib/client/api";
+import { apiDelete, apiPatch, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import BusinessEmployeesDashboard from "./BusinessEmployeesDashboard";
 import BusinessFinanceDashboardPanel from "./BusinessFinanceDashboard";
 import BusinessInventoryDashboard from "./BusinessInventoryDashboard";
+import BusinessOptionsPanel from "./BusinessOptionsPanel";
 import BusinessOverviewDashboard from "./BusinessOverviewDashboard";
 import BusinessOperationsDashboard from "./BusinessOperationsDashboard";
 
-type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades";
+type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades" | "options";
 
 type Props = {
   business: Business;
@@ -85,7 +86,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
   }, { intervalMs: 30_000, enabled: !busy && activeTab !== "employees" && activeTab !== "inventory" });
 
   useEffect(() => {
-    if (initialTab && ["overview", "finance", "operations", "employees", "inventory", "upgrades"].includes(initialTab)) {
+    if (initialTab && ["overview", "finance", "operations", "employees", "inventory", "upgrades", "options"].includes(initialTab)) {
       setActiveTab(initialTab as TabType);
     }
   }, [initialTab]);
@@ -185,6 +186,25 @@ export default function BusinessDetailsClient({ business, production, manufactur
       await apiPost(apiRoutes.businesses.upgrade(business.id), { upgradeKey }, { fallbackError: "Failed to purchase upgrade." });
       router.refresh();
     }, "Error purchasing upgrade");
+  }
+
+  async function renameBusiness(nextName: string) {
+    if (busy) return;
+
+    await runBusyAction(async () => {
+      await apiPatch(apiRoutes.businesses.detail(business.id), { name: nextName }, { fallbackError: "Failed to rename business." });
+      router.refresh();
+    }, "Error renaming business");
+  }
+
+  async function removeBusiness() {
+    if (busy) return;
+
+    await runBusyAction(async () => {
+      await apiDelete(apiRoutes.businesses.detail(business.id), undefined, { fallbackError: "Failed to delete business." });
+      router.push("/businesses");
+      router.refresh();
+    }, "Error deleting business");
   }
 
   async function assignEmployeeToBusinessAndMaybeSlot(employeeId: string) {
@@ -363,7 +383,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
     <div className="card anim" style={{ marginTop: 24 }}>
       <div className="card-header" style={{ padding: 0, borderBottom: "1px solid var(--border-subtle)", overflowX: "auto" }}>
         <div style={{ display: "flex", gap: 24, padding: "0 24px" }}>
-          {(["overview", "finance", "operations", "employees", "inventory", "upgrades"] as TabType[]).map((tab) => (
+          {(["overview", "finance", "operations", "employees", "inventory", "upgrades", "options"] as TabType[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -1029,6 +1049,15 @@ export default function BusinessDetailsClient({ business, production, manufactur
               <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No upgrades available for this business.</p>
             )}
           </div>
+        )}
+
+        {activeTab === "options" && (
+          <BusinessOptionsPanel
+            businessName={business.name}
+            busy={busy}
+            onRename={renameBusiness}
+            onDelete={removeBusiness}
+          />
         )}
       </div>
     </div>

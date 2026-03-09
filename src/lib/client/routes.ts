@@ -22,6 +22,7 @@ export const apiRoutes = {
   },
   businesses: {
     root: "/api/businesses",
+    detail: (businessId: string) => `/api/businesses/${businessId}`,
     upgrade: (businessId: string) => `/api/businesses/${businessId}/upgrade`,
   },
   cities: "/api/cities",

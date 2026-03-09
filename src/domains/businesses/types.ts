@@ -79,6 +79,10 @@ export type PurchaseUpgradeInput = {
   upgradeKey: BusinessUpgradeKey;
 };
 
+export type RenameBusinessInput = {
+  name: string;
+};
+
 export type PurchaseUpgradeResult = {
   businessId: string;
   project: BusinessUpgradeProject;

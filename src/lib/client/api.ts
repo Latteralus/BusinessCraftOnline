@@ -59,6 +59,10 @@ export function apiPost<TResponse>(path: string, body?: unknown, options: Omit<A
   return apiRequest<TResponse>(path, { ...options, method: "POST", body });
 }
 
+export function apiPatch<TResponse>(path: string, body?: unknown, options: Omit<ApiRequestOptions, "body" | "method"> = {}) {
+  return apiRequest<TResponse>(path, { ...options, method: "PATCH", body });
+}
+
 export function apiDelete<TResponse>(path: string, body?: unknown, options: Omit<ApiRequestOptions, "body" | "method"> = {}) {
   return apiRequest<TResponse>(path, { ...options, method: "DELETE", body });
 }
