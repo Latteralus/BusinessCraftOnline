@@ -378,13 +378,7 @@ export async function installToolForSlot(
   const slot = await getSlotByIdForPlayer(client, playerId, input.slotId);
   const business = await ensureOwnedExtractionBusiness(client, playerId, slot.business_id);
 
-  const requiredToolByType: Partial<Record<ExtractionBusinessType, string>> = {
-    mine: "pickaxe",
-    logging_camp: "axe",
-    oil_well: "drill_bit",
-  };
-
-  const requiredTool = requiredToolByType[business.type] ?? null;
+    const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[business.type] ?? null;
   if (requiredTool && requiredTool !== input.itemType) {
     throw new Error(`Business type '${business.type}' requires tool '${requiredTool}'.`);
   }
@@ -455,7 +449,7 @@ export async function setExtractionSlotStatus(
     }
 
     if (getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) !== "assigned") {
-      throw new Error("Cannot activate slot with a resting or unavailable employee.");
+      throw new Error("Cannot activate slot with an unavailable employee.");
     }
 
     if (!assignment || assignment.business_id !== slot.business_id || assignment.role !== "production") {
@@ -464,13 +458,7 @@ export async function setExtractionSlotStatus(
   }
 
   if (input.status === "active" && EXTRACTION_BUSINESS_TYPES.includes(slot.business_type)) {
-    const requiredToolByType: Partial<Record<ExtractionBusinessType, string>> = {
-      mine: "pickaxe",
-      logging_camp: "axe",
-      oil_well: "drill_bit",
-    };
-
-    const requiredTool = requiredToolByType[slot.business_type] ?? null;
+    const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[slot.business_type] ?? null;
     if (requiredTool && slot.tool_item_key !== requiredTool) {
       throw new Error(`Cannot activate slot without required tool '${requiredTool}'.`);
     }

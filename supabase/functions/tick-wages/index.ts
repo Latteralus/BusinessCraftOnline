@@ -1,7 +1,9 @@
 // @ts-nocheck
 import { startTickRequest, toNumber, writeTickRunLog } from "../_shared/tick-runtime.ts";
 
-const WAGE_CHARGE_INTERVAL_MS = 60 * 60 * 1000;
+const WAGE_CHARGE_INTERVAL_MINUTES = 15;
+const WAGE_CHARGE_INTERVAL_MS = WAGE_CHARGE_INTERVAL_MINUTES * 60 * 1000;
+const WAGE_CHARGE_INTERVAL_HOURS = WAGE_CHARGE_INTERVAL_MINUTES / 60;
 
 function readTimestampMs(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -88,7 +90,7 @@ Deno.serve(async (request) => {
       }
 
       const wagePerHour = Number(toNumber(employee.wage_per_hour).toFixed(2));
-      const wageAmount = Number((wagePerHour * chargeWindowCount).toFixed(2));
+      const wageAmount = Number((wagePerHour * chargeWindowCount * WAGE_CHARGE_INTERVAL_HOURS).toFixed(2));
       const chargeAnchorIso = getNextChargeAnchorIso(
         employee.last_wage_charged_at,
         employee.created_at,
@@ -131,7 +133,7 @@ Deno.serve(async (request) => {
 
         wagesCharged += 1;
         totalWages += wageAmount;
-        totalHoursCharged += chargeWindowCount;
+        totalHoursCharged += chargeWindowCount * WAGE_CHARGE_INTERVAL_HOURS;
         continue;
       }
 

@@ -1,11 +1,13 @@
+import {
+  getWorkerEffectiveStatus as getSharedWorkerEffectiveStatus,
+  isWorkerOperational as isSharedWorkerOperational,
+} from "../../../shared/employees/status";
 import type { EmployeeStatus } from "@/config/employees";
 
 export function getWorkerEffectiveStatus(status: EmployeeStatus, shiftEndsAt: string | null): EmployeeStatus {
-  if (status !== "assigned") return status;
-  if (!shiftEndsAt) return "resting";
-  return new Date(shiftEndsAt).getTime() <= Date.now() ? "resting" : "assigned";
+  return getSharedWorkerEffectiveStatus(status, shiftEndsAt);
 }
 
 export function isWorkerOperational(status: EmployeeStatus, shiftEndsAt: string | null): boolean {
-  return getWorkerEffectiveStatus(status, shiftEndsAt) === "assigned";
+  return isSharedWorkerOperational(status, shiftEndsAt);
 }

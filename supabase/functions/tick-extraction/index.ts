@@ -1,5 +1,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isRecord, readNumber, readString, startTickRequest, writeTickRunLog } from "../_shared/tick-runtime.ts";
+import { isWorkerOperational } from "../_shared/employee-status.ts";
+import {
+  EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
+  EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
+  EXTRACTION_SKILL_KEY_BY_BUSINESS,
+  EXTRACTION_UPGRADE_KEY_BY_BUSINESS,
+  EXTRACTION_XP_PER_LEVEL,
+  EXTRACTION_XP_PER_TICK,
+} from "../../../shared/production/extraction.ts";
 
 type ExtractionSlotRow = {
   id: string;
@@ -50,38 +59,6 @@ type SkillRow = {
   xp: number;
 };
 
-const OUTPUT_BY_TYPE: Record<string, string> = {
-  mine: "iron_ore",
-  farm: "wheat",
-  water_company: "water",
-  logging_camp: "raw_wood",
-  oil_well: "crude_oil",
-};
-
-const TOOL_BY_TYPE: Partial<Record<string, "pickaxe" | "axe" | "drill_bit">> = {
-  mine: "pickaxe",
-  logging_camp: "axe",
-  oil_well: "drill_bit",
-};
-
-const UPGRADE_BY_TYPE: Record<string, string> = {
-  mine: "extraction_efficiency",
-  farm: "crop_yield",
-  water_company: "extraction_efficiency",
-  logging_camp: "extraction_efficiency",
-  oil_well: "extraction_efficiency",
-};
-
-const SKILL_BY_TYPE: Record<string, string> = {
-  mine: "mining",
-  farm: "farming",
-  water_company: "logistics",
-  logging_camp: "logging",
-  oil_well: "logistics",
-};
-
-const XP_PER_TICK = 5;
-const XP_PER_LEVEL = 100;
 const GAIN_MULTIPLIER = 1.1;
 
 function parseExtractionSlotRows(value: unknown): ExtractionSlotRow[] {
@@ -133,6 +110,13 @@ function parseInventoryRow(value: unknown): InventoryRow | null {
   return { id, quantity, reserved_quantity: reservedQuantity };
 }
 
+function parseInventoryRows(value: unknown): InventoryRow[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((row) => parseInventoryRow(row))
+    .filter((row): row is InventoryRow => Boolean(row));
+}
+
 function parseEmployeeRow(value: unknown): EmployeeRow | null {
   if (!isRecord(value)) return null;
   const id = readString(value.id);
@@ -140,12 +124,6 @@ function parseEmployeeRow(value: unknown): EmployeeRow | null {
   const shiftEndsAt = value.shift_ends_at === null ? null : readString(value.shift_ends_at);
   if (!id || !status || shiftEndsAt === undefined) return null;
   return { id, status, shift_ends_at: shiftEndsAt };
-}
-
-function isWorkerOperational(status: string, shiftEndsAt: string | null): boolean {
-  if (status !== "assigned") return false;
-  if (!shiftEndsAt) return false;
-  return new Date(shiftEndsAt).getTime() > Date.now();
 }
 
 function parseAssignmentRow(value: unknown): AssignmentRow | null {
@@ -216,10 +194,12 @@ async function consumeFarmInputs(
     .eq("business_id", businessId)
     .eq("owner_player_id", ownerPlayerId)
     .eq("item_key", "water")
-    .eq("quality", 40)
-    .maybeSingle();
+    .order("quality", { ascending: false })
+    .order("updated_at", { ascending: true });
 
-  const parsedWater = parseInventoryRow(water);
+  const parsedWater = parseInventoryRows(water).find(
+    (row) => row.quantity - row.reserved_quantity >= 1
+  );
   const waterAvailable = parsedWater && parsedWater.quantity - parsedWater.reserved_quantity >= 1;
   if (!waterAvailable) return false;
 
@@ -277,7 +257,7 @@ Deno.serve(async (request) => {
       continue;
     }
 
-    const outputItem = OUTPUT_BY_TYPE[typedBusiness.type];
+    const outputItem = EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[typedBusiness.type as keyof typeof EXTRACTION_OUTPUT_ITEM_BY_BUSINESS];
     if (!outputItem) {
       await failSlot(supabase, slot.id, "idle");
       continue;
@@ -322,7 +302,8 @@ Deno.serve(async (request) => {
       continue;
     }
 
-    const requiredTool = TOOL_BY_TYPE[typedBusiness.type] ?? null;
+    const requiredTool =
+      EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[typedBusiness.type as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS] ?? null;
     if (requiredTool) {
       const { data: tool } = await supabase
         .from("tool_durability")
@@ -365,7 +346,9 @@ Deno.serve(async (request) => {
       }
     }
 
-    const upgradeKey = UPGRADE_BY_TYPE[typedBusiness.type] ?? "extraction_efficiency";
+    const upgradeKey =
+      EXTRACTION_UPGRADE_KEY_BY_BUSINESS[typedBusiness.type as keyof typeof EXTRACTION_UPGRADE_KEY_BY_BUSINESS] ??
+      "extraction_efficiency";
     const { data: upgrade } = await supabase
       .from("business_upgrades")
       .select("level")
@@ -386,7 +369,9 @@ Deno.serve(async (request) => {
     });
     if (addInventoryError) throw addInventoryError;
 
-    const skillKey = SKILL_BY_TYPE[typedBusiness.type] ?? "logistics";
+    const skillKey =
+      EXTRACTION_SKILL_KEY_BY_BUSINESS[typedBusiness.type as keyof typeof EXTRACTION_SKILL_KEY_BY_BUSINESS] ??
+      "logistics";
     const { data: skill } = await supabase
       .from("employee_skills")
       .select("id, level, xp")
@@ -396,10 +381,10 @@ Deno.serve(async (request) => {
 
     const parsedSkill = parseSkillRow(skill);
     if (parsedSkill) {
-      let nextXp = parsedSkill.xp + XP_PER_TICK;
+      let nextXp = parsedSkill.xp + EXTRACTION_XP_PER_TICK;
       let nextLevel = parsedSkill.level;
-      while (nextXp >= XP_PER_LEVEL) {
-        nextXp -= XP_PER_LEVEL;
+      while (nextXp >= EXTRACTION_XP_PER_LEVEL) {
+        nextXp -= EXTRACTION_XP_PER_LEVEL;
         nextLevel += 1;
       }
 

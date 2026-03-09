@@ -7,13 +7,9 @@ export const EMPLOYEE_TYPES = [
 
 export type EmployeeType = (typeof EMPLOYEE_TYPES)[number];
 
-export const EMPLOYEE_STATUSES = [
-  "available",
-  "assigned",
-  "resting",
-  "unpaid",
-  "fired",
-] as const;
+import { EMPLOYEE_STATUSES } from "../../shared/employees/status";
+
+export { EMPLOYEE_STATUSES };
 
 export type EmployeeStatus = (typeof EMPLOYEE_STATUSES)[number];
 

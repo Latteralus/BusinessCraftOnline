@@ -1,62 +1,50 @@
 import type { BusinessType, BusinessUpgradeKey } from "@/config/businesses";
 import type { EmployeeSkillKey } from "@/config/employees";
+import {
+  EXTRACTION_BUSINESS_TYPES as SHARED_EXTRACTION_BUSINESS_TYPES,
+  EXTRACTION_OUTPUT_ITEM_BY_BUSINESS as SHARED_EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
+  EXTRACTION_REQUIRED_TOOL_BY_BUSINESS as SHARED_EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
+  EXTRACTION_SKILL_KEY_BY_BUSINESS as SHARED_EXTRACTION_SKILL_KEY_BY_BUSINESS,
+  EXTRACTION_SLOT_STATUSES as SHARED_EXTRACTION_SLOT_STATUSES,
+  EXTRACTION_UPGRADE_KEY_BY_BUSINESS as SHARED_EXTRACTION_UPGRADE_KEY_BY_BUSINESS,
+  EXTRACTION_XP_PER_LEVEL,
+  EXTRACTION_XP_PER_TICK,
+  FARM_WATER_ITEM_KEY,
+  FARM_WATER_PER_TICK,
+  TOOL_BASE_DURABILITY as SHARED_TOOL_BASE_DURABILITY,
+  TOOL_ITEM_TYPES as SHARED_TOOL_ITEM_TYPES,
+} from "../../shared/production/extraction";
 
-export const EXTRACTION_SLOT_STATUSES = ["active", "idle", "resting", "tool_broken"] as const;
+export {
+  EXTRACTION_XP_PER_LEVEL,
+  EXTRACTION_XP_PER_TICK,
+  FARM_WATER_ITEM_KEY,
+  FARM_WATER_PER_TICK,
+};
+
+export const EXTRACTION_SLOT_STATUSES = SHARED_EXTRACTION_SLOT_STATUSES;
+export const EXTRACTION_BUSINESS_TYPES = SHARED_EXTRACTION_BUSINESS_TYPES;
+export const TOOL_ITEM_TYPES = SHARED_TOOL_ITEM_TYPES;
 
 export type ExtractionSlotStatus = (typeof EXTRACTION_SLOT_STATUSES)[number];
 
-export const EXTRACTION_BUSINESS_TYPES = [
-  "mine",
-  "farm",
-  "water_company",
-  "logging_camp",
-  "oil_well",
-] as const;
-
 export type ExtractionBusinessType = (typeof EXTRACTION_BUSINESS_TYPES)[number];
 
-export const EXTRACTION_OUTPUT_ITEM_BY_BUSINESS: Record<ExtractionBusinessType, string> = {
-  mine: "iron_ore",
-  farm: "wheat",
-  water_company: "water",
-  logging_camp: "raw_wood",
-  oil_well: "crude_oil",
-};
-
-export const EXTRACTION_REQUIRED_TOOL_BY_BUSINESS: Partial<Record<ExtractionBusinessType, ToolItemType>> = {
-  mine: "pickaxe",
-  logging_camp: "axe",
-  oil_well: "drill_bit",
-};
-
-export const EXTRACTION_UPGRADE_KEY_BY_BUSINESS: Record<ExtractionBusinessType, BusinessUpgradeKey> = {
-  mine: "extraction_efficiency",
-  farm: "crop_yield",
-  water_company: "extraction_efficiency",
-  logging_camp: "extraction_efficiency",
-  oil_well: "extraction_efficiency",
-};
-
-export const EXTRACTION_SKILL_KEY_BY_BUSINESS: Record<ExtractionBusinessType, EmployeeSkillKey> = {
-  mine: "mining",
-  farm: "farming",
-  water_company: "logistics",
-  logging_camp: "logging",
-  oil_well: "logistics",
-};
-
-export const TOOL_ITEM_TYPES = ["pickaxe", "axe", "drill_bit"] as const;
+export const EXTRACTION_OUTPUT_ITEM_BY_BUSINESS: Record<ExtractionBusinessType, string> =
+  SHARED_EXTRACTION_OUTPUT_ITEM_BY_BUSINESS;
 
 export type ToolItemType = (typeof TOOL_ITEM_TYPES)[number];
 
-export const TOOL_BASE_DURABILITY: Record<ToolItemType, number> = {
-  pickaxe: 120,
-  axe: 100,
-  drill_bit: 80,
-};
+export const EXTRACTION_REQUIRED_TOOL_BY_BUSINESS: Partial<Record<ExtractionBusinessType, ToolItemType>> =
+  SHARED_EXTRACTION_REQUIRED_TOOL_BY_BUSINESS;
 
-export const EXTRACTION_XP_PER_TICK = 5;
-export const EXTRACTION_XP_PER_LEVEL = 100;
+export const EXTRACTION_UPGRADE_KEY_BY_BUSINESS: Record<ExtractionBusinessType, BusinessUpgradeKey> =
+  SHARED_EXTRACTION_UPGRADE_KEY_BY_BUSINESS;
+
+export const EXTRACTION_SKILL_KEY_BY_BUSINESS: Record<ExtractionBusinessType, EmployeeSkillKey> =
+  SHARED_EXTRACTION_SKILL_KEY_BY_BUSINESS;
+
+export const TOOL_BASE_DURABILITY: Record<ToolItemType, number> = SHARED_TOOL_BASE_DURABILITY;
 
 export const MANUFACTURING_STATUSES = ["active", "idle"] as const;
 export type ManufacturingStatus = (typeof MANUFACTURING_STATUSES)[number];
@@ -153,9 +141,6 @@ export function getManufacturingRecipesForBusinessType(
 export function isManufacturingBusinessType(type: BusinessType): type is ManufacturingBusinessType {
   return MANUFACTURING_BUSINESS_TYPES.includes(type as ManufacturingBusinessType);
 }
-
-export const FARM_WATER_ITEM_KEY = "water";
-export const FARM_WATER_PER_TICK = 1;
 
 export function isExtractionBusinessType(type: BusinessType): type is ExtractionBusinessType {
   return EXTRACTION_BUSINESS_TYPES.includes(type as ExtractionBusinessType);

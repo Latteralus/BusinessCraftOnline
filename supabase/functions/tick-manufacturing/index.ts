@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { startTickRequest, writeTickRunLog } from "../_shared/tick-runtime.ts";
+import { isWorkerOperational } from "../_shared/employee-status.ts";
 
 const RECIPE_INPUTS: Record<string, Array<{ itemKey: string; quantity: number }>> = {
   sawmill_planks: [{ itemKey: "raw_wood", quantity: 2 }],
@@ -29,19 +30,13 @@ const XP_PER_LEVEL = 100;
 const GAIN_MULTIPLIER = 1.1;
 const CONTRACT_ACTIVE_STATUSES = ["accepted", "in_progress"];
 
-function isWorkerOperational(status: string, shiftEndsAt: string | null): boolean {
-  if (status !== "assigned") return false;
-  if (!shiftEndsAt) return false;
-  return new Date(shiftEndsAt).getTime() > Date.now();
-}
-
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
   if (typeof value === "string") return Number(value);
   return 0;
 }
 
-async function getInventoryRow(
+async function getInventoryRows(
   supabase: ReturnType<typeof createClient>,
   businessId: string,
   playerId: string,
@@ -53,11 +48,14 @@ async function getInventoryRow(
     .eq("business_id", businessId)
     .eq("owner_player_id", playerId)
     .eq("item_key", itemKey)
-    .order("quality", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("quality", { ascending: false });
 
-  return data;
+  return (data ?? []) as Array<{
+    id: string;
+    quantity: number | string;
+    reserved_quantity: number | string;
+    quality: number | string;
+  }>;
 }
 
 async function consumeInventoryForContract(
@@ -202,26 +200,42 @@ Deno.serve(async (request) => {
     }
 
     let canProduce = true;
-    const inputRows: Array<{ id: string; quantity: number; reserved_quantity: number }> = [];
+    const inventoryConsumptionPlan = new Map<string, { id: string; quantity: number; reserved_quantity: number; used: number }>();
 
     for (const input of recipeInputs) {
-      const row = await getInventoryRow(supabase, business.id, business.player_id, input.itemKey);
-      if (!row) {
+      const rows = await getInventoryRows(supabase, business.id, business.player_id, input.itemKey);
+      if (rows.length === 0) {
         canProduce = false;
         break;
       }
 
-      const available = toNumber(row.quantity) - toNumber(row.reserved_quantity);
-      if (available < input.quantity) {
+      let remainingRequired = input.quantity;
+      for (const row of rows) {
+        if (remainingRequired <= 0) break;
+        const quantity = toNumber(row.quantity);
+        const reservedQuantity = toNumber(row.reserved_quantity);
+        const available = Math.max(0, quantity - reservedQuantity);
+        if (available <= 0) continue;
+
+        const used = Math.min(available, remainingRequired);
+        const existingPlan = inventoryConsumptionPlan.get(row.id);
+        if (existingPlan) {
+          existingPlan.used += used;
+        } else {
+          inventoryConsumptionPlan.set(row.id, {
+            id: row.id,
+            quantity,
+            reserved_quantity: reservedQuantity,
+            used,
+          });
+        }
+        remainingRequired -= used;
+      }
+
+      if (remainingRequired > 0) {
         canProduce = false;
         break;
       }
-
-      inputRows.push({
-        id: row.id,
-        quantity: toNumber(row.quantity),
-        reserved_quantity: toNumber(row.reserved_quantity),
-      });
     }
 
     if (!canProduce) {
@@ -233,10 +247,8 @@ Deno.serve(async (request) => {
       continue;
     }
 
-    for (let i = 0; i < recipeInputs.length; i += 1) {
-      const input = recipeInputs[i];
-      const row = inputRows[i];
-      const nextQty = row.quantity - input.quantity;
+    for (const row of inventoryConsumptionPlan.values()) {
+      const nextQty = row.quantity - row.used;
 
       if (nextQty <= 0) {
         const { error: deleteError } = await supabase.from("business_inventory").delete().eq("id", row.id);
