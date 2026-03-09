@@ -22,49 +22,77 @@ create unique index if not exists idx_business_upgrade_projects_one_active
 
 alter table public.business_upgrade_projects enable row level security;
 
-create policy "business_upgrade_projects_select_own"
-  on public.business_upgrade_projects
-  for select
-  using (
-    exists (
-      select 1
-      from public.businesses b
-      where b.id = business_id
-        and b.player_id = auth.uid()
-    )
-  );
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'business_upgrade_projects'
+      and policyname = 'business_upgrade_projects_select_own'
+  ) then
+    create policy "business_upgrade_projects_select_own"
+      on public.business_upgrade_projects
+      for select
+      using (
+        exists (
+          select 1
+          from public.businesses b
+          where b.id = business_id
+            and b.player_id = auth.uid()
+        )
+      );
+  end if;
 
-create policy "business_upgrade_projects_insert_own"
-  on public.business_upgrade_projects
-  for insert
-  with check (
-    exists (
-      select 1
-      from public.businesses b
-      where b.id = business_id
-        and b.player_id = auth.uid()
-    )
-  );
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'business_upgrade_projects'
+      and policyname = 'business_upgrade_projects_insert_own'
+  ) then
+    create policy "business_upgrade_projects_insert_own"
+      on public.business_upgrade_projects
+      for insert
+      with check (
+        exists (
+          select 1
+          from public.businesses b
+          where b.id = business_id
+            and b.player_id = auth.uid()
+        )
+      );
+  end if;
 
-create policy "business_upgrade_projects_update_own"
-  on public.business_upgrade_projects
-  for update
-  using (
-    exists (
-      select 1
-      from public.businesses b
-      where b.id = business_id
-        and b.player_id = auth.uid()
-    )
-  )
-  with check (
-    exists (
-      select 1
-      from public.businesses b
-      where b.id = business_id
-        and b.player_id = auth.uid()
-    )
-  );
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'business_upgrade_projects'
+      and policyname = 'business_upgrade_projects_update_own'
+  ) then
+    create policy "business_upgrade_projects_update_own"
+      on public.business_upgrade_projects
+      for update
+      using (
+        exists (
+          select 1
+          from public.businesses b
+          where b.id = business_id
+            and b.player_id = auth.uid()
+        )
+      )
+      with check (
+        exists (
+          select 1
+          from public.businesses b
+          where b.id = business_id
+            and b.player_id = auth.uid()
+        )
+      );
+  end if;
+end;
+$$;
 
 delete from public.upgrade_definitions
 where upgrade_key = 'seed_efficiency';

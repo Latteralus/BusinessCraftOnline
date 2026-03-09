@@ -11,10 +11,22 @@ create index if not exists idx_chat_messages_created_at
 
 alter table public.chat_messages enable row level security;
 
-create policy "chat_messages_select_authenticated"
-  on public.chat_messages
-  for select
-  using (auth.uid() is not null);
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'chat_messages'
+      and policyname = 'chat_messages_select_authenticated'
+  ) then
+    create policy "chat_messages_select_authenticated"
+      on public.chat_messages
+      for select
+      using (auth.uid() is not null);
+  end if;
+end;
+$$;
 
 create or replace function public.send_chat_message(p_message text)
 returns public.chat_messages
