@@ -37,11 +37,23 @@ async function getInventoryRows(
   }>;
 }
 
-function scaleRecipeInputQuantity(baseQuantity: number, inputUseMultiplier: number): number {
-  const scaled = Math.max(0, baseQuantity * inputUseMultiplier);
-  const whole = Math.floor(scaled);
-  const fractional = scaled - whole;
-  return whole + (Math.random() < fractional ? 1 : 0);
+function normalizeProgressMap(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entryValue]) => [key, toNumber(entryValue)])
+  );
+}
+
+function resolveDeterministicQuantity(
+  existingProgress: number,
+  scaledQuantity: number
+): { quantity: number; remainingProgress: number } {
+  const totalProgress = Math.max(0, existingProgress + scaledQuantity);
+  const quantity = Math.floor(totalProgress);
+  return {
+    quantity,
+    remainingProgress: totalProgress - quantity,
+  };
 }
 
 async function consumeInventoryForContract(
@@ -114,7 +126,7 @@ Deno.serve(async (request) => {
 
     const { data: jobs, error: jobsError } = await supabase
       .from("manufacturing_jobs")
-      .select("id, business_id, active_recipe_key, status")
+      .select("id, business_id, active_recipe_key, status, output_progress, input_progress, last_tick_at")
       .eq("status", "active");
 
     if (jobsError) {
@@ -135,6 +147,7 @@ Deno.serve(async (request) => {
 
     const recipe = getManufacturingRecipeByKey(job.active_recipe_key);
     if (!recipe) continue;
+    const existingInputProgress = normalizeProgressMap(job.input_progress);
 
     const { data: business } = await supabase
       .from("businesses")
@@ -146,11 +159,17 @@ Deno.serve(async (request) => {
 
     const effects = await getResolvedBusinessUpgradeEffects(supabase, business.id, business.type);
     const recipeInputs = recipe.inputs
-      .map((input) => ({
-        itemKey: input.itemKey,
-        quantity: scaleRecipeInputQuantity(input.quantity, effects.manufacturingInputUseMultiplier),
-      }))
-      .filter((input) => input.quantity > 0);
+      .map((input) => {
+        const resolved = resolveDeterministicQuantity(
+          existingInputProgress[input.itemKey] ?? 0,
+          Math.max(0, input.quantity * effects.manufacturingInputUseMultiplier)
+        );
+        return {
+          itemKey: input.itemKey,
+          quantity: resolved.quantity,
+          remainingProgress: resolved.remainingProgress,
+        };
+      });
 
       const { data: assignment, error: assignmentError } = await supabase
       .from("employee_assignments")
@@ -196,6 +215,7 @@ Deno.serve(async (request) => {
     const inventoryConsumptionPlan = new Map<string, { id: string; quantity: number; reserved_quantity: number; used: number }>();
 
     for (const input of recipeInputs) {
+      if (input.quantity <= 0) continue;
       const rows = await getInventoryRows(supabase, business.id, business.player_id, input.itemKey);
       if (rows.length === 0) {
         canProduce = false;
@@ -260,10 +280,11 @@ Deno.serve(async (request) => {
       }
     }
 
-    const outputQty = Math.max(
-      1,
-      Math.floor(recipe.baseOutputQuantity * effects.manufacturingOutputMultiplier)
+    const outputState = resolveDeterministicQuantity(
+      toNumber(job.output_progress),
+      Math.max(0, recipe.baseOutputQuantity * effects.manufacturingOutputMultiplier)
     );
+    const outputQty = outputState.quantity;
 
     const { data: skill } = await supabase
       .from("employee_skills")
@@ -273,23 +294,19 @@ Deno.serve(async (request) => {
       .maybeSingle();
 
     const skillLevel = skill ? Number(skill.level) : 1;
-    const quality = Math.max(
-      1,
-      Math.min(
-        100,
-        Math.round(skillLevel * 0.8 + effects.manufacturingQualityBonus + (Math.random() * 10 - 5))
-      )
-    );
+    const quality = Math.max(1, Math.min(100, Math.round(skillLevel * 0.8 + effects.manufacturingQualityBonus)));
 
-    const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
-      p_owner_player_id: business.player_id,
-      p_business_id: business.id,
-      p_city_id: business.city_id,
-      p_item_key: recipe.outputItemKey,
-      p_quality: quality,
-      p_quantity: outputQty,
-    });
-    if (addInventoryError) throw addInventoryError;
+    if (outputQty > 0) {
+      const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
+        p_owner_player_id: business.player_id,
+        p_business_id: business.id,
+        p_city_id: business.city_id,
+        p_item_key: recipe.outputItemKey,
+        p_quality: quality,
+        p_quantity: outputQty,
+      });
+      if (addInventoryError) throw addInventoryError;
+    }
 
     if (skill) {
       let nextXp = Number(skill.xp) + XP_PER_TICK;
@@ -306,11 +323,17 @@ Deno.serve(async (request) => {
       if (skillUpdateError) throw skillUpdateError;
     }
 
+    const nextInputProgress = Object.fromEntries(
+      recipeInputs.map((input) => [input.itemKey, input.remainingProgress])
+    );
+
     const { error: jobUpdateError } = await supabase
       .from("manufacturing_jobs")
       .update({
         worker_assigned: true,
-        last_tick_at: new Date().toISOString(),
+        output_progress: outputState.remainingProgress,
+        input_progress: nextInputProgress,
+        last_tick_at: outputQty > 0 ? new Date().toISOString() : job.last_tick_at,
         updated_at: new Date().toISOString(),
       })
       .eq("id", job.id);

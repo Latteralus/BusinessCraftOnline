@@ -18,6 +18,9 @@ type ExtractionSlotRow = {
   employee_id: string | null;
   status: "active" | "idle" | "resting" | "tool_broken";
   tool_item_key: "pickaxe" | "axe" | "drill_bit" | null;
+  input_progress: number;
+  output_progress: number;
+  last_extracted_at: string | null;
 };
 
 type BusinessRow = {
@@ -68,8 +71,19 @@ function parseExtractionSlotRows(value: unknown): ExtractionSlotRow[] {
     const employeeId = raw.employee_id === null ? null : readString(raw.employee_id);
     const status = readString(raw.status);
     const toolItemKey = raw.tool_item_key === null ? null : readString(raw.tool_item_key);
+    const inputProgress = readNumber(raw.input_progress);
+    const outputProgress = readNumber(raw.output_progress);
+    const lastExtractedAt = raw.last_extracted_at === null ? null : readString(raw.last_extracted_at);
 
-    if (!id || !businessId || slotNumber === null || employeeId === undefined) continue;
+    if (
+      !id ||
+      !businessId ||
+      slotNumber === null ||
+      employeeId === undefined ||
+      inputProgress === null ||
+      outputProgress === null ||
+      lastExtractedAt === undefined
+    ) continue;
     if (!status || !["active", "idle", "resting", "tool_broken"].includes(status)) continue;
     if (toolItemKey !== null && !["pickaxe", "axe", "drill_bit"].includes(toolItemKey)) continue;
 
@@ -80,6 +94,9 @@ function parseExtractionSlotRows(value: unknown): ExtractionSlotRow[] {
       employee_id: employeeId,
       status: status as ExtractionSlotRow["status"],
       tool_item_key: toolItemKey as ExtractionSlotRow["tool_item_key"],
+      input_progress: inputProgress,
+      output_progress: outputProgress,
+      last_extracted_at: lastExtractedAt,
     });
   }
 
@@ -173,12 +190,17 @@ async function failSlot(
 
 async function consumeFarmInputs(
   supabase: ReturnType<typeof createClient>,
+  slot: ExtractionSlotRow,
   businessId: string,
   ownerPlayerId: string,
   waterUseMultiplier: number
-): Promise<boolean> {
-  const consumeThisTick = Math.random() < Math.max(0, Math.min(1, waterUseMultiplier));
-  if (!consumeThisTick) return true;
+): Promise<{ consumed: boolean; nextProgress: number }> {
+  const totalProgress = slot.input_progress + Math.max(0, waterUseMultiplier);
+  const waterRequired = Math.floor(totalProgress);
+  const nextProgress = totalProgress - waterRequired;
+  if (waterRequired <= 0) {
+    return { consumed: true, nextProgress };
+  }
 
   const { data: water } = await supabase
     .from("business_inventory")
@@ -189,25 +211,34 @@ async function consumeFarmInputs(
     .order("quality", { ascending: false })
     .order("updated_at", { ascending: true });
 
-  const parsedWater = parseInventoryRows(water).find(
-    (row) => row.quantity - row.reserved_quantity >= 1
-  );
-  const waterAvailable = parsedWater && parsedWater.quantity - parsedWater.reserved_quantity >= 1;
-  if (!waterAvailable) return false;
+  const parsedWater = parseInventoryRows(water);
+  let remaining = waterRequired;
 
-  const nextWater = parsedWater.quantity - 1;
-  if (nextWater <= 0) {
-    const { error } = await supabase.from("business_inventory").delete().eq("id", parsedWater.id);
-    if (error) throw error;
-  } else {
-    const { error } = await supabase
-      .from("business_inventory")
-      .update({ quantity: nextWater, updated_at: new Date().toISOString() })
-      .eq("id", parsedWater.id);
-    if (error) throw error;
+  for (const row of parsedWater) {
+    if (remaining <= 0) break;
+    const available = row.quantity - row.reserved_quantity;
+    if (available <= 0) continue;
+
+    const used = Math.min(available, remaining);
+    const nextWater = row.quantity - used;
+    if (nextWater <= 0) {
+      const { error } = await supabase.from("business_inventory").delete().eq("id", row.id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase
+        .from("business_inventory")
+        .update({ quantity: nextWater, updated_at: new Date().toISOString() })
+        .eq("id", row.id);
+      if (error) throw error;
+    }
+    remaining -= used;
   }
 
-  return true;
+  if (remaining > 0) {
+    return { consumed: false, nextProgress: totalProgress };
+  }
+
+  return { consumed: true, nextProgress };
 }
 
 async function hasAvailableBusinessTool(
@@ -228,10 +259,16 @@ async function hasAvailableBusinessTool(
   return parseInventoryRows(data).some((row) => row.quantity - row.reserved_quantity >= 1);
 }
 
-function resolveProducedUnits(outputMultiplier: number): number {
-  const wholeUnits = Math.floor(outputMultiplier);
-  const fractionalUnits = outputMultiplier - wholeUnits;
-  return wholeUnits + (Math.random() < fractionalUnits ? 1 : 0);
+function resolveProducedUnits(
+  existingProgress: number,
+  outputMultiplier: number
+): { units: number; remainingProgress: number } {
+  const totalProgress = existingProgress + outputMultiplier;
+  const units = Math.floor(totalProgress);
+  return {
+    units,
+    remainingProgress: totalProgress - units,
+  };
 }
 
 Deno.serve(async (request) => {
@@ -245,7 +282,7 @@ Deno.serve(async (request) => {
 
     const { data: slotRows, error: slotError } = await supabase
       .from("extraction_slots")
-      .select("id, business_id, slot_number, employee_id, status, tool_item_key")
+      .select("id, business_id, slot_number, employee_id, status, tool_item_key, input_progress, output_progress, last_extracted_at")
       .eq("status", "active");
 
     if (slotError) {
@@ -379,18 +416,24 @@ Deno.serve(async (request) => {
       typedBusiness.type as BusinessRow["type"]
     );
 
+    let nextInputProgress = slot.input_progress;
     if (typedBusiness.type === "farm") {
-      const consumed = await consumeFarmInputs(
+      const farmInputState = await consumeFarmInputs(
         supabase,
+        slot,
         typedBusiness.id,
         typedBusiness.player_id,
         effects.farmWaterUseMultiplier
       );
-      if (!consumed) {
+      if (!farmInputState.consumed) {
         continue;
       }
+      nextInputProgress = farmInputState.nextProgress;
     }
-    const units = resolveProducedUnits(outputMultiplier * effects.extractionOutputMultiplier);
+    const { units, remainingProgress } = resolveProducedUnits(
+      slot.output_progress,
+      outputMultiplier * effects.extractionOutputMultiplier
+    );
     const quality = Math.max(1, Math.min(100, Math.round(40 + effects.extractionQualityBonus)));
 
     if (units > 0) {
@@ -433,7 +476,12 @@ Deno.serve(async (request) => {
 
     const { error: slotUpdateError } = await supabase
       .from("extraction_slots")
-      .update({ last_extracted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update({
+        input_progress: nextInputProgress,
+        output_progress: remainingProgress,
+        last_extracted_at: units > 0 ? new Date().toISOString() : slot.last_extracted_at ?? null,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", slot.id);
     if (slotUpdateError) throw slotUpdateError;
 

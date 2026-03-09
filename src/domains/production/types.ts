@@ -14,6 +14,8 @@ export type ExtractionSlot = {
   employee_id: string | null;
   status: ExtractionSlotStatus;
   tool_item_key: ToolItemType | null;
+  input_progress: number;
+  output_progress: number;
   last_extracted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -78,6 +80,8 @@ export type ManufacturingJob = {
   active_recipe_key: string | null;
   status: ManufacturingStatus;
   worker_assigned: boolean;
+  output_progress: number;
+  input_progress: Record<string, number>;
   last_tick_at: string | null;
   created_at: string;
   updated_at: string;

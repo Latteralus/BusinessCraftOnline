@@ -43,6 +43,8 @@ function normalizeSlot(row: ExtractionSlot): ExtractionSlot {
   return {
     ...row,
     slot_number: Number(row.slot_number),
+    input_progress: Number(row.input_progress ?? 0),
+    output_progress: Number(row.output_progress ?? 0),
   };
 }
 
@@ -57,6 +59,13 @@ function normalizeManufacturingJob(row: ManufacturingJob): ManufacturingJob {
   return {
     ...row,
     worker_assigned: Boolean(row.worker_assigned),
+    output_progress: Number(row.output_progress ?? 0),
+    input_progress:
+      row.input_progress && typeof row.input_progress === "object" && !Array.isArray(row.input_progress)
+        ? Object.fromEntries(
+            Object.entries(row.input_progress).map(([key, value]) => [key, Number(value ?? 0)])
+          )
+        : {},
   };
 }
 
