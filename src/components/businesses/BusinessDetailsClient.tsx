@@ -17,6 +17,7 @@ import { apiDelete, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
+import BusinessEmployeesDashboard from "./BusinessEmployeesDashboard";
 import BusinessFinanceDashboardPanel from "./BusinessFinanceDashboard";
 import BusinessOverviewDashboard from "./BusinessOverviewDashboard";
 import BusinessOperationsDashboard from "./BusinessOperationsDashboard";
@@ -698,6 +699,8 @@ export default function BusinessDetailsClient({ business, production, manufactur
                 <button onClick={() => hireEmployee("full_time")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Full Time ($500 · {fullTimePayPer15Min}/15m)</button>
               </div>
             </div>
+
+            <BusinessEmployeesDashboard business={business} employees={employees} />
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
