@@ -36,6 +36,10 @@ export const EXTRACTION_REQUIRED_TOOL_BY_BUSINESS = {
   oil_well: "drill_bit",
 } as const satisfies Partial<Record<SharedExtractionBusinessType, SharedToolItemType>>;
 
+export const EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS = {
+  mine: 0.25,
+} as const satisfies Partial<Record<SharedExtractionBusinessType, number>>;
+
 export const EXTRACTION_UPGRADE_KEY_BY_BUSINESS = {
   mine: "extraction_efficiency",
   farm: "crop_yield",

@@ -1,5 +1,6 @@
 import {
   EXTRACTION_BUSINESS_TYPES,
+  EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
   EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
   EXTRACTION_SLOT_STATUSES,
   TOOL_BASE_DURABILITY,
@@ -319,7 +320,8 @@ export async function assignExtractionSlot(
       employee_id: employee.id,
       status:
         !EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[slot.business_type] ||
-        slot.tool_item_key === EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[slot.business_type]
+        slot.tool_item_key === EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[slot.business_type] ||
+        EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[slot.business_type] !== undefined
           ? "active"
           : "idle",
       updated_at: new Date().toISOString(),
@@ -459,7 +461,9 @@ export async function setExtractionSlotStatus(
 
   if (input.status === "active" && EXTRACTION_BUSINESS_TYPES.includes(slot.business_type)) {
     const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[slot.business_type] ?? null;
-    if (requiredTool && slot.tool_item_key !== requiredTool) {
+    const supportsMissingToolOutput =
+      EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[slot.business_type] !== undefined;
+    if (requiredTool && slot.tool_item_key !== requiredTool && !supportsMissingToolOutput) {
       throw new Error(`Cannot activate slot without required tool '${requiredTool}'.`);
     }
   }

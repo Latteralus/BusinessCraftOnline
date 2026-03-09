@@ -3,6 +3,7 @@ import { isRecord, readNumber, readString, startTickRequest, writeTickRunLog } f
 import { isWorkerOperational } from "../_shared/employee-status.ts";
 import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
 import {
+  EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
   EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
   EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
   EXTRACTION_SKILL_KEY_BY_BUSINESS,
@@ -209,6 +210,30 @@ async function consumeFarmInputs(
   return true;
 }
 
+async function hasAvailableBusinessTool(
+  supabase: ReturnType<typeof createClient>,
+  businessId: string,
+  ownerPlayerId: string,
+  itemKey: "pickaxe" | "axe" | "drill_bit"
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("business_inventory")
+    .select("id, quantity, reserved_quantity")
+    .eq("business_id", businessId)
+    .eq("owner_player_id", ownerPlayerId)
+    .eq("item_key", itemKey)
+    .order("quality", { ascending: false })
+    .order("updated_at", { ascending: true });
+
+  return parseInventoryRows(data).some((row) => row.quantity - row.reserved_quantity >= 1);
+}
+
+function resolveProducedUnits(outputMultiplier: number): number {
+  const wholeUnits = Math.floor(outputMultiplier);
+  const fractionalUnits = outputMultiplier - wholeUnits;
+  return wholeUnits + (Math.random() < fractionalUnits ? 1 : 0);
+}
+
 Deno.serve(async (request) => {
   const requestStart = await startTickRequest(request, "tick-extraction");
   if ("response" in requestStart) return requestStart.response;
@@ -234,6 +259,7 @@ Deno.serve(async (request) => {
     let producedTotal = 0;
     let restingCount = 0;
     let brokenTools = 0;
+    let reducedOutputCount = 0;
 
     for (const slot of parseExtractionSlotRows(slotRows)) {
     const { data: business } = await supabase
@@ -295,6 +321,11 @@ Deno.serve(async (request) => {
 
     const requiredTool =
       EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[typedBusiness.type as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS] ?? null;
+    const missingToolOutputMultiplier =
+      EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[
+        typedBusiness.type as keyof typeof EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS
+      ] ?? null;
+    let outputMultiplier = 1;
     if (requiredTool) {
       const { data: tool } = await supabase
         .from("tool_durability")
@@ -311,22 +342,34 @@ Deno.serve(async (request) => {
         slot.tool_item_key !== requiredTool;
 
       if (invalidTool) {
-        await failSlot(supabase, slot.id, "tool_broken");
-        brokenTools += 1;
-        continue;
-      }
+        const hasInventoryTool = await hasAvailableBusinessTool(
+          supabase,
+          typedBusiness.id,
+          typedBusiness.player_id,
+          requiredTool
+        );
 
-      const nextUses = parsedTool.uses_remaining - 1;
-      const { error: toolUpdateError } = await supabase
-        .from("tool_durability")
-        .update({ uses_remaining: nextUses, updated_at: new Date().toISOString() })
-        .eq("id", parsedTool.id);
-      if (toolUpdateError) throw toolUpdateError;
+        if (!hasInventoryTool && missingToolOutputMultiplier !== null) {
+          outputMultiplier = missingToolOutputMultiplier;
+          reducedOutputCount += 1;
+        } else if (!hasInventoryTool) {
+          await failSlot(supabase, slot.id, "tool_broken");
+          brokenTools += 1;
+          continue;
+        }
+      } else {
+        const nextUses = parsedTool.uses_remaining - 1;
+        const { error: toolUpdateError } = await supabase
+          .from("tool_durability")
+          .update({ uses_remaining: nextUses, updated_at: new Date().toISOString() })
+          .eq("id", parsedTool.id);
+        if (toolUpdateError) throw toolUpdateError;
 
-      if (nextUses <= 0) {
-        await failSlot(supabase, slot.id, "tool_broken");
-        brokenTools += 1;
-        continue;
+        if (nextUses <= 0) {
+          await failSlot(supabase, slot.id, "tool_broken");
+          brokenTools += 1;
+          continue;
+        }
       }
     }
 
@@ -347,18 +390,20 @@ Deno.serve(async (request) => {
         continue;
       }
     }
-    const units = Math.max(1, Math.round(1 * effects.extractionOutputMultiplier));
+    const units = resolveProducedUnits(outputMultiplier * effects.extractionOutputMultiplier);
     const quality = Math.max(1, Math.min(100, Math.round(40 + effects.extractionQualityBonus)));
 
-    const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
-      p_owner_player_id: typedBusiness.player_id,
-      p_business_id: typedBusiness.id,
-      p_city_id: typedBusiness.city_id,
-      p_item_key: outputItem,
-      p_quality: quality,
-      p_quantity: units,
-    });
-    if (addInventoryError) throw addInventoryError;
+    if (units > 0) {
+      const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
+        p_owner_player_id: typedBusiness.player_id,
+        p_business_id: typedBusiness.id,
+        p_city_id: typedBusiness.city_id,
+        p_item_key: outputItem,
+        p_quality: quality,
+        p_quantity: units,
+      });
+      if (addInventoryError) throw addInventoryError;
+    }
 
     const skillKey =
       EXTRACTION_SKILL_KEY_BY_BUSINESS[typedBusiness.type as keyof typeof EXTRACTION_SKILL_KEY_BY_BUSINESS] ??
@@ -404,6 +449,7 @@ Deno.serve(async (request) => {
       producedTotal,
       restingCount,
       brokenTools,
+      reducedOutputCount,
     };
 
     await writeTickRunLog(supabase, {
