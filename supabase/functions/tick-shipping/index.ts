@@ -1,29 +1,54 @@
-// @ts-nocheck
-import { createServiceClientFromEnv, writeTickRunLog } from "../_shared/tick-runtime.ts";
+import {
+  isRecord,
+  readNumber,
+  startTickRequest,
+  writeTickRunLog,
+} from "../_shared/tick-runtime.ts";
 
-Deno.serve(async () => {
+type ShippingTickStats = {
+  processed: number;
+  deliveredPersonal: number;
+  deliveredBusiness: number;
+};
+
+function parseShippingTickStats(value: unknown): ShippingTickStats {
+  if (!isRecord(value)) {
+    return {
+      processed: 0,
+      deliveredPersonal: 0,
+      deliveredBusiness: 0,
+    };
+  }
+
+  return {
+    processed: Math.max(0, Math.floor(readNumber(value.processed) ?? 0)),
+    deliveredPersonal: Math.max(0, Math.floor(readNumber(value.deliveredPersonal) ?? 0)),
+    deliveredBusiness: Math.max(0, Math.floor(readNumber(value.deliveredBusiness) ?? 0)),
+  };
+}
+
+Deno.serve(async (request) => {
+  const requestStart = await startTickRequest(request, "tick-shipping");
+  if ("response" in requestStart) return requestStart.response;
+
+  const { supabase, release } = requestStart;
   const startedAt = new Date();
   const startedAtIso = startedAt.toISOString();
 
   try {
-    const supabase = createServiceClientFromEnv();
     const { data, error } = await supabase.rpc("execute_due_shipping_deliveries", { p_limit: 500 });
 
     if (error) throw error;
 
-    const stats = (data ?? {}) as {
-      processed?: number;
-      deliveredPersonal?: number;
-      deliveredBusiness?: number;
-    };
+    const stats = parseShippingTickStats(data);
 
     const finishedAtIso = new Date().toISOString();
     const payload = {
       ok: true,
       function: "tick-shipping",
-      processed: Number(stats.processed ?? 0),
-      deliveredPersonal: Number(stats.deliveredPersonal ?? 0),
-      deliveredBusiness: Number(stats.deliveredBusiness ?? 0),
+      processed: stats.processed,
+      deliveredPersonal: stats.deliveredPersonal,
+      deliveredBusiness: stats.deliveredBusiness,
     };
 
     await writeTickRunLog(supabase, {
@@ -45,7 +70,6 @@ Deno.serve(async () => {
     const message = error instanceof Error ? error.message : "tick-shipping failed";
 
     try {
-      const supabase = createServiceClientFromEnv();
       await writeTickRunLog(supabase, {
         tickName: "tick-shipping",
         status: "error",
@@ -64,5 +88,7 @@ Deno.serve(async () => {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
+  } finally {
+    await release();
   }
 });

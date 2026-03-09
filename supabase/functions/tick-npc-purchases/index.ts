@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { startTickRequest } from "../_shared/tick-runtime.ts";
 import {
   NPC_CATEGORY_INTEREST_WEIGHTS,
   NPC_DEMAND_CURVE,
@@ -310,20 +311,13 @@ async function writeStorefrontSnapshot(
   });
 }
 
-Deno.serve(async () => {
+Deno.serve(async (request) => {
+  const requestStart = await startTickRequest(request, "tick-npc-purchases");
+  if ("response" in requestStart) return requestStart.response;
+
+  const { supabase, release } = requestStart;
   const startedAt = new Date();
   const startedAtIso = startedAt.toISOString();
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    return new Response(
-      JSON.stringify({ ok: false, error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
   try {
     const now = new Date();
     const state = await getOrCreateSubtickState(supabase);
@@ -670,5 +664,7 @@ Deno.serve(async () => {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
+  } finally {
+    await release();
   }
 });

@@ -60,6 +60,10 @@ export default function BankingPage() {
   const [personalBusinessId, setPersonalBusinessId] = useState("");
   const [personalBusinessAmount, setPersonalBusinessAmount] = useState("");
   const [personalBusinessSubmitting, setPersonalBusinessSubmitting] = useState(false);
+  const [fromOwnedBusinessId, setFromOwnedBusinessId] = useState("");
+  const [toOwnedBusinessId, setToOwnedBusinessId] = useState("");
+  const [ownedBusinessAmount, setOwnedBusinessAmount] = useState("");
+  const [ownedBusinessSubmitting, setOwnedBusinessSubmitting] = useState(false);
 
   const [loanPrincipal, setLoanPrincipal] = useState("");
   const [loanSubmitting, setLoanSubmitting] = useState(false);
@@ -131,6 +135,10 @@ export default function BankingPage() {
     }
     if ((businessesJson.businesses ?? []).length > 0) {
       setPersonalBusinessId((current) => current || businessesJson.businesses[0].id);
+      setFromOwnedBusinessId((current) => current || businessesJson.businesses[0].id);
+      setToOwnedBusinessId((current) =>
+        current || businessesJson.businesses.find((business) => business.id !== businessesJson.businesses[0].id)?.id || ""
+      );
     }
 
     if (showLoading) {
@@ -201,6 +209,33 @@ export default function BankingPage() {
     }
 
     setPersonalBusinessAmount("");
+    await loadData();
+  }
+
+  async function submitOwnedBusinessTransfer() {
+    if (ownedBusinessSubmitting) return;
+    setOwnedBusinessSubmitting(true);
+    setError(null);
+
+    const response = await fetch("/api/banking/businesses-transfer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fromBusinessId: fromOwnedBusinessId,
+        toBusinessId: toOwnedBusinessId,
+        amount: Number(ownedBusinessAmount),
+      }),
+    });
+
+    const data = await response.json();
+    setOwnedBusinessSubmitting(false);
+
+    if (!response.ok) {
+      setError(data.error ?? "Transfer failed.");
+      return;
+    }
+
+    setOwnedBusinessAmount("");
     await loadData();
   }
 
@@ -411,6 +446,68 @@ export default function BankingPage() {
                 disabled={!personalBusinessAccountId || !personalBusinessId || Number(personalBusinessAmount) <= 0 || personalBusinessSubmitting}
               >
                 {personalBusinessSubmitting ? "Transferring..." : "Submit Transfer"}
+              </button>
+            </div>
+          </section>
+
+          <section>
+            <h2 style={{ marginTop: 0 }}>Transfer Between Your Businesses</h2>
+            <div style={{ display: "grid", gap: 8, maxWidth: 560 }}>
+              <label>
+                From Business
+                <select
+                  value={fromOwnedBusinessId}
+                  onChange={(event) => setFromOwnedBusinessId(event.target.value)}
+                  title="From business"
+                >
+                  <option value="">Select business</option>
+                  {businesses.map((business) => (
+                    <option key={business.id} value={business.id}>
+                      {business.name} ({formatCurrency(business.balance)})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                To Business
+                <select
+                  value={toOwnedBusinessId}
+                  onChange={(event) => setToOwnedBusinessId(event.target.value)}
+                  title="To business"
+                >
+                  <option value="">Select business</option>
+                  {businesses.map((business) => (
+                    <option key={business.id} value={business.id}>
+                      {business.name} ({formatCurrency(business.balance)})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Amount
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={ownedBusinessAmount}
+                  onChange={(event) => setOwnedBusinessAmount(event.target.value)}
+                  placeholder="0.00"
+                />
+              </label>
+
+              <button
+                onClick={submitOwnedBusinessTransfer}
+                disabled={
+                  !fromOwnedBusinessId ||
+                  !toOwnedBusinessId ||
+                  fromOwnedBusinessId === toOwnedBusinessId ||
+                  Number(ownedBusinessAmount) <= 0 ||
+                  ownedBusinessSubmitting
+                }
+              >
+                {ownedBusinessSubmitting ? "Transferring..." : "Submit Transfer"}
               </button>
             </div>
           </section>

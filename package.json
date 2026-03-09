@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:edge": "deno check --config supabase/functions/deno.json supabase/functions/tick-extraction/index.ts supabase/functions/tick-shipping/index.ts supabase/functions/tick-travel/index.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

@@ -63,6 +63,13 @@ export type TransferBetweenPersonalAndBusinessInput = {
   description?: string;
 };
 
+export type TransferBetweenOwnBusinessesInput = {
+  fromBusinessId: string;
+  toBusinessId: string;
+  amount: number;
+  description?: string;
+};
+
 export type TransactionHistoryFilter = {
   accountId?: string;
   direction?: TransactionDirection;

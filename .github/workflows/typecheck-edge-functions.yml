@@ -1,0 +1,25 @@
+name: Typecheck Edge Functions
+
+on:
+  push:
+    paths:
+      - "supabase/functions/**"
+      - ".github/workflows/typecheck-edge-functions.yml"
+      - "package.json"
+  pull_request:
+    paths:
+      - "supabase/functions/**"
+      - ".github/workflows/typecheck-edge-functions.yml"
+      - "package.json"
+
+jobs:
+  typecheck-edge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
+      - name: Typecheck edge tick functions
+        run: deno check --config supabase/functions/deno.json supabase/functions/tick-extraction/index.ts supabase/functions/tick-shipping/index.ts supabase/functions/tick-travel/index.ts

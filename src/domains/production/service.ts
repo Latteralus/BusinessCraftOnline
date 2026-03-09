@@ -1,5 +1,6 @@
 import {
   EXTRACTION_BUSINESS_TYPES,
+  EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
   EXTRACTION_SLOT_STATUSES,
   TOOL_BASE_DURABILITY,
   getManufacturingRecipeByKey,
@@ -315,6 +316,11 @@ export async function assignExtractionSlot(
     .from("extraction_slots")
     .update({
       employee_id: employee.id,
+      status:
+        !EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[slot.business_type] ||
+        slot.tool_item_key === EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[slot.business_type]
+          ? "active"
+          : "idle",
       updated_at: new Date().toISOString(),
     })
     .eq("id", slot.id)

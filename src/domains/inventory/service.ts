@@ -143,6 +143,7 @@ export async function transferItems(
     p_quantity: input.quantity,
     p_shipping_cost: shippingPlan.shippingCost,
     p_shipping_minutes: shippingPlan.shippingMinutes,
+    p_funding_account_id: input.fundingAccountId ?? null,
   });
 
   if (error) throw error;

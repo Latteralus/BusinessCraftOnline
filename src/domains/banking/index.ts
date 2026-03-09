@@ -11,6 +11,7 @@ export {
   getTransactionHistory,
   isLoanPaymentOverdue,
   payLoan,
+  transferBetweenOwnBusinesses,
   transferBetweenPersonalAndBusiness,
   transferBetweenOwnAccounts,
 } from "./service";
@@ -19,6 +20,7 @@ export {
   applyForLoanSchema,
   bankAccountTypeFilterSchema,
   payLoanSchema,
+  transferBetweenOwnBusinessesSchema,
   transferBetweenPersonalAndBusinessSchema,
   transactionHistoryFilterSchema,
   transferBetweenOwnAccountsSchema,
@@ -39,6 +41,7 @@ export type {
   TransactionEntry,
   TransactionHistoryFilter,
   TransactionType,
+  TransferBetweenOwnBusinessesInput,
   TransferBetweenPersonalAndBusinessInput,
   TransferBetweenOwnAccountsInput,
 } from "./types";

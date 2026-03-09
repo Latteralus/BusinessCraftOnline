@@ -35,6 +35,20 @@ export const transferBetweenPersonalAndBusinessSchema = z.object({
   description: z.string().trim().max(160).optional(),
 });
 
+export const transferBetweenOwnBusinessesSchema = z
+  .object({
+    fromBusinessId: z.uuid("Origin business id is invalid."),
+    toBusinessId: z.uuid("Destination business id is invalid."),
+    amount: z
+      .number({ error: "Transfer amount must be a number." })
+      .positive("Transfer amount must be greater than zero."),
+    description: z.string().trim().max(160).optional(),
+  })
+  .refine((value) => value.fromBusinessId !== value.toBusinessId, {
+    message: "Origin and destination businesses must be different.",
+    path: ["toBusinessId"],
+  });
+
 export const transactionHistoryFilterSchema = z.object({
   accountId: z.uuid("Account id is invalid.").optional(),
   direction: transactionDirectionSchema.optional(),
@@ -71,6 +85,9 @@ export type TransferBetweenOwnAccountsInput = z.infer<
 >;
 export type TransferBetweenPersonalAndBusinessInput = z.infer<
   typeof transferBetweenPersonalAndBusinessSchema
+>;
+export type TransferBetweenOwnBusinessesInput = z.infer<
+  typeof transferBetweenOwnBusinessesSchema
 >;
 export type TransactionHistoryFilterInput = z.infer<
   typeof transactionHistoryFilterSchema

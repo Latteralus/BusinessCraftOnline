@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { startTickRequest } from "../_shared/tick-runtime.ts";
 
 const RECIPE_INPUTS: Record<string, Array<{ itemKey: string; quantity: number }>> = {
   sawmill_planks: [{ itemKey: "raw_wood", quantity: 2 }],
@@ -112,37 +113,31 @@ async function consumeInventoryForContract(
   return true;
 }
 
-Deno.serve(async () => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+Deno.serve(async (request) => {
+  const requestStart = await startTickRequest(request, "tick-manufacturing");
+  if ("response" in requestStart) return requestStart.response;
 
-  if (!supabaseUrl || !serviceRoleKey) {
-    return new Response(
-      JSON.stringify({ ok: false, error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
-  }
+  const { supabase, release } = requestStart;
+  try {
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const { data: jobs, error: jobsError } = await supabase
+      .from("manufacturing_jobs")
+      .select("id, business_id, active_recipe_key, status")
+      .eq("status", "active");
 
-  const { data: jobs, error: jobsError } = await supabase
-    .from("manufacturing_jobs")
-    .select("id, business_id, active_recipe_key, status")
-    .eq("status", "active");
+    if (jobsError) {
+      return new Response(JSON.stringify({ ok: false, error: jobsError.message }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
-  if (jobsError) {
-    return new Response(JSON.stringify({ ok: false, error: jobsError.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+    let processed = 0;
+    let producedTotal = 0;
+    let contractsExpired = 0;
+    let contractsFulfilled = 0;
 
-  let processed = 0;
-  let producedTotal = 0;
-  let contractsExpired = 0;
-  let contractsFulfilled = 0;
-
-  for (const job of jobs ?? []) {
+    for (const job of jobs ?? []) {
     if (!job.active_recipe_key) continue;
 
     const recipeInputs = RECIPE_INPUTS[job.active_recipe_key];
@@ -413,15 +408,18 @@ Deno.serve(async () => {
     contractsFulfilled += 1;
   }
 
-  return new Response(
-    JSON.stringify({
-      ok: true,
-      function: "tick-manufacturing",
-      processed,
-      producedTotal,
-      contractsFulfilled,
-      contractsExpired,
-    }),
-    { headers: { "Content-Type": "application/json" } }
-  );
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        function: "tick-manufacturing",
+        processed,
+        producedTotal,
+        contractsFulfilled,
+        contractsExpired,
+      }),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  } finally {
+    await release();
+  }
 });

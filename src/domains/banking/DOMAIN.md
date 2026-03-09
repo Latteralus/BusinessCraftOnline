@@ -15,6 +15,8 @@ Banking owns all personal money movement and personal loan lifecycle logic.
 - `getAccountsWithBalances()`
 - `getTransactionHistory()`
 - `transferBetweenOwnAccounts()`
+- `transferBetweenPersonalAndBusiness()`
+- `transferBetweenOwnBusinesses()`
 - `getActiveLoan()`
 - `applyForLoan()`
 - `payLoan()`

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { createServiceClientFromEnv, toNumber, writeTickRunLog } from "../_shared/tick-runtime.ts";
+import { startTickRequest, toNumber, writeTickRunLog } from "../_shared/tick-runtime.ts";
 
 const WAGE_CHARGE_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -10,14 +10,15 @@ function shouldCharge(lastChargedAt: string | null | undefined, nowMs: number): 
   return nowMs - lastMs >= WAGE_CHARGE_INTERVAL_MS;
 }
 
-Deno.serve(async () => {
+Deno.serve(async (request) => {
+  const requestStart = await startTickRequest(request, "tick-wages");
+  if ("response" in requestStart) return requestStart.response;
+
+  const { supabase, release } = requestStart;
   const startedAt = new Date();
   const startedAtIso = startedAt.toISOString();
-  let supabase;
 
   try {
-    supabase = createServiceClientFromEnv();
-
     const now = new Date();
     const nowIso = now.toISOString();
     const nowMs = now.getTime();
@@ -154,8 +155,7 @@ Deno.serve(async () => {
     const message = error instanceof Error ? error.message : "tick-wages failed";
 
     try {
-      const logger = supabase ?? createServiceClientFromEnv();
-      await writeTickRunLog(logger, {
+      await writeTickRunLog(supabase, {
         tickName: "tick-wages",
         status: "error",
         startedAtIso,
@@ -173,5 +173,7 @@ Deno.serve(async () => {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
+  } finally {
+    await release();
   }
 });

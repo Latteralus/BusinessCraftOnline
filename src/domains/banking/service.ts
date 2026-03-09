@@ -19,6 +19,7 @@ import type {
   PayLoanInput,
   TransactionEntry,
   TransactionHistoryFilter,
+  TransferBetweenOwnBusinessesInput,
   TransferBetweenOwnAccountsInput,
   TransferBetweenPersonalAndBusinessInput,
 } from "./types";
@@ -226,6 +227,23 @@ export async function transferBetweenPersonalAndBusiness(
     p_business_id: input.businessId,
     p_amount: input.amount,
     p_direction: input.direction,
+    p_description: input.description ?? null,
+  });
+
+  if (error) throw error;
+  return { transferId: String(data) };
+}
+
+export async function transferBetweenOwnBusinesses(
+  client: QueryClient,
+  playerId: string,
+  input: TransferBetweenOwnBusinessesInput
+): Promise<{ transferId: string }> {
+  const { data, error } = await client.rpc("transfer_between_own_businesses", {
+    p_player_id: playerId,
+    p_from_business_id: input.fromBusinessId,
+    p_to_business_id: input.toBusinessId,
+    p_amount: input.amount,
     p_description: input.description ?? null,
   });
 

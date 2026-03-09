@@ -66,19 +66,6 @@ export async function POST(request: Request) {
 
     const result = await transferItems(supabase, user.id, input);
 
-    if (result.shippingCost > 0 && input.fundingAccountId) {
-      const accounts = await getAccountsWithBalances(supabase, user.id);
-      const fundingAccount = accounts.find((account) => account.id === input.fundingAccountId);
-
-      if (!fundingAccount) {
-        return badRequest("Funding account not found.");
-      }
-
-      if (fundingAccount.balance < result.shippingCost) {
-        return badRequest("Insufficient funds in selected funding account for shipping cost.");
-      }
-    }
-
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     return fail(error, "Transfer failed.");

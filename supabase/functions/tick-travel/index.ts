@@ -1,23 +1,35 @@
-// @ts-nocheck
-import { createServiceClientFromEnv, writeTickRunLog } from "../_shared/tick-runtime.ts";
+import {
+  isRecord,
+  readNumber,
+  startTickRequest,
+  writeTickRunLog,
+} from "../_shared/tick-runtime.ts";
 
-Deno.serve(async () => {
+function parseTravelTickProcessed(value: unknown): number {
+  if (!isRecord(value)) return 0;
+  return Math.max(0, Math.floor(readNumber(value.processed) ?? 0));
+}
+
+Deno.serve(async (request) => {
+  const requestStart = await startTickRequest(request, "tick-travel");
+  if ("response" in requestStart) return requestStart.response;
+
+  const { supabase, release } = requestStart;
   const startedAt = new Date();
   const startedAtIso = startedAt.toISOString();
 
   try {
-    const supabase = createServiceClientFromEnv();
     const { data, error } = await supabase.rpc("execute_due_travel_arrivals", { p_limit: 500 });
 
     if (error) throw error;
 
-    const stats = (data ?? {}) as { processed?: number };
+    const processed = parseTravelTickProcessed(data);
 
     const finishedAtIso = new Date().toISOString();
     const payload = {
       ok: true,
       function: "tick-travel",
-      processed: Number(stats.processed ?? 0),
+      processed,
     };
 
     await writeTickRunLog(supabase, {
@@ -39,7 +51,6 @@ Deno.serve(async () => {
     const message = error instanceof Error ? error.message : "tick-travel failed";
 
     try {
-      const supabase = createServiceClientFromEnv();
       await writeTickRunLog(supabase, {
         tickName: "tick-travel",
         status: "error",
@@ -58,5 +69,7 @@ Deno.serve(async () => {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
+  } finally {
+    await release();
   }
 });
