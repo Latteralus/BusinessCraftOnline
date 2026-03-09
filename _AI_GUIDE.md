@@ -3,7 +3,6 @@
 Read this file before touching code.
 
 ## Rules
-- Read _COMPLETED.md before any task.
 - Read target domain DOMAIN.md before editing domain files.
 - If a task touches multiple domains, call it out first.
 - Import across domains only through @/domains/<domain>/index.

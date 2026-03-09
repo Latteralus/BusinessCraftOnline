@@ -1,3 +1,4 @@
+import { isStoreBusinessType } from "@/config/businesses";
 import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
 import type { QueryClient } from "@/lib/db/query-client";
 import type {
@@ -11,10 +12,6 @@ function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
   if (typeof value === "string") return Number(value);
   return 0;
-}
-
-function isStoreBusinessType(type: string): type is "general_store" | "specialty_store" {
-  return type === "general_store" || type === "specialty_store";
 }
 
 function normalizeStoreShelfItem(row: StoreShelfItem): StoreShelfItem {

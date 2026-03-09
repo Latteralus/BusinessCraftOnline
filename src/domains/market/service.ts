@@ -1,3 +1,4 @@
+import { STORE_BUSINESS_TYPES, isStoreBusinessType } from "@/config/businesses";
 import { MARKET_TRANSACTION_FEE } from "@/config/market";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
 import { round2, round4, toNumber } from "@/lib/core/number";
@@ -571,7 +572,7 @@ export async function getMarketStorefrontSettings(
     .from("businesses")
     .select("id")
     .eq("player_id", playerId)
-    .in("type", ["general_store", "specialty_store"]);
+    .in("type", [...STORE_BUSINESS_TYPES]);
 
   if (filter.businessId) {
     storesQuery = storesQuery.eq("id", filter.businessId);
@@ -602,7 +603,7 @@ export async function updateMarketStorefrontSettings(
   input: UpdateMarketStorefrontSettingsInput
 ): Promise<MarketStorefrontSetting> {
   const business = await ensureOwnedBusiness(client, playerId, input.businessId);
-  if (!["general_store", "specialty_store"].includes(business.type)) {
+  if (!isStoreBusinessType(business.type)) {
     throw new Error("Storefront settings are only available for store businesses.");
   }
 

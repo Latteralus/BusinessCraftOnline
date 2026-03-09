@@ -1,5 +1,6 @@
 "use client";
 
+import { isStoreBusinessType } from "@/config/businesses";
 import { useState, useEffect, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
@@ -101,7 +102,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
     const effectiveStatus = getWorkerEffectiveStatus(employee.status, employee.shift_ends_at);
     return !getAssignmentForBusiness(employee) && effectiveStatus === "available";
   });
-  const isStoreBusiness = business.type === "general_store" || business.type === "specialty_store";
+  const isStoreBusiness = isStoreBusinessType(business.type);
   const shelfKey = (itemKey: string, quality: number) => `${itemKey}:${quality}`;
   const shelfByInventoryKey = Object.fromEntries(shelfItems.map((item) => [shelfKey(item.item_key, item.quality), item]));
   const availableWorkersForSlots = thisBusinessEmployees

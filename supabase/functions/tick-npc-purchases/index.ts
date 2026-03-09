@@ -2,6 +2,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { startTickRequest } from "../_shared/tick-runtime.ts";
 import {
+  STORE_BUSINESS_TYPES,
+  isStoreBusinessType,
+} from "../../../shared/businesses/store.ts";
+import {
   NPC_CATEGORY_INTEREST_WEIGHTS,
   NPC_DEMAND_CURVE,
   NPC_PRICE_BAND_PERCENT,
@@ -17,7 +21,6 @@ import {
   STOREFRONT_TRAFFIC_MULTIPLIER_MIN,
 } from "../../../shared/economy.ts";
 
-const STORE_TYPES = ["general_store", "specialty_store"] as const;
 const NPC_CATEGORY_INTEREST_WEIGHT_BY_ITEM = Object.fromEntries(
   NPC_CATEGORY_INTEREST_WEIGHTS.map((entry) => [entry.itemKey, entry.weight])
 ) as Record<string, number>;
@@ -354,7 +357,7 @@ Deno.serve(async (request) => {
       await supabase
         .from("businesses")
         .select("id, name, player_id, type, city_id")
-        .in("type", [...STORE_TYPES]);
+        .in("type", [...STORE_BUSINESS_TYPES]);
 
     if (storesError) {
       throw storesError;
@@ -375,7 +378,7 @@ Deno.serve(async (request) => {
       let storeUnitsSold = 0;
       let storeGrossRevenue = 0;
       let storeFeeTotal = 0;
-      const isStoreType = STORE_TYPES.includes(store.type as (typeof STORE_TYPES)[number]);
+      const isStoreType = isStoreBusinessType(String(store.type));
       let listingCapacityLevel = 0;
       let storefrontAppealLevel = 0;
       let customerServiceLevel = 0;

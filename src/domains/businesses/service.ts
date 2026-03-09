@@ -1,6 +1,7 @@
 import {
   BUSINESS_UPGRADE_KEYS_BY_TYPE,
   STARTUP_COSTS,
+  isStoreBusinessType,
   type BusinessEntityType,
   type BusinessType,
   type BusinessUpgradeKey,
@@ -400,7 +401,7 @@ export function summarizeBusinessesWithBalances(
   const producingTypesOwned = new Set(
     businesses
       .map((business) => business.type)
-      .filter((type) => !["general_store", "specialty_store"].includes(type))
+      .filter((type) => !isStoreBusinessType(type))
   ).size;
 
   const topBusiness =

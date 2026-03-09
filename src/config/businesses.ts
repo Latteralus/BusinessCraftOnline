@@ -1,3 +1,8 @@
+import {
+  STORE_BUSINESS_TYPES as SHARED_STORE_BUSINESS_TYPES,
+  isStoreBusinessType as sharedIsStoreBusinessType,
+} from "../../shared/businesses/store";
+
 export const BUSINESS_TYPES = [
   "mine",
   "farm",
@@ -14,6 +19,12 @@ export const BUSINESS_TYPES = [
 ] as const;
 
 export type BusinessType = (typeof BUSINESS_TYPES)[number];
+export const STORE_BUSINESS_TYPES = SHARED_STORE_BUSINESS_TYPES;
+export type StoreBusinessType = (typeof STORE_BUSINESS_TYPES)[number];
+
+export function isStoreBusinessType(type: string): type is StoreBusinessType {
+  return sharedIsStoreBusinessType(type);
+}
 
 export const BUSINESS_ENTITY_TYPES = [
   "sole_proprietorship",
