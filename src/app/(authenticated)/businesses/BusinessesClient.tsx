@@ -6,6 +6,8 @@ import type {
   BusinessSummary,
 } from "@/domains/businesses";
 import type { UpgradeDefinition, UpgradePreview } from "@/domains/upgrades";
+import { apiGet, apiPost } from "@/lib/client/api";
+import { apiRoutes } from "@/lib/client/routes";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -92,27 +94,14 @@ export default function BusinessesClient({ initialData }: Props) {
     if (showLoading) setLoading(true);
     setError(null);
 
-    const [businessesRes, citiesRes, travelRes, definitionsRes] = await Promise.all([
-      fetch("/api/businesses", { cache: "no-store" }),
-      fetch("/api/cities", { cache: "no-store" }),
-      fetch("/api/travel", { cache: "no-store" }),
-      fetch("/api/upgrades", { cache: "no-store" }),
-    ]);
+    try {
+      const [businessesJson, citiesJson, travelJson, definitionsJson] = await Promise.all([
+        apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to fetch businesses." }),
+        apiGet<CitiesResponse>(apiRoutes.cities, { fallbackError: "Failed to fetch cities." }),
+        apiGet<TravelResponse & { error?: string }>(apiRoutes.travel, { fallbackError: "Failed to fetch travel state." }),
+        apiGet<UpgradeDefinitionsResponse>(apiRoutes.upgrades.root, { fallbackError: "Failed to fetch upgrade definitions." }),
+      ]);
 
-    const businessesJson = (await businessesRes.json()) as BusinessesResponse;
-    const citiesJson = (await citiesRes.json()) as CitiesResponse;
-    const travelJson = (await travelRes.json()) as TravelResponse & { error?: string };
-    const definitionsJson = (await definitionsRes.json()) as UpgradeDefinitionsResponse;
-
-    if (!businessesRes.ok) {
-      setError(businessesJson.error ?? "Failed to fetch businesses.");
-    } else if (!citiesRes.ok) {
-      setError(citiesJson.error ?? "Failed to fetch cities.");
-    } else if (!travelRes.ok) {
-      setError(travelJson.error ?? "Failed to fetch travel state.");
-    } else if (!definitionsRes.ok) {
-      setError(definitionsJson.error ?? "Failed to fetch upgrade definitions.");
-    } else {
       setBusinesses(businessesJson.businesses ?? []);
       setSummary(businessesJson.summary ?? null);
       setCities(citiesJson.cities ?? []);
@@ -121,9 +110,11 @@ export default function BusinessesClient({ initialData }: Props) {
       if (travelJson.currentCity?.id) {
         setCreateCityId((current) => current || travelJson.currentCity!.id);
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to refresh businesses.");
+    } finally {
+      if (showLoading) setLoading(false);
     }
-
-    if (showLoading) setLoading(false);
   }
 
   const selectedBusiness = useMemo(
@@ -151,19 +142,16 @@ export default function BusinessesClient({ initialData }: Props) {
         return;
       }
 
-      const response = await fetch("/api/upgrades/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId: selectedBusiness.id, upgradeKey }),
-      });
-
-      const payload = (await response.json()) as UpgradePreviewResponse;
-      if (!response.ok) {
+      try {
+        const payload = await apiPost<UpgradePreviewResponse>(
+          apiRoutes.upgrades.preview,
+          { businessId: selectedBusiness.id, upgradeKey },
+          { fallbackError: "Failed to load upgrade preview." }
+        );
+        setUpgradePreview(payload.preview ?? null);
+      } catch {
         setUpgradePreview(null);
-        return;
       }
-
-      setUpgradePreview(payload.preview ?? null);
     }
 
     void loadUpgradePreview();
@@ -173,49 +161,38 @@ export default function BusinessesClient({ initialData }: Props) {
     if (creating) return;
     setCreating(true);
     setError(null);
+    try {
+      await apiPost(
+        apiRoutes.businesses.root,
+        {
+          name: createName,
+          type: createType,
+          cityId: createCityId,
+        },
+        { fallbackError: "Failed to create business." }
+      );
 
-    const response = await fetch("/api/businesses", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: createName,
-        type: createType,
-        cityId: createCityId,
-      }),
-    });
-
-    const data = await response.json();
-    setCreating(false);
-
-    if (!response.ok) {
-      setError(data.error ?? "Failed to create business.");
-      return;
+      setCreateName("");
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create business.");
+    } finally {
+      setCreating(false);
     }
-
-    setCreateName("");
-    await loadData();
   }
 
   async function submitUpgrade() {
     if (!upgradeBusinessId || upgrading) return;
     setUpgrading(true);
     setError(null);
-
-    const response = await fetch(`/api/businesses/${upgradeBusinessId}/upgrade`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ upgradeKey }),
-    });
-
-    const data = await response.json();
-    setUpgrading(false);
-
-    if (!response.ok) {
-      setError(data.error ?? "Failed to purchase upgrade.");
-      return;
+    try {
+      await apiPost(apiRoutes.businesses.upgrade(upgradeBusinessId), { upgradeKey }, { fallbackError: "Failed to purchase upgrade." });
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to purchase upgrade.");
+    } finally {
+      setUpgrading(false);
     }
-
-    await loadData();
   }
 
   return (

@@ -4,6 +4,8 @@ import { NPC_PRICE_CEILINGS } from "@/config/items";
 import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } from "@/domains/inventory";
 import type { BankAccountWithBalance } from "@/domains/banking";
 import type { BusinessWithBalance } from "@/domains/businesses";
+import { apiGet, apiPost } from "@/lib/client/api";
+import { apiRoutes } from "@/lib/client/routes";
 import { formatItemKey } from "@/lib/items";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -64,31 +66,49 @@ export default function InventoryClient({ initialData }: Props) {
     [businesses]
   );
 
+  type InventoryResponse = {
+    personalInventory: PersonalInventoryItem[];
+    businessInventory: BusinessInventoryItem[];
+    shippingQueue: ShippingQueueItem[];
+    businessNamesById: Record<string, string>;
+    cityNamesById: Record<string, string>;
+    error?: string;
+  };
+
+  type AccountsResponse = {
+    accounts: BankAccountWithBalance[];
+    error?: string;
+  };
+
+  type BusinessesResponse = {
+    businesses: BusinessWithBalance[];
+    error?: string;
+  };
+
+  type CitiesResponse = {
+    cities: Array<{ id: string; name: string }>;
+    error?: string;
+  };
+
+  type TransferResponse = {
+    transferType?: "shipping" | "instant";
+    shippingMinutes?: number;
+    shippingCost?: number;
+    error?: string;
+  };
+
   async function loadData() {
     setLoading(true);
     setError(null);
 
-    const [inventoryRes, accountsRes, businessesRes, citiesRes] = await Promise.all([
-      fetch("/api/inventory", { cache: "no-store" }),
-      fetch("/api/banking/accounts", { cache: "no-store" }),
-      fetch("/api/businesses", { cache: "no-store" }),
-      fetch("/api/cities", { cache: "no-store" }),
-    ]);
+    try {
+      const [inventoryJson, accountsJson, businessesJson, citiesJson] = await Promise.all([
+        apiGet<InventoryResponse>(apiRoutes.inventory.root, { fallbackError: "Failed to load inventory." }),
+        apiGet<AccountsResponse>(apiRoutes.banking.accounts, { fallbackError: "Failed to load bank accounts." }),
+        apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." }),
+        apiGet<CitiesResponse>(apiRoutes.cities, { fallbackError: "Failed to load cities." }),
+      ]);
 
-    const inventoryJson = await inventoryRes.json();
-    const accountsJson = await accountsRes.json();
-    const businessesJson = await businessesRes.json();
-    const citiesJson = await citiesRes.json();
-
-    if (!inventoryRes.ok) {
-      setError(inventoryJson.error ?? "Failed to load inventory.");
-    } else if (!accountsRes.ok) {
-      setError(accountsJson.error ?? "Failed to load bank accounts.");
-    } else if (!businessesRes.ok) {
-      setError(businessesJson.error ?? "Failed to load businesses.");
-    } else if (!citiesRes.ok) {
-      setError(citiesJson.error ?? "Failed to load cities.");
-    } else {
       setPersonalInventory(inventoryJson.personalInventory ?? []);
       setBusinessInventory(inventoryJson.businessInventory ?? []);
       setShippingQueue(inventoryJson.shippingQueue ?? []);
@@ -100,9 +120,11 @@ export default function InventoryClient({ initialData }: Props) {
       setCityNamesById(nextCityNamesById);
       setAccounts(accountsJson.accounts ?? []);
       setBusinesses(businessesJson.businesses ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to refresh inventory.");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   async function submitTransfer() {
@@ -114,37 +136,36 @@ export default function InventoryClient({ initialData }: Props) {
     const selectedSource = businessOptions.find((option) => option.businessId === sourceBusinessId);
     const selectedDestination = businessOptions.find((option) => option.businessId === destinationBusinessId);
 
-    const response = await fetch("/api/inventory/transfer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sourceType,
-        sourceBusinessId: sourceType === "business" ? sourceBusinessId : undefined,
-        sourceCityId: sourceType === "business" ? selectedSource?.cityId : undefined,
+    try {
+      const data = await apiPost<TransferResponse>(
+        apiRoutes.inventory.transfer,
+        {
+          sourceType,
+          sourceBusinessId: sourceType === "business" ? sourceBusinessId : undefined,
+          sourceCityId: sourceType === "business" ? selectedSource?.cityId : undefined,
         destinationType,
         destinationBusinessId: destinationType === "business" ? destinationBusinessId : undefined,
         destinationCityId: destinationType === "business" ? selectedDestination?.cityId : undefined,
-        itemKey: itemKey.trim(),
-        quantity: Number(quantity),
-        quality: Number(quality),
-        fundingAccountId,
-      }),
-    });
+          itemKey: itemKey.trim(),
+          quantity: Number(quantity),
+          quality: Number(quality),
+          fundingAccountId,
+        },
+        { fallbackError: "Transfer failed." }
+      );
 
-    const data = await response.json();
-    setSubmitting(false);
-    if (!response.ok) {
-      setError(data.error ?? "Transfer failed.");
-      return;
+      setSuccess(
+        data.transferType === "shipping"
+          ? `Transfer queued for shipping (${data.shippingMinutes ?? 0} min, ${formatCurrency(data.shippingCost ?? 0)}).`
+          : "Transfer completed instantly."
+      );
+
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Transfer failed.");
+    } finally {
+      setSubmitting(false);
     }
-
-    setSuccess(
-      data.transferType === "shipping"
-        ? `Transfer queued for shipping (${data.shippingMinutes ?? 0} min, ${formatCurrency(data.shippingCost ?? 0)}).`
-        : "Transfer completed instantly."
-    );
-
-    await loadData();
   }
 
   return (

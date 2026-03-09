@@ -12,6 +12,8 @@ import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import type { UpgradeDefinition } from "@/domains/upgrades";
 import { calculateUpgradePreview } from "@/domains/upgrades";
 import { BASE_WAGE_PER_HOUR } from "@/config/employees";
+import { apiDelete, apiPost } from "@/lib/client/api";
+import { apiRoutes } from "@/lib/client/routes";
 import { formatItemKey } from "@/lib/items";
 
 type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades";
@@ -122,205 +124,124 @@ export default function BusinessDetailsClient({ business, production, manufactur
       );
     });
 
-  async function assignSlot(slotId: string) {
-    const employeeId = assignSelections[slotId];
-    if (!employeeId || busy) return;
-    
+  async function runBusyAction(action: () => Promise<void>, fallbackMessage: string) {
+    if (busy) return;
+
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/production/slots/assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slotId, employeeId }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to assign employee to slot.");
-      
+      await action();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : fallbackMessage);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function assignSlot(slotId: string) {
+    const employeeId = assignSelections[slotId];
+    if (!employeeId || busy) return;
+
+    await runBusyAction(async () => {
+      await apiPost(apiRoutes.production.assignSlot, { slotId, employeeId }, { fallbackError: "Failed to assign employee to slot." });
+
       setAssignSelections(prev => {
         const next = { ...prev };
         delete next[slotId];
         return next;
       });
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error assigning slot");
-    } finally {
-      setBusy(false);
-    }
+    }, "Error assigning slot");
   }
 
   async function unassignSlot(slotId: string) {
     if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/production/slots/unassign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slotId }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to unassign slot.");
+    await runBusyAction(async () => {
+      await apiPost(apiRoutes.production.unassignSlot, { slotId }, { fallbackError: "Failed to unassign slot." });
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error unassigning slot");
-    } finally {
-      setBusy(false);
-    }
+    }, "Error unassigning slot");
   }
 
   async function setSlotStatus(slotId: string, status: "active" | "idle") {
     if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/production/slots/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slotId, status }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to set slot status.");
+    await runBusyAction(async () => {
+      await apiPost(apiRoutes.production.slotStatus, { slotId, status }, { fallbackError: "Failed to set slot status." });
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error setting slot status");
-    } finally {
-      setBusy(false);
-    }
+    }, "Error setting slot status");
   }
 
   async function purchaseUpgrade(upgradeKey: string) {
     if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/businesses/${business.id}/upgrade`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ upgradeKey }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to purchase upgrade.");
+    await runBusyAction(async () => {
+      await apiPost(apiRoutes.businesses.upgrade(business.id), { upgradeKey }, { fallbackError: "Failed to purchase upgrade." });
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error purchasing upgrade");
-    } finally {
-      setBusy(false);
-    }
+    }, "Error purchasing upgrade");
   }
 
   async function hireEmployee(employeeType: string) {
     if (busy) return;
-    setBusy(true);
-    setError(null);
     const randomFirstName = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
     const randomLastName = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
 
-    try {
-      const res = await fetch("/api/employees", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+    await runBusyAction(async () => {
+      await apiPost(
+        apiRoutes.employees.root,
+        {
           firstName: randomFirstName,
           lastName: randomLastName,
           businessId: business.id,
           employeeType,
           specialtySkillKey: employeeType === "specialist" ? "logistics" : undefined,
-        }),
-      });
-      if (!res.ok) {
-        let message = "Failed to hire employee.";
-        try {
-          const payload = await res.json();
-          if (payload?.error) message = payload.error;
-        } catch {
-          // Ignore parse errors and use fallback message.
-        }
-        throw new Error(message);
-      }
+        },
+        { fallbackError: "Failed to hire employee." }
+      );
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error hiring employee");
-    } finally {
-      setBusy(false);
-    }
+    }, "Error hiring employee");
   }
 
   async function fireEmployee(employeeId: string) {
     if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/employees/${employeeId}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        let message = "Failed to fire employee.";
-        try {
-          const payload = await res.json();
-          if (payload?.error) message = payload.error;
-        } catch {
-          // Ignore parse errors and use fallback message.
-        }
-        throw new Error(message);
-      }
+    await runBusyAction(async () => {
+      await apiDelete(apiRoutes.employees.detail(employeeId), undefined, { fallbackError: "Failed to fire employee." });
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error firing employee");
-    } finally {
-      setBusy(false);
-    }
+    }, "Error firing employee");
   }
 
   async function unassignEmployeeGlobal(employeeId: string) {
     if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/employees/unassign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employeeId }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to unassign employee.");
+    await runBusyAction(async () => {
+      await apiPost(apiRoutes.employees.unassign, { employeeId }, { fallbackError: "Failed to unassign employee." });
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error unassigning employee");
-    } finally {
-      setBusy(false);
-    }
+    }, "Error unassigning employee");
   }
 
   async function assignEmployeeToThisBusiness(employeeId: string) {
     if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/employees/assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+    await runBusyAction(async () => {
+      await apiPost(
+        apiRoutes.employees.assign,
+        {
           employeeId,
           businessId: business.id,
           role: "production",
           roleSkillKey: "logistics"
-        }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to assign employee.");
+        },
+        { fallbackError: "Failed to assign employee." }
+      );
 
       if (production?.slots?.length) {
         const firstOpenSlot = production.slots.find((slot) => !slot.employee_id);
         if (firstOpenSlot) {
-          const slotRes = await fetch("/api/production/slots/assign", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ slotId: firstOpenSlot.id, employeeId }),
-          });
-          if (!slotRes.ok) {
-            let slotMessage = "Employee assigned to business, but slot assignment failed.";
-            try {
-              const payload = await slotRes.json();
-              if (payload?.error) slotMessage = `Employee assigned to business, but slot assignment failed: ${payload.error}`;
-            } catch {
-              // Ignore parse errors and use fallback message.
-            }
+          try {
+            await apiPost(
+              apiRoutes.production.assignSlot,
+              { slotId: firstOpenSlot.id, employeeId },
+              { fallbackError: "Employee assigned to business, but slot assignment failed." }
+            );
+          } catch (err) {
+            const slotMessage = err instanceof Error
+              ? `Employee assigned to business, but slot assignment failed: ${err.message}`
+              : "Employee assigned to business, but slot assignment failed.";
             setError(slotMessage);
           }
         }
@@ -330,105 +251,73 @@ export default function BusinessDetailsClient({ business, production, manufactur
         setBusinessAssignEmployeeId("");
       }
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error assigning employee");
-    } finally {
-      setBusy(false);
-    }
+    }, "Error assigning employee");
   }
 
   async function handleActionSubmit(item: BusinessInventoryItem) {
     if (!marketActionItem || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
+    await runBusyAction(async () => {
       if (marketActionItem.type === "market") {
-        const res = await fetch("/api/market", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        await apiPost(
+          apiRoutes.market.root,
+          {
             sourceBusinessId: business.id,
             itemKey: item.item_key,
             quality: item.quality,
             quantity: actionQuantity,
             unitPrice: actionPrice,
-          }),
-        });
-        if (!res.ok) throw new Error((await res.json()).error || "Failed to create market listing.");
+          },
+          { fallbackError: "Failed to create market listing." }
+        );
       } else if (marketActionItem.type === "transfer") {
-        const res = await fetch("/api/inventory/transfer", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        await apiPost(
+          apiRoutes.inventory.transfer,
+          {
             sourceType: "business",
             sourceBusinessId: business.id,
             destinationType: "personal",
             itemKey: item.item_key,
             quality: item.quality,
             quantity: actionQuantity,
-          }),
-        });
-        if (!res.ok) throw new Error((await res.json()).error || "Failed to transfer item.");
+          },
+          { fallbackError: "Failed to transfer item." }
+        );
       }
       setMarketActionItem(null);
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error performing action");
-    } finally {
-      setBusy(false);
-    }
+    }, "Error performing action");
   }
 
   async function saveShelfItem(item: BusinessInventoryItem) {
     if (!shelfActionItem || busy) return;
 
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/stores/shelves", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+    await runBusyAction(async () => {
+      await apiPost(
+        apiRoutes.stores.shelves,
+        {
           businessId: business.id,
           itemKey: item.item_key,
           quality: item.quality,
           quantity: shelfQuantity,
           unitPrice: shelfPrice,
-        }),
-      });
-
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to save shelf item.");
+        },
+        { fallbackError: "Failed to save shelf item." }
+      );
       setShelfActionItem(null);
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error saving shelf item");
-    } finally {
-      setBusy(false);
-    }
+    }, "Error saving shelf item");
   }
 
   async function removeShelfItem(shelfItemId: string) {
     if (busy) return;
 
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/stores/shelves", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shelfItemId }),
-      });
-
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to remove shelf item.");
+    await runBusyAction(async () => {
+      await apiDelete(apiRoutes.stores.shelves, { shelfItemId }, { fallbackError: "Failed to remove shelf item." });
       if (shelfActionItem) {
         setShelfActionItem(null);
       }
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error removing shelf item");
-    } finally {
-      setBusy(false);
-    }
+    }, "Error removing shelf item");
   }
 
   return (

@@ -2,6 +2,8 @@
 
 import type { BankAccountWithBalance, LoanSummary, TransactionEntry } from "@/domains/banking";
 import type { BusinessWithBalance } from "@/domains/businesses";
+import { apiGet, apiPost } from "@/lib/client/api";
+import { apiRoutes } from "@/lib/client/routes";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -69,34 +71,23 @@ export default function BankingClient({ initialData }: Props) {
     setLoading(true);
     setError(null);
 
-    const [accountsRes, loanRes, txRes, businessesRes] = await Promise.all([
-      fetch("/api/banking/accounts", { cache: "no-store" }),
-      fetch("/api/banking/loan", { cache: "no-store" }),
-      fetch("/api/banking/transactions?limit=30", { cache: "no-store" }),
-      fetch("/api/businesses", { cache: "no-store" }),
-    ]);
+    try {
+      const [accountsJson, loanJson, txJson, businessesJson] = await Promise.all([
+        apiGet<AccountsResponse>(apiRoutes.banking.accounts, { fallbackError: "Failed to load accounts." }),
+        apiGet<LoanResponse & { error?: string }>(apiRoutes.banking.loan, { fallbackError: "Failed to load loan status." }),
+        apiGet<TransactionsResponse>(apiRoutes.banking.transactions(30), { fallbackError: "Failed to load transaction history." }),
+        apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." }),
+      ]);
 
-    const accountsJson = (await accountsRes.json()) as AccountsResponse;
-    const loanJson = (await loanRes.json()) as LoanResponse & { error?: string };
-    const txJson = (await txRes.json()) as TransactionsResponse;
-    const businessesJson = (await businessesRes.json()) as BusinessesResponse;
-
-    if (!accountsRes.ok) {
-      setError(accountsJson.error ?? "Failed to load accounts.");
-    } else if (!loanRes.ok) {
-      setError(loanJson.error ?? "Failed to load loan status.");
-    } else if (!txRes.ok) {
-      setError(txJson.error ?? "Failed to load transaction history.");
-    } else if (!businessesRes.ok) {
-      setError(businessesJson.error ?? "Failed to load businesses.");
-    } else {
       setAccounts(accountsJson.accounts ?? []);
       setLoanData(loanJson);
       setTransactions(txJson.entries ?? []);
       setBusinesses(businessesJson.businesses ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to refresh banking data.");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   const checkingAccount = useMemo(
@@ -108,104 +99,96 @@ export default function BankingClient({ initialData }: Props) {
     if (transferSubmitting) return;
     setTransferSubmitting(true);
     setError(null);
-    const response = await fetch("/api/banking/transfer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fromAccountId, toAccountId, amount: Number(transferAmount) }),
-    });
-    const data = await response.json();
-    setTransferSubmitting(false);
-    if (!response.ok) {
-      setError(data.error ?? "Transfer failed.");
-      return;
+    try {
+      await apiPost(apiRoutes.banking.transfer, { fromAccountId, toAccountId, amount: Number(transferAmount) }, { fallbackError: "Transfer failed." });
+      setTransferAmount("");
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Transfer failed.");
+    } finally {
+      setTransferSubmitting(false);
     }
-    setTransferAmount("");
-    await loadData();
   }
 
   async function submitPersonalBusinessTransfer() {
     if (personalBusinessSubmitting) return;
     setPersonalBusinessSubmitting(true);
     setError(null);
-    const response = await fetch("/api/banking/business-transfer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        personalAccountId: personalBusinessAccountId,
-        businessId: personalBusinessId,
-        amount: Number(personalBusinessAmount),
-        direction: personalBusinessDirection,
-      }),
-    });
-    const data = await response.json();
-    setPersonalBusinessSubmitting(false);
-    if (!response.ok) {
-      setError(data.error ?? "Transfer failed.");
-      return;
+    try {
+      await apiPost(
+        apiRoutes.banking.personalBusinessTransfer,
+        {
+          personalAccountId: personalBusinessAccountId,
+          businessId: personalBusinessId,
+          amount: Number(personalBusinessAmount),
+          direction: personalBusinessDirection,
+        },
+        { fallbackError: "Transfer failed." }
+      );
+      setPersonalBusinessAmount("");
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Transfer failed.");
+    } finally {
+      setPersonalBusinessSubmitting(false);
     }
-    setPersonalBusinessAmount("");
-    await loadData();
   }
 
   async function submitOwnedBusinessTransfer() {
     if (ownedBusinessSubmitting) return;
     setOwnedBusinessSubmitting(true);
     setError(null);
-    const response = await fetch("/api/banking/businesses-transfer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fromBusinessId: fromOwnedBusinessId,
-        toBusinessId: toOwnedBusinessId,
-        amount: Number(ownedBusinessAmount),
-      }),
-    });
-    const data = await response.json();
-    setOwnedBusinessSubmitting(false);
-    if (!response.ok) {
-      setError(data.error ?? "Transfer failed.");
-      return;
+    try {
+      await apiPost(
+        apiRoutes.banking.businessToBusinessTransfer,
+        {
+          fromBusinessId: fromOwnedBusinessId,
+          toBusinessId: toOwnedBusinessId,
+          amount: Number(ownedBusinessAmount),
+        },
+        { fallbackError: "Transfer failed." }
+      );
+      setOwnedBusinessAmount("");
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Transfer failed.");
+    } finally {
+      setOwnedBusinessSubmitting(false);
     }
-    setOwnedBusinessAmount("");
-    await loadData();
   }
 
   async function submitLoanApplication() {
     if (loanSubmitting) return;
     setLoanSubmitting(true);
     setError(null);
-    const response = await fetch("/api/banking/loan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ principal: Number(loanPrincipal) }),
-    });
-    const data = await response.json();
-    setLoanSubmitting(false);
-    if (!response.ok) {
-      setError(data.error ?? "Loan application failed.");
-      return;
+    try {
+      await apiPost(apiRoutes.banking.loan, { principal: Number(loanPrincipal) }, { fallbackError: "Loan application failed." });
+      setLoanPrincipal("");
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Loan application failed.");
+    } finally {
+      setLoanSubmitting(false);
     }
-    setLoanPrincipal("");
-    await loadData();
   }
 
   async function submitLoanPayment() {
     if (!loanData?.summary?.loan.id || paymentSubmitting) return;
     setPaymentSubmitting(true);
     setError(null);
-    const response = await fetch("/api/banking/loan/payment", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ loanId: loanData.summary.loan.id, amount: Number(paymentAmount) }),
-    });
-    const data = await response.json();
-    setPaymentSubmitting(false);
-    if (!response.ok) {
-      setError(data.error ?? "Loan payment failed.");
-      return;
+    try {
+      await apiPost(
+        apiRoutes.banking.loanPayment,
+        { loanId: loanData.summary.loan.id, amount: Number(paymentAmount) },
+        { fallbackError: "Loan payment failed." }
+      );
+      setPaymentAmount("");
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Loan payment failed.");
+    } finally {
+      setPaymentSubmitting(false);
     }
-    setPaymentAmount("");
-    await loadData();
   }
 
   return (

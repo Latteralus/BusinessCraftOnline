@@ -5,6 +5,8 @@ import type { BusinessWithBalance } from "@/domains/businesses";
 import type { MarketListing, MarketStorefrontSetting, MarketTransaction } from "@/domains/market";
 import { formatMarketTransactionLine } from "@/domains/market/feed";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
+import { apiGet, apiPost } from "@/lib/client/api";
+import { apiRoutes } from "@/lib/client/routes";
 import { formatItemKey } from "@/lib/items";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -98,26 +100,20 @@ export default function MarketClient({ initialData }: Props) {
   }, [businesses, listings, transactions]);
 
   async function loadBusinesses() {
-    const response = await fetch("/api/businesses", { cache: "no-store" });
-    const payload = (await response.json()) as BusinessesResponse;
-    if (!response.ok) throw new Error(payload.error ?? "Failed to load businesses.");
+    const payload = await apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." });
     setBusinesses(payload.businesses ?? []);
   }
 
   async function loadListings() {
-    const response = await fetch("/api/market?includeTransactions=true&transactionsLimit=40", {
-      cache: "no-store",
+    const payload = await apiGet<ListingsResponse>(apiRoutes.market.listings({ includeTransactions: true, transactionsLimit: 40 }), {
+      fallbackError: "Failed to load market listings.",
     });
-    const payload = (await response.json()) as ListingsResponse;
-    if (!response.ok) throw new Error(payload.error ?? "Failed to load market listings.");
     setListings(payload.listings ?? []);
     setTransactions(payload.transactions ?? []);
   }
 
   async function loadStorefrontSettings() {
-    const response = await fetch("/api/market/storefront", { cache: "no-store" });
-    const payload = (await response.json()) as StorefrontResponse;
-    if (!response.ok) throw new Error(payload.error ?? "Failed to load storefront settings.");
+    const payload = await apiGet<StorefrontResponse>(apiRoutes.market.storefront, { fallbackError: "Failed to load storefront settings." });
 
     const mapped = Object.fromEntries((payload.storefront ?? []).map((row) => [row.business_id, row]));
     setStorefrontByBusinessId(mapped);
@@ -155,39 +151,28 @@ export default function MarketClient({ initialData }: Props) {
     if (!sourceBusinessId || busy) return;
     setBusy(true);
     setError(null);
-
-    const response = await fetch("/api/market", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourceBusinessId, itemKey, quality, quantity, unitPrice }),
-    });
-
-    const payload = (await response.json()) as { error?: string };
-    setBusy(false);
-
-    if (!response.ok) {
-      setError(payload.error ?? "Failed to create listing.");
-      return;
+    try {
+      await apiPost(apiRoutes.market.root, { sourceBusinessId, itemKey, quality, quantity, unitPrice }, { fallbackError: "Failed to create listing." });
+      await loadListings();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create listing.");
+    } finally {
+      setBusy(false);
     }
-
-    await loadListings();
   }
 
   async function cancelListing(listingId: string) {
     if (busy) return;
     setBusy(true);
     setError(null);
-
-    const response = await fetch(`/api/market/${listingId}/cancel`, { method: "POST" });
-    const payload = (await response.json()) as { error?: string };
-    setBusy(false);
-
-    if (!response.ok) {
-      setError(payload.error ?? "Failed to cancel listing.");
-      return;
+    try {
+      await apiPost(apiRoutes.market.cancel(listingId), undefined, { fallbackError: "Failed to cancel listing." });
+      await loadListings();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to cancel listing.");
+    } finally {
+      setBusy(false);
     }
-
-    await loadListings();
   }
 
   async function buyListing(listingId: string) {
@@ -195,52 +180,47 @@ export default function MarketClient({ initialData }: Props) {
 
     setBusy(true);
     setError(null);
-    const response = await fetch(`/api/market/${listingId}/buy`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        quantity: Math.max(1, buyQuantityByListingId[listingId] ?? 1),
-        buyerBusinessId,
-      }),
-    });
-
-    const payload = (await response.json()) as { error?: string };
-    setBusy(false);
-
-    if (!response.ok) {
-      setError(payload.error ?? "Failed to buy listing.");
-      return;
+    try {
+      await apiPost(
+        apiRoutes.market.buy(listingId),
+        {
+          quantity: Math.max(1, buyQuantityByListingId[listingId] ?? 1),
+          buyerBusinessId,
+        },
+        { fallbackError: "Failed to buy listing." }
+      );
+      await loadListings();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to buy listing.");
+    } finally {
+      setBusy(false);
     }
-
-    await loadListings();
   }
 
   async function saveStorefrontSettings() {
     if (!sourceBusinessId || busy) return;
     setBusy(true);
     setError(null);
+    try {
+      const payload = await apiPost<{ storefront?: MarketStorefrontSetting; error?: string }>(
+        apiRoutes.market.storefront,
+        {
+          businessId: sourceBusinessId,
+          adBudgetPerTick: storefrontAdBudget,
+          trafficMultiplier: storefrontTrafficMultiplier,
+          isAdEnabled: storefrontAdEnabled,
+        },
+        { fallbackError: "Failed to update storefront settings." }
+      );
 
-    const response = await fetch("/api/market/storefront", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        businessId: sourceBusinessId,
-        adBudgetPerTick: storefrontAdBudget,
-        trafficMultiplier: storefrontTrafficMultiplier,
-        isAdEnabled: storefrontAdEnabled,
-      }),
-    });
-
-    const payload = (await response.json()) as { storefront?: MarketStorefrontSetting; error?: string };
-    setBusy(false);
-
-    if (!response.ok) {
-      setError(payload.error ?? "Failed to update storefront settings.");
-      return;
-    }
-
-    if (payload.storefront) {
-      setStorefrontByBusinessId((prev) => ({ ...prev, [payload.storefront!.business_id]: payload.storefront! }));
+      if (payload.storefront) {
+        const storefront = payload.storefront;
+        setStorefrontByBusinessId((prev) => ({ ...prev, [storefront.business_id]: storefront }));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update storefront settings.");
+    } finally {
+      setBusy(false);
     }
   }
 
