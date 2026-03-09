@@ -69,10 +69,6 @@ export async function getPlayerProfilePreview(
     ...(row as PlayerProfilePreview),
     business_level: Number((row as PlayerProfilePreview).business_level),
     net_worth: Number((row as PlayerProfilePreview).net_worth),
-    personal_cash: Number((row as PlayerProfilePreview).personal_cash),
-    business_cash: Number((row as PlayerProfilePreview).business_cash),
-    business_asset_value: Number((row as PlayerProfilePreview).business_asset_value),
-    liabilities: Number((row as PlayerProfilePreview).liabilities),
     total_businesses: Number((row as PlayerProfilePreview).total_businesses),
     is_online: Boolean((row as PlayerProfilePreview).is_online),
   };
@@ -88,11 +84,7 @@ export async function getPublicPlayerBusinesses(
 
   if (error) throw error;
 
-  return ((data as PublicPlayerBusiness[]) ?? []).map((row) => ({
-    ...row,
-    value: Number(row.value),
-    balance: Number(row.balance),
-  }));
+  return (data as PublicPlayerBusiness[]) ?? [];
 }
 
 export async function getPlayer(

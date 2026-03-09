@@ -77,6 +77,8 @@ export function Topbar({
   const chatRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const isChatOpenRef = useRef(false);
+  const hasInitializedChatRef = useRef(false);
+  const lastViewedChatAtRef = useRef<string | null>(null);
 
   const appShellQuery = useQuery({
     queryKey: queryKeys.appShell,
@@ -89,9 +91,44 @@ export function Topbar({
   const chatQuery = useQuery({
     queryKey: queryKeys.chatMessages,
     queryFn: fetchChatMessages,
+    refetchInterval: 5_000,
     staleTime: 10_000,
-    enabled: isChatOpen,
   });
+
+  function getLatestChatTimestamp(messages: ChatMessage[]) {
+    return messages[messages.length - 1]?.created_at ?? null;
+  }
+
+  function applyIncomingMessages(incoming: ChatMessage[]) {
+    setChatMessages((current) => {
+      const merged = mergeChatMessages(current, incoming);
+      const currentIds = new Set(current.map((message) => message.id));
+      const newMessages = incoming.filter((message) => !currentIds.has(message.id));
+      const latestMergedTimestamp = getLatestChatTimestamp(merged);
+
+      if (!hasInitializedChatRef.current) {
+        hasInitializedChatRef.current = true;
+        lastViewedChatAtRef.current = latestMergedTimestamp;
+        setChatUnreadCount(0);
+        return merged;
+      }
+
+      if (isChatOpenRef.current) {
+        lastViewedChatAtRef.current = latestMergedTimestamp;
+        setChatUnreadCount(0);
+        return merged;
+      }
+
+      const lastViewedAt = lastViewedChatAtRef.current ? new Date(lastViewedChatAtRef.current).getTime() : Number.POSITIVE_INFINITY;
+      const unreadDelta = newMessages.filter((message) => new Date(message.created_at).getTime() > lastViewedAt).length;
+
+      if (unreadDelta > 0) {
+        setChatUnreadCount((currentUnread) => currentUnread + unreadDelta);
+      }
+
+      return merged;
+    });
+  }
 
   useEffect(() => {
     setIdentity({
@@ -124,7 +161,7 @@ export function Topbar({
       return;
     }
 
-    setChatMessages(mergeChatMessages([], chatQuery.data?.messages ?? []));
+    applyIncomingMessages(chatQuery.data?.messages ?? []);
     setChatError(null);
     setIsChatLoading(false);
   }, [chatQuery.data, chatQuery.error, chatQuery.isPending]);
@@ -140,6 +177,7 @@ export function Topbar({
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
     if (isChatOpen) {
+      lastViewedChatAtRef.current = getLatestChatTimestamp(chatMessages);
       setChatUnreadCount(0);
     }
   }, [isChatOpen]);
@@ -190,13 +228,9 @@ export function Topbar({
             queryClient.setQueryData(queryKeys.chatMessages, (current: { messages?: ChatMessage[] } | undefined) => ({
               messages: mergeChatMessages(current?.messages ?? [], [message]),
             }));
-            setChatMessages((current) => mergeChatMessages(current, [message]));
+            applyIncomingMessages([message]);
             setChatError(null);
             setIsChatLoading(false);
-
-            if (!isChatOpenRef.current) {
-              setChatUnreadCount((current) => current + 1);
-            }
           }
         )
         .subscribe();

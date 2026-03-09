@@ -12,10 +12,6 @@ returns table (
   last_seen_at timestamptz,
   is_online boolean,
   net_worth numeric,
-  personal_cash numeric,
-  business_cash numeric,
-  business_asset_value numeric,
-  liabilities numeric,
   total_businesses integer
 )
 language sql
@@ -91,10 +87,6 @@ as $$
       coalesce(bv.total, 0) -
       coalesce(al.total, 0)
     )::numeric, 2) as net_worth,
-    coalesce(pb.total, 0) as personal_cash,
-    coalesce(bb.total, 0) as business_cash,
-    coalesce(bv.total, 0) as business_asset_value,
-    coalesce(al.total, 0) as liabilities,
     coalesce(bv.business_count, 0) as total_businesses
   from target_player tp
   join public.characters c on c.player_id = tp.id
@@ -115,26 +107,12 @@ returns table (
   city_id uuid,
   city_name text,
   entity_type text,
-  value numeric,
-  balance numeric,
   created_at timestamptz
 )
 language sql
 security definer
 set search_path = public
 as $$
-  with business_balances as (
-    select
-      ba.business_id,
-      round(coalesce(sum(
-        case
-          when ba.entry_type = 'credit' then ba.amount
-          else -ba.amount
-        end
-      ), 0)::numeric, 2) as balance
-    from public.business_accounts ba
-    group by ba.business_id
-  )
   select
     b.id as business_id,
     b.player_id,
@@ -143,12 +121,9 @@ as $$
     b.city_id,
     city.name as city_name,
     b.entity_type::text,
-    round(coalesce(b.value, 0)::numeric, 2) as value,
-    coalesce(bb.balance, 0) as balance,
     b.created_at
   from public.businesses b
   left join public.cities city on city.id = b.city_id
-  left join business_balances bb on bb.business_id = b.id
   where b.player_id = p_player_id
   order by b.created_at desc, b.name asc;
 $$;

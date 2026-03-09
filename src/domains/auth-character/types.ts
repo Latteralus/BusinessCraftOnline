@@ -40,10 +40,6 @@ export type PlayerProfilePreview = {
   last_seen_at: string | null;
   is_online: boolean;
   net_worth: number;
-  personal_cash: number;
-  business_cash: number;
-  business_asset_value: number;
-  liabilities: number;
   total_businesses: number;
 };
 
@@ -55,8 +51,6 @@ export type PublicPlayerBusiness = {
   city_id: string;
   city_name: string | null;
   entity_type: string;
-  value: number;
-  balance: number;
   created_at: string;
 };
 

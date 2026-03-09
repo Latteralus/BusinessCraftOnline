@@ -7,7 +7,7 @@ import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import type { PlayerProfilePreview, PublicPlayerBusiness } from "@/domains/auth-character";
 import { formatCurrency, formatDateTime, formatLabel } from "@/lib/formatters";
 
-type TabType = "overview" | "businesses" | "finance";
+type TabType = "overview" | "businesses" | "details";
 
 type Props = {
   profile: PlayerProfilePreview;
@@ -72,7 +72,7 @@ export default function PlayerProfileClient({
   }, { intervalMs: 30_000, enabled: true });
 
   useEffect(() => {
-    if (initialTab && ["overview", "businesses", "finance"].includes(initialTab)) {
+    if (initialTab && ["overview", "businesses", "details"].includes(initialTab)) {
       setActiveTab(initialTab as TabType);
     }
   }, [initialTab]);
@@ -84,7 +84,7 @@ export default function PlayerProfileClient({
         style={{ padding: 0, borderBottom: "1px solid var(--border-subtle)", overflowX: "auto" }}
       >
         <div style={{ display: "flex", gap: 24, padding: "0 24px" }}>
-          {(["overview", "businesses", "finance"] as TabType[]).map((tab) => (
+          {(["overview", "businesses", "details"] as TabType[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -143,12 +143,12 @@ export default function PlayerProfileClient({
               </div>
 
               <div style={{ padding: 18, borderRadius: 12, background: "var(--bg-primary)" }}>
-                <h3 style={{ marginTop: 0, marginBottom: 14 }}>Holdings</h3>
+                <h3 style={{ marginTop: 0, marginBottom: 14 }}>Public Snapshot</h3>
                 <div style={{ display: "grid", gap: 10, color: "var(--text-secondary)" }}>
-                  <div><strong style={{ color: "var(--text-primary)" }}>Personal Cash:</strong> {formatCurrency(profile.personal_cash)}</div>
-                  <div><strong style={{ color: "var(--text-primary)" }}>Business Cash:</strong> {formatCurrency(profile.business_cash)}</div>
-                  <div><strong style={{ color: "var(--text-primary)" }}>Business Asset Value:</strong> {formatCurrency(profile.business_asset_value)}</div>
-                  <div><strong style={{ color: "var(--text-primary)" }}>Liabilities:</strong> {formatCurrency(profile.liabilities)}</div>
+                  <div><strong style={{ color: "var(--text-primary)" }}>Estimated Net Worth:</strong> {formatCurrency(profile.net_worth)}</div>
+                  <div><strong style={{ color: "var(--text-primary)" }}>Known Business Holdings:</strong> {profile.total_businesses}</div>
+                  <div><strong style={{ color: "var(--text-primary)" }}>Current Base:</strong> {profile.current_city_name ?? "Unknown"}</div>
+                  <div><strong style={{ color: "var(--text-primary)" }}>Profile Type:</strong> Public operator profile</div>
                 </div>
               </div>
             </div>
@@ -183,14 +183,8 @@ export default function PlayerProfileClient({
                           Founded {formatDateTime(business.created_at)}
                         </div>
                       </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ color: "var(--text-muted)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                          Balance
-                        </div>
-                        <div style={{ fontSize: "1.05rem", fontWeight: 700 }}>{formatCurrency(business.balance)}</div>
-                        <div style={{ marginTop: 8, color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                          Asset Value {formatCurrency(business.value)}
-                        </div>
+                      <div style={{ textAlign: "right", color: "var(--text-muted)", fontSize: "0.82rem" }}>
+                        Public listing
                       </div>
                     </div>
                   );
@@ -215,15 +209,15 @@ export default function PlayerProfileClient({
           </div>
         ) : null}
 
-        {activeTab === "finance" ? (
+        {activeTab === "details" ? (
           <div style={{ display: "grid", gap: 12 }}>
-            <h3 style={{ marginTop: 0, marginBottom: 4 }}>Financial Breakdown</h3>
+            <h3 style={{ marginTop: 0, marginBottom: 4 }}>Public Details</h3>
             {[
-              { label: "Personal Cash", value: profile.personal_cash, tone: "#93c5fd" },
-              { label: "Business Cash", value: profile.business_cash, tone: "#86efac" },
-              { label: "Business Asset Value", value: profile.business_asset_value, tone: "#fcd34d" },
-              { label: "Liabilities", value: -profile.liabilities, tone: "#fca5a5" },
-              { label: "Net Worth", value: profile.net_worth, tone: "#ffffff" },
+              { label: "Estimated Net Worth", value: formatCurrency(profile.net_worth) },
+              { label: "Business Level", value: `Lv. ${profile.business_level}` },
+              { label: "Owned Businesses", value: String(profile.total_businesses) },
+              { label: "Current Location", value: profile.current_city_name ?? "Unknown" },
+              { label: "Joined", value: formatDateTime(profile.joined_at) },
             ].map((item) => (
               <div
                 key={item.label}
@@ -239,7 +233,7 @@ export default function PlayerProfileClient({
                 }}
               >
                 <span style={{ color: "var(--text-secondary)" }}>{item.label}</span>
-                <span style={{ fontWeight: 700, color: item.tone }}>{formatCurrency(item.value)}</span>
+                <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>{item.value}</span>
               </div>
             ))}
           </div>
