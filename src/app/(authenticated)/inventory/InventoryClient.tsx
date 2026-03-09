@@ -1,38 +1,30 @@
 "use client";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NPC_PRICE_CEILINGS } from "@/config/items";
 import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } from "@/domains/inventory";
-import type { BankAccountWithBalance, BankingAccountsResponse } from "@/domains/banking";
-import type { BusinessesResponse, BusinessWithBalance } from "@/domains/businesses";
-import type { CitiesResponse } from "@/domains/cities-travel";
-import { apiGet, apiPost } from "@/lib/client/api";
+import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
+import { fetchInventoryPageData, queryKeys, type InventoryPageData } from "@/lib/client/queries";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
 type Props = {
-  initialData: {
-    personalInventory: PersonalInventoryItem[];
-    businessInventory: BusinessInventoryItem[];
-    shippingQueue: ShippingQueueItem[];
-    accounts: BankAccountWithBalance[];
-    businesses: BusinessWithBalance[];
-    businessNamesById: Record<string, string>;
-    cityNamesById: Record<string, string>;
-  };
+  initialData: InventoryPageData;
 };
 
 export default function InventoryClient({ initialData }: Props) {
+  const queryClient = useQueryClient();
   const availableItemKeys = Object.keys(NPC_PRICE_CEILINGS);
-  const [personalInventory, setPersonalInventory] = useState(initialData.personalInventory);
-  const [businessInventory, setBusinessInventory] = useState(initialData.businessInventory);
-  const [shippingQueue, setShippingQueue] = useState(initialData.shippingQueue);
-  const [accounts, setAccounts] = useState(initialData.accounts);
-  const [businesses, setBusinesses] = useState(initialData.businesses);
-  const [businessNamesById, setBusinessNamesById] = useState(initialData.businessNamesById);
-  const [cityNamesById, setCityNamesById] = useState(initialData.cityNamesById);
+  const inventoryPageQuery = useQuery({
+    queryKey: queryKeys.inventoryPage,
+    queryFn: fetchInventoryPageData,
+    initialData,
+  });
+  const { personalInventory, businessInventory, shippingQueue, accounts, businesses, businessNamesById, cityNamesById } =
+    inventoryPageQuery.data;
   const [sourceType, setSourceType] = useState<"personal" | "business">("personal");
   const [sourceBusinessId, setSourceBusinessId] = useState(initialData.businesses[0]?.id ?? "");
   const [destinationType, setDestinationType] = useState<"personal" | "business">("business");
@@ -42,7 +34,6 @@ export default function InventoryClient({ initialData }: Props) {
   const [quality, setQuality] = useState("40");
   const [fundingAccountId, setFundingAccountId] = useState(initialData.accounts.find((a) => a.account_type === "checking")?.id ?? "");
   const [submitting, setSubmitting] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -56,51 +47,12 @@ export default function InventoryClient({ initialData }: Props) {
     [businesses]
   );
 
-  type InventoryResponse = {
-    personalInventory: PersonalInventoryItem[];
-    businessInventory: BusinessInventoryItem[];
-    shippingQueue: ShippingQueueItem[];
-    businessNamesById: Record<string, string>;
-    cityNamesById: Record<string, string>;
-    error?: string;
-  };
-
   type TransferResponse = {
     transferType?: "shipping" | "instant";
     shippingMinutes?: number;
     shippingCost?: number;
     error?: string;
   };
-
-  async function loadData() {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const [inventoryJson, accountsJson, businessesJson, citiesJson] = await Promise.all([
-        apiGet<InventoryResponse>(apiRoutes.inventory.root, { fallbackError: "Failed to load inventory." }),
-        apiGet<BankingAccountsResponse>(apiRoutes.banking.accounts, { fallbackError: "Failed to load bank accounts." }),
-        apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." }),
-        apiGet<CitiesResponse>(apiRoutes.cities, { fallbackError: "Failed to load cities." }),
-      ]);
-
-      setPersonalInventory(inventoryJson.personalInventory ?? []);
-      setBusinessInventory(inventoryJson.businessInventory ?? []);
-      setShippingQueue(inventoryJson.shippingQueue ?? []);
-      setBusinessNamesById(inventoryJson.businessNamesById ?? {});
-      const nextCityNamesById: Record<string, string> = { ...(inventoryJson.cityNamesById ?? {}) };
-      for (const city of citiesJson.cities ?? []) {
-        nextCityNamesById[city.id] = city.name;
-      }
-      setCityNamesById(nextCityNamesById);
-      setAccounts(accountsJson.accounts ?? []);
-      setBusinesses(businessesJson.businesses ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to refresh inventory.");
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function submitTransfer() {
     if (submitting) return;
@@ -135,7 +87,12 @@ export default function InventoryClient({ initialData }: Props) {
           : "Transfer completed instantly."
       );
 
-      await loadData();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.inventoryPage }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.bankingPage }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.marketPage }),
+      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transfer failed.");
     } finally {
@@ -155,7 +112,7 @@ export default function InventoryClient({ initialData }: Props) {
         </div>
       </header>
 
-      {loading ? <p>Refreshing inventory data...</p> : null}
+      {inventoryPageQuery.isFetching ? <p>Refreshing inventory data...</p> : null}
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
       {success ? <p style={{ color: "#34d399" }}>{success}</p> : null}
 

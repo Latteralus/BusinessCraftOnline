@@ -1,28 +1,42 @@
 "use client";
 
-import type { BusinessesResponse, BusinessWithBalance } from "@/domains/businesses";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ManufacturingStatusView } from "@/domains/production";
-import { useAutoRefresh } from "@/hooks/useAutoRefresh";
+import { apiGet } from "@/lib/client/api";
+import { fetchProductionPageData, queryKeys, type ProductionPageData } from "@/lib/client/queries";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
 type Props = {
-  initialData: {
-    businesses: BusinessWithBalance[];
-    selectedBusinessId: string;
-    manufacturing: ManufacturingStatusView | null;
-  };
+  initialData: ProductionPageData;
 };
 
 type ManufacturingResponse = { status: ManufacturingStatusView; error?: string };
 
 export default function ProductionClient({ initialData }: Props) {
-  const [businesses, setBusinesses] = useState(initialData.businesses);
+  const queryClient = useQueryClient();
   const [selectedBusinessId, setSelectedBusinessId] = useState(initialData.selectedBusinessId);
-  const [manufacturing, setManufacturing] = useState<ManufacturingStatusView | null>(initialData.manufacturing);
-  const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const productionPageQuery = useQuery({
+    queryKey: queryKeys.productionPage,
+    queryFn: fetchProductionPageData,
+    initialData,
+  });
+  const businesses = productionPageQuery.data.businesses;
+  const manufacturingStatusQuery = useQuery({
+    queryKey: queryKeys.productionStatus(selectedBusinessId || "none"),
+    queryFn: async () => {
+      const payload = await apiGet<ManufacturingResponse>(`/api/production/manufacturing?businessId=${selectedBusinessId}`, {
+        fallbackError: "Failed to load manufacturing status.",
+      });
+      return payload.status;
+    },
+    enabled: Boolean(selectedBusinessId),
+    initialData: selectedBusinessId === initialData.selectedBusinessId ? initialData.manufacturing ?? undefined : undefined,
+    refetchInterval: selectedBusinessId ? 15_000 : false,
+  });
+  const manufacturing = selectedBusinessId ? manufacturingStatusQuery.data ?? null : null;
 
   const manufacturingBusinesses = useMemo(
     () =>
@@ -30,36 +44,6 @@ export default function ProductionClient({ initialData }: Props) {
         ["sawmill", "metalworking_factory", "food_processing_plant", "winery_distillery", "carpentry_workshop"].includes(business.type)
       ),
     [businesses]
-  );
-
-  async function loadBusinesses() {
-    const response = await fetch("/api/businesses", { cache: "no-store" });
-    const payload = (await response.json()) as BusinessesResponse;
-    if (!response.ok) throw new Error(payload.error ?? "Failed to load businesses.");
-    setBusinesses(payload.businesses ?? []);
-  }
-
-  async function loadManufacturingStatus(businessId: string) {
-    if (!businessId) {
-      setManufacturing(null);
-      return;
-    }
-    const response = await fetch(`/api/production/manufacturing?businessId=${businessId}`, { cache: "no-store" });
-    const payload = (await response.json()) as ManufacturingResponse;
-    if (!response.ok) throw new Error(payload.error ?? "Failed to load manufacturing status.");
-    setManufacturing(payload.status);
-  }
-
-  useAutoRefresh(
-    async () => {
-      if (!selectedBusinessId) return;
-      try {
-        await Promise.all([loadBusinesses(), loadManufacturingStatus(selectedBusinessId)]);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to refresh production status.");
-      }
-    },
-    { intervalMs: 15000, enabled: Boolean(selectedBusinessId) }
   );
 
   async function setRecipe(recipeKey: string) {
@@ -77,7 +61,8 @@ export default function ProductionClient({ initialData }: Props) {
       setError(payload.error ?? "Failed to set recipe.");
       return;
     }
-    setManufacturing(payload.status);
+    queryClient.setQueryData(queryKeys.productionStatus(selectedBusinessId), payload.status);
+    void queryClient.invalidateQueries({ queryKey: queryKeys.productionPage });
   }
 
   async function setRunning(action: "start" | "stop") {
@@ -95,7 +80,8 @@ export default function ProductionClient({ initialData }: Props) {
       setError(payload.error ?? `Failed to ${action} manufacturing.`);
       return;
     }
-    setManufacturing(payload.status);
+    queryClient.setQueryData(queryKeys.productionStatus(selectedBusinessId), payload.status);
+    void queryClient.invalidateQueries({ queryKey: queryKeys.productionPage });
   }
 
   return (
@@ -110,7 +96,7 @@ export default function ProductionClient({ initialData }: Props) {
         </div>
       </header>
 
-      {loading ? <p>Refreshing production data...</p> : null}
+      {productionPageQuery.isFetching || manufacturingStatusQuery.isFetching ? <p>Refreshing production data...</p> : null}
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
 
       <section>
@@ -122,9 +108,17 @@ export default function ProductionClient({ initialData }: Props) {
             onChange={(event) => {
               const nextBusinessId = event.target.value;
               setSelectedBusinessId(nextBusinessId);
-              void loadManufacturingStatus(nextBusinessId).catch((err) =>
-                setError(err instanceof Error ? err.message : "Failed to load manufacturing status.")
-              );
+              if (nextBusinessId) {
+                void queryClient.prefetchQuery({
+                  queryKey: queryKeys.productionStatus(nextBusinessId),
+                  queryFn: async () => {
+                    const payload = await apiGet<ManufacturingResponse>(`/api/production/manufacturing?businessId=${nextBusinessId}`, {
+                      fallbackError: "Failed to load manufacturing status.",
+                    });
+                    return payload.status;
+                  },
+                }).catch((err) => setError(err instanceof Error ? err.message : "Failed to load manufacturing status."));
+              }
             }}
             title="Business"
           >

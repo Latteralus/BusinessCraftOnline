@@ -52,7 +52,7 @@ export async function apiRequest<TResponse>(path: string, options: ApiRequestOpt
 }
 
 export function apiGet<TResponse>(path: string, options: Omit<ApiRequestOptions, "body" | "method"> = {}) {
-  return apiRequest<TResponse>(path, { cache: "no-store", ...options, method: "GET" });
+  return apiRequest<TResponse>(path, { ...options, method: "GET" });
 }
 
 export function apiPost<TResponse>(path: string, body?: unknown, options: Omit<ApiRequestOptions, "body" | "method"> = {}) {

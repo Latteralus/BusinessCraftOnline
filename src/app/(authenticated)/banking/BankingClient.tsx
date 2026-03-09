@@ -1,37 +1,32 @@
 "use client";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BANK_ACCOUNT_LABELS,
-  type BankAccountWithBalance,
-  type BankingAccountsResponse,
-  type BankingLoanState,
-  type BankingLoanStateResponse,
-  type BankingTransactionsResponse,
-  type TransactionEntry,
 } from "@/domains/banking";
-import type { BusinessesResponse, BusinessWithBalance } from "@/domains/businesses";
 import { apiGet, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
+import { fetchBankingPageData, queryKeys, type BankingPageData } from "@/lib/client/queries";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
 type Props = {
-  initialData: {
-    accounts: BankAccountWithBalance[];
-    loanData: BankingLoanState;
-    transactions: TransactionEntry[];
-    businesses: BusinessWithBalance[];
-  };
+  initialData: BankingPageData;
 };
 
 export default function BankingClient({ initialData }: Props) {
-  const [accounts, setAccounts] = useState(initialData.accounts);
-  const [loanData, setLoanData] = useState<BankingLoanState | null>(initialData.loanData);
-  const [transactions, setTransactions] = useState(initialData.transactions);
-  const [businesses, setBusinesses] = useState(initialData.businesses);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const bankingPageQuery = useQuery({
+    queryKey: queryKeys.bankingPage,
+    queryFn: fetchBankingPageData,
+    initialData,
+  });
+  const accounts = bankingPageQuery.data.accounts;
+  const loanData = bankingPageQuery.data.loanData;
+  const transactions = bankingPageQuery.data.transactions;
+  const businesses = bankingPageQuery.data.businesses;
 
   const checking = initialData.accounts.find((account) => account.account_type === "checking");
   const [fromAccountId, setFromAccountId] = useState(checking?.id ?? "");
@@ -52,33 +47,20 @@ export default function BankingClient({ initialData }: Props) {
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
 
-  async function loadData() {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const [accountsJson, loanJson, txJson, businessesJson] = await Promise.all([
-        apiGet<BankingAccountsResponse>(apiRoutes.banking.accounts, { fallbackError: "Failed to load accounts." }),
-        apiGet<BankingLoanStateResponse>(apiRoutes.banking.loan, { fallbackError: "Failed to load loan status." }),
-        apiGet<BankingTransactionsResponse>(apiRoutes.banking.transactions(30), { fallbackError: "Failed to load transaction history." }),
-        apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." }),
-      ]);
-
-      setAccounts(accountsJson.accounts ?? []);
-      setLoanData(loanJson);
-      setTransactions(txJson.entries ?? []);
-      setBusinesses(businessesJson.businesses ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to refresh banking data.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   const checkingAccount = useMemo(
     () => accounts.find((account) => account.account_type === "checking") ?? null,
     [accounts]
   );
+
+  async function refreshBankingData() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.bankingPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventoryPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.marketPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.appShell }),
+    ]);
+  }
 
   async function submitTransfer() {
     if (transferSubmitting) return;
@@ -87,7 +69,7 @@ export default function BankingClient({ initialData }: Props) {
     try {
       await apiPost(apiRoutes.banking.transfer, { fromAccountId, toAccountId, amount: Number(transferAmount) }, { fallbackError: "Transfer failed." });
       setTransferAmount("");
-      await loadData();
+      await refreshBankingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transfer failed.");
     } finally {
@@ -111,7 +93,7 @@ export default function BankingClient({ initialData }: Props) {
         { fallbackError: "Transfer failed." }
       );
       setPersonalBusinessAmount("");
-      await loadData();
+      await refreshBankingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transfer failed.");
     } finally {
@@ -134,7 +116,7 @@ export default function BankingClient({ initialData }: Props) {
         { fallbackError: "Transfer failed." }
       );
       setOwnedBusinessAmount("");
-      await loadData();
+      await refreshBankingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transfer failed.");
     } finally {
@@ -149,7 +131,7 @@ export default function BankingClient({ initialData }: Props) {
     try {
       await apiPost(apiRoutes.banking.loan, { principal: Number(loanPrincipal) }, { fallbackError: "Loan application failed." });
       setLoanPrincipal("");
-      await loadData();
+      await refreshBankingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Loan application failed.");
     } finally {
@@ -168,7 +150,7 @@ export default function BankingClient({ initialData }: Props) {
         { fallbackError: "Loan payment failed." }
       );
       setPaymentAmount("");
-      await loadData();
+      await refreshBankingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Loan payment failed.");
     } finally {
@@ -188,7 +170,7 @@ export default function BankingClient({ initialData }: Props) {
         </div>
       </header>
 
-      {loading ? <p>Refreshing banking data...</p> : null}
+      {bankingPageQuery.isFetching ? <p>Refreshing banking data...</p> : null}
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
 
       <section>

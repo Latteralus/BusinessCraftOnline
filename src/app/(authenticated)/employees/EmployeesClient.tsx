@@ -1,28 +1,33 @@
 "use client";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { EMPLOYEE_TYPES } from "@/config/employees";
 import type { Employee, EmployeeRole, EmployeeSummary, EmployeeType } from "@/domains/employees";
+import { apiDelete, apiPost } from "@/lib/client/api";
+import { apiRoutes } from "@/lib/client/routes";
+import { fetchEmployeesPageData, queryKeys, type EmployeesPageData } from "@/lib/client/queries";
 import { formatNullableDateTime } from "@/lib/formatters";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type Business = { id: string; name: string };
 type Props = {
-  initialData: {
-    employees: Employee[];
-    summary: EmployeeSummary | null;
-    businesses: Business[];
-  };
+  initialData: EmployeesPageData;
 };
 
 const FIRST_NAMES = ["James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph", "Thomas", "Charles", "Mary", "Patricia", "Jennifer", "Linda", "Elizabeth", "Barbara", "Susan", "Jessica", "Sarah", "Karen", "Oliver", "Noah", "Elijah", "Lucas", "Mason", "Harper", "Evelyn", "Abigail", "Emily", "Ella"];
 const LAST_NAMES = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin", "Lee", "Perez", "Thompson", "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson"];
 
 export default function EmployeesClient({ initialData }: Props) {
-  const [employees, setEmployees] = useState(initialData.employees);
-  const [summary, setSummary] = useState<EmployeeSummary | null>(initialData.summary);
-  const [businesses, setBusinesses] = useState(initialData.businesses);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
+  const employeesPageQuery = useQuery({
+    queryKey: queryKeys.employeesPage,
+    queryFn: fetchEmployeesPageData,
+    initialData,
+  });
+  const employees = employeesPageQuery.data.employees;
+  const summary = employeesPageQuery.data.summary;
+  const businesses = employeesPageQuery.data.businesses as Business[];
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [employeeType, setEmployeeType] = useState<EmployeeType>("temp");
@@ -65,26 +70,12 @@ export default function EmployeesClient({ initialData }: Props) {
     }
   }, [assignBusinessId, assignEmployeeId, assignableBusinesses]);
 
-  async function loadData() {
-    setLoading(true);
-    setError(null);
-    const [employeesRes, businessesRes] = await Promise.all([
-      fetch("/api/employees", { cache: "no-store" }),
-      fetch("/api/businesses", { cache: "no-store" }),
+  async function refreshEmployeesData() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.employeesPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.productionPage }),
     ]);
-    const employeesJson = await employeesRes.json();
-    const businessesJson = await businessesRes.json();
-
-    if (!employeesRes.ok) {
-      setError(employeesJson.error ?? "Failed to fetch employees.");
-    } else if (!businessesRes.ok) {
-      setError(businessesJson.error ?? "Failed to fetch businesses.");
-    } else {
-      setEmployees(employeesJson.employees ?? []);
-      setSummary(employeesJson.summary ?? null);
-      setBusinesses((businessesJson.businesses ?? []).map((business: { id: string; name: string }) => ({ id: business.id, name: business.name })));
-    }
-    setLoading(false);
   }
 
   async function submitHire() {
@@ -94,26 +85,26 @@ export default function EmployeesClient({ initialData }: Props) {
     setSuccess(null);
     const randomFirstName = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
     const randomLastName = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
-    const response = await fetch("/api/employees", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        firstName: randomFirstName,
-        lastName: randomLastName,
-        businessId: hireBusinessId,
-        employeeType,
-        specialtySkillKey: employeeType === "specialist" ? specialtySkillKey || undefined : undefined,
-      }),
-    });
-    const data = await response.json();
-    setHiring(false);
-    if (!response.ok) {
-      setError(data.error ?? "Failed to hire employee.");
-      return;
+    try {
+      await apiPost(
+        apiRoutes.employees.root,
+        {
+          firstName: randomFirstName,
+          lastName: randomLastName,
+          businessId: hireBusinessId,
+          employeeType,
+          specialtySkillKey: employeeType === "specialist" ? specialtySkillKey || undefined : undefined,
+        },
+        { fallbackError: "Failed to hire employee." }
+      );
+      setSpecialtySkillKey("");
+      setSuccess("Employee hired successfully.");
+      await refreshEmployeesData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to hire employee.");
+    } finally {
+      setHiring(false);
     }
-    setSpecialtySkillKey("");
-    setSuccess("Employee hired successfully.");
-    await loadData();
   }
 
   async function submitAssign() {
@@ -121,68 +112,57 @@ export default function EmployeesClient({ initialData }: Props) {
     setAssigning(true);
     setError(null);
     setSuccess(null);
-    const response = await fetch("/api/employees/assign", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ employeeId: assignEmployeeId, businessId: assignBusinessId, role: assignRole }),
-    });
-    const data = await response.json();
-    setAssigning(false);
-    if (!response.ok) {
-      setError(data.error ?? "Failed to assign employee.");
-      return;
+    try {
+      await apiPost(
+        apiRoutes.employees.assign,
+        { employeeId: assignEmployeeId, businessId: assignBusinessId, role: assignRole },
+        { fallbackError: "Failed to assign employee." }
+      );
+      setSuccess("Employee assigned successfully.");
+      setAssignEmployeeId("");
+      setAssignBusinessId("");
+      await refreshEmployeesData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to assign employee.");
+    } finally {
+      setAssigning(false);
     }
-    setSuccess("Employee assigned successfully.");
-    setAssignEmployeeId("");
-    setAssignBusinessId("");
-    await loadData();
   }
 
   async function reactivate(employeeId: string) {
     setError(null);
     setSuccess(null);
-    const response = await fetch("/api/employees/reactivate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ employeeId }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setError(data.error ?? "Failed to reactivate employee.");
-      return;
+    try {
+      await apiPost(apiRoutes.employees.reactivate, { employeeId }, { fallbackError: "Failed to reactivate employee." });
+      setSuccess("Employee re-activated.");
+      await refreshEmployeesData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reactivate employee.");
     }
-    setSuccess("Employee re-activated.");
-    await loadData();
   }
 
   async function unassign(employeeId: string) {
     setError(null);
     setSuccess(null);
-    const response = await fetch("/api/employees/unassign", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ employeeId }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setError(data.error ?? "Failed to unassign employee.");
-      return;
+    try {
+      await apiPost(apiRoutes.employees.unassign, { employeeId }, { fallbackError: "Failed to unassign employee." });
+      setSuccess("Employee unassigned.");
+      await refreshEmployeesData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to unassign employee.");
     }
-    setSuccess("Employee unassigned.");
-    await loadData();
   }
 
   async function fire(employeeId: string) {
     setError(null);
     setSuccess(null);
-    const response = await fetch(`/api/employees/${employeeId}`, { method: "DELETE" });
-    const data = await response.json();
-    if (!response.ok) {
-      setError(data.error ?? "Failed to fire employee.");
-      return;
+    try {
+      await apiDelete(apiRoutes.employees.detail(employeeId), undefined, { fallbackError: "Failed to fire employee." });
+      setSuccess("Employee fired.");
+      await refreshEmployeesData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fire employee.");
     }
-    setSuccess("Employee fired.");
-    await loadData();
   }
 
   return (
@@ -197,7 +177,7 @@ export default function EmployeesClient({ initialData }: Props) {
         </div>
       </header>
 
-      {loading ? <p>Refreshing employees...</p> : null}
+      {employeesPageQuery.isFetching ? <p>Refreshing employees...</p> : null}
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
       {success ? <p style={{ color: "#34d399" }}>{success}</p> : null}
 

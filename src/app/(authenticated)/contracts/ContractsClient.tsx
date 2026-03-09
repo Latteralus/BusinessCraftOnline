@@ -1,25 +1,30 @@
 "use client";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NPC_PRICE_CEILINGS } from "@/config/items";
-import type { BusinessWithBalance } from "@/domains/businesses";
 import type { Contract, ContractStatus } from "@/domains/contracts";
+import { apiPost } from "@/lib/client/api";
+import { apiRoutes } from "@/lib/client/routes";
+import { fetchContractsPageData, queryKeys, type ContractsPageData } from "@/lib/client/queries";
 import { formatItemKey } from "@/lib/items";
 import Link from "next/link";
 import { useState } from "react";
 
 type Props = {
-  initialData: {
-    businesses: BusinessWithBalance[];
-    contracts: Contract[];
-  };
+  initialData: ContractsPageData;
 };
 
 const ACTIVE_STATUSES: ContractStatus[] = ["open", "accepted", "in_progress"];
 
 export default function ContractsClient({ initialData }: Props) {
-  const [businesses, setBusinesses] = useState(initialData.businesses);
-  const [contracts, setContracts] = useState(initialData.contracts);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
+  const contractsPageQuery = useQuery({
+    queryKey: queryKeys.contractsPage,
+    queryFn: fetchContractsPageData,
+    initialData,
+  });
+  const businesses = contractsPageQuery.data.businesses;
+  const contracts = contractsPageQuery.data.contracts;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [businessId, setBusinessId] = useState(initialData.businesses[0]?.id ?? "");
@@ -28,56 +33,52 @@ export default function ContractsClient({ initialData }: Props) {
   const [requiredQuantity, setRequiredQuantity] = useState(1);
   const [unitPrice, setUnitPrice] = useState(0.01);
 
-  async function loadData() {
-    setLoading(true);
-    setError(null);
-    const [businessesRes, contractsRes] = await Promise.all([
-      fetch("/api/businesses", { cache: "no-store" }),
-      fetch("/api/contracts", { cache: "no-store" }),
+  async function refreshContractsData() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.contractsPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventoryPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.marketPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.bankingPage }),
     ]);
-    const businessesJson = await businessesRes.json();
-    const contractsJson = await contractsRes.json();
-    if (!businessesRes.ok) {
-      setError(businessesJson.error ?? "Failed to load businesses.");
-    } else if (!contractsRes.ok) {
-      setError(contractsJson.error ?? "Failed to load contracts.");
-    } else {
-      setBusinesses(businessesJson.businesses ?? []);
-      setContracts(contractsJson.contracts ?? []);
-    }
-    setLoading(false);
   }
 
   async function createContract() {
     if (!businessId || busy) return;
     setBusy(true);
     setError(null);
-    const response = await fetch("/api/contracts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ businessId, title: title.trim(), itemKey, requiredQuantity, unitPrice }),
-    });
-    const payload = await response.json();
-    setBusy(false);
-    if (!response.ok) {
-      setError(payload.error ?? "Failed to create contract.");
-      return;
+    try {
+      await apiPost(
+        apiRoutes.contracts.root,
+        { businessId, title: title.trim(), itemKey, requiredQuantity, unitPrice },
+        { fallbackError: "Failed to create contract." }
+      );
+      await refreshContractsData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create contract.");
+    } finally {
+      setBusy(false);
     }
-    await loadData();
   }
 
   async function action(contractId: string, kind: "accept" | "cancel" | "fulfill") {
     if (busy) return;
     setBusy(true);
     setError(null);
-    const response = await fetch(`/api/contracts/${contractId}/${kind}`, { method: "POST" });
-    const payload = await response.json();
-    setBusy(false);
-    if (!response.ok) {
-      setError(payload.error ?? `Failed to ${kind} contract.`);
-      return;
+    try {
+      const path =
+        kind === "accept"
+          ? apiRoutes.contracts.accept(contractId)
+          : kind === "cancel"
+            ? apiRoutes.contracts.cancel(contractId)
+            : apiRoutes.contracts.fulfill(contractId);
+      await apiPost(path, undefined, { fallbackError: `Failed to ${kind} contract.` });
+      await refreshContractsData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to ${kind} contract.`);
+    } finally {
+      setBusy(false);
     }
-    await loadData();
   }
 
   return (
@@ -92,7 +93,7 @@ export default function ContractsClient({ initialData }: Props) {
         </div>
       </header>
 
-      {loading ? <p>Refreshing contracts...</p> : null}
+      {contractsPageQuery.isFetching ? <p>Refreshing contracts...</p> : null}
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
 
       <section>

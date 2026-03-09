@@ -1,27 +1,19 @@
 "use client";
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   BusinessType,
-  BusinessesResponse,
-  BusinessWithBalance,
-  BusinessSummary,
 } from "@/domains/businesses";
-import type { CitiesResponse, City, TravelState, TravelStateResponse } from "@/domains/cities-travel";
 import type { UpgradeDefinition, UpgradePreview } from "@/domains/upgrades";
 import { apiGet, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
+import { fetchBusinessesPageData, queryKeys, type BusinessesPageData } from "@/lib/client/queries";
 import { formatCurrency, formatLabel } from "@/lib/formatters";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type Props = {
-  initialData: {
-    businesses: BusinessWithBalance[];
-    summary: BusinessSummary;
-    cities: City[];
-    travelState: TravelState;
-    upgradeDefinitions: UpgradeDefinition[];
-  };
+  initialData: BusinessesPageData;
 };
 
 type UpgradeDefinitionsResponse = {
@@ -50,12 +42,18 @@ const TYPE_LABELS: Record<BusinessType, string> = {
 };
 
 export default function BusinessesClient({ initialData }: Props) {
-  const [businesses, setBusinesses] = useState<BusinessWithBalance[]>(initialData.businesses);
-  const [summary, setSummary] = useState<BusinessSummary | null>(initialData.summary);
-  const [cities, setCities] = useState<City[]>(initialData.cities);
-  const [travelState, setTravelState] = useState<TravelState | null>(initialData.travelState);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const businessesPageQuery = useQuery({
+    queryKey: queryKeys.businessesPage,
+    queryFn: fetchBusinessesPageData,
+    initialData,
+  });
+  const businesses = businessesPageQuery.data.businesses;
+  const summary = businessesPageQuery.data.summary;
+  const cities = businessesPageQuery.data.cities;
+  const travelState = businessesPageQuery.data.travelState;
+  const upgradeDefinitions = businessesPageQuery.data.upgradeDefinitions;
 
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<BusinessType>("farm");
@@ -64,36 +62,8 @@ export default function BusinessesClient({ initialData }: Props) {
 
   const [upgradeBusinessId, setUpgradeBusinessId] = useState("");
   const [upgradeKey, setUpgradeKey] = useState("extraction_efficiency");
-  const [upgradeDefinitions, setUpgradeDefinitions] = useState<UpgradeDefinition[]>(initialData.upgradeDefinitions);
   const [upgradePreview, setUpgradePreview] = useState<UpgradePreview | null>(null);
   const [upgrading, setUpgrading] = useState(false);
-
-  async function loadData(showLoading = false) {
-    if (showLoading) setLoading(true);
-    setError(null);
-
-    try {
-      const [businessesJson, citiesJson, travelJson, definitionsJson] = await Promise.all([
-        apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to fetch businesses." }),
-        apiGet<CitiesResponse>(apiRoutes.cities, { fallbackError: "Failed to fetch cities." }),
-        apiGet<TravelStateResponse>(apiRoutes.travel, { fallbackError: "Failed to fetch travel state." }),
-        apiGet<UpgradeDefinitionsResponse>(apiRoutes.upgrades.root, { fallbackError: "Failed to fetch upgrade definitions." }),
-      ]);
-
-      setBusinesses(businessesJson.businesses ?? []);
-      setSummary(businessesJson.summary ?? null);
-      setCities(citiesJson.cities ?? []);
-      setTravelState(travelJson);
-      setUpgradeDefinitions(definitionsJson.definitions ?? []);
-      if (travelJson.currentCity?.id) {
-        setCreateCityId((current) => current || travelJson.currentCity!.id);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to refresh businesses.");
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  }
 
   const selectedBusiness = useMemo(
     () => businesses.find((business) => business.id === upgradeBusinessId) ?? null,
@@ -106,6 +76,12 @@ export default function BusinessesClient({ initialData }: Props) {
       definition.applies_to_business_types.includes(selectedBusiness.type)
     );
   }, [selectedBusiness, upgradeDefinitions]);
+
+  useEffect(() => {
+    if (travelState.currentCity?.id) {
+      setCreateCityId((current) => current || travelState.currentCity!.id);
+    }
+  }, [travelState.currentCity?.id]);
 
   useEffect(() => {
     if (!upgradeOptions.some((option) => option.upgrade_key === upgradeKey)) {
@@ -151,7 +127,16 @@ export default function BusinessesClient({ initialData }: Props) {
       );
 
       setCreateName("");
-      await loadData();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.bankingPage }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.inventoryPage }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.marketPage }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.employeesPage }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.contractsPage }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.productionPage }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.appShell }),
+      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create business.");
     } finally {
@@ -165,7 +150,10 @@ export default function BusinessesClient({ initialData }: Props) {
     setError(null);
     try {
       await apiPost(apiRoutes.businesses.upgrade(upgradeBusinessId), { upgradeKey }, { fallbackError: "Failed to purchase upgrade." });
-      await loadData();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.bankingPage }),
+      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to purchase upgrade.");
     } finally {
@@ -185,7 +173,7 @@ export default function BusinessesClient({ initialData }: Props) {
         </div>
       </header>
 
-      {loading ? <p>Refreshing business data...</p> : null}
+      {businessesPageQuery.isFetching ? <p>Refreshing business data...</p> : null}
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
 
       <section>

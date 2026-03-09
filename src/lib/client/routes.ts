@@ -25,9 +25,17 @@ export const apiRoutes = {
     upgrade: (businessId: string) => `/api/businesses/${businessId}/upgrade`,
   },
   cities: "/api/cities",
+  contracts: {
+    root: "/api/contracts",
+    detail: (contractId: string) => `/api/contracts/${contractId}`,
+    accept: (contractId: string) => `/api/contracts/${contractId}/accept`,
+    cancel: (contractId: string) => `/api/contracts/${contractId}/cancel`,
+    fulfill: (contractId: string) => `/api/contracts/${contractId}/fulfill`,
+  },
   employees: {
     root: "/api/employees",
     assign: "/api/employees/assign",
+    reactivate: "/api/employees/reactivate",
     settle: "/api/employees/settle",
     unassign: "/api/employees/unassign",
     detail: (employeeId: string) => `/api/employees/${employeeId}`,

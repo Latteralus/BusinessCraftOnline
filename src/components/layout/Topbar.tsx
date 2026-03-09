@@ -1,12 +1,15 @@
 "use client";
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { OnlinePlayerPreview } from "@/domains/auth-character";
 import type { ChatMessage } from "@/domains/chat";
 import { formatCurrency } from "@/lib/formatters";
+import { apiPost } from "@/lib/client/api";
+import { fetchAppShell, fetchAuthMe, fetchChatMessages, prefetchableRoutes, queryKeys } from "@/lib/client/queries";
 
 const CHAT_MESSAGE_LIMIT = 50;
 
@@ -50,6 +53,8 @@ export function Topbar({
   lastName,
 }: TopbarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const [identity, setIdentity] = useState(() => ({
     initials: initials ?? "··",
     firstName: firstName ?? "",
@@ -72,6 +77,26 @@ export function Topbar({
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const isChatOpenRef = useRef(false);
 
+  const authMeQuery = useQuery({
+    queryKey: queryKeys.authMe,
+    queryFn: fetchAuthMe,
+    staleTime: 5 * 60_000,
+    enabled: !identity.loaded,
+  });
+
+  const appShellQuery = useQuery({
+    queryKey: queryKeys.appShell,
+    queryFn: fetchAppShell,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  const chatQuery = useQuery({
+    queryKey: queryKeys.chatMessages,
+    queryFn: fetchChatMessages,
+    staleTime: 10_000,
+  });
+
   useEffect(() => {
     setIdentity({
       initials: initials ?? "··",
@@ -82,108 +107,61 @@ export function Topbar({
   }, [firstName, initials, lastName]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadIdentity() {
-      const response = await fetch("/api/auth/me", { cache: "no-store" });
-      const payload = (await response.json().catch(() => null)) as
-        | {
-            character?: { first_name?: string | null; last_name?: string | null } | null;
-          }
-        | null;
-
-      if (!response.ok || cancelled || !payload?.character?.first_name || !payload.character.last_name) {
-        return;
-      }
-
-      const resolvedFirstName = payload.character.first_name;
-      const resolvedLastName = payload.character.last_name;
-
-      setIdentity({
-        initials: `${resolvedFirstName[0] ?? ""}${resolvedLastName[0] ?? ""}` || "··",
-        firstName: resolvedFirstName,
-        lastName: resolvedLastName,
-        loaded: true,
-      });
+    const character = authMeQuery.data?.character;
+    if (!character?.first_name || !character.last_name) {
+      return;
     }
 
-    if (!identity.loaded) {
-      void loadIdentity();
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [identity.loaded]);
+    setIdentity({
+      initials: `${character.first_name[0] ?? ""}${character.last_name[0] ?? ""}` || "··",
+      firstName: character.first_name,
+      lastName: character.last_name,
+      loaded: true,
+    });
+  }, [authMeQuery.data]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadShellMetrics() {
-      const response = await fetch("/api/app-shell", { cache: "no-store" });
-      const payload = (await response.json().catch(() => null)) as
-        | { playerCount?: number; onlinePlayers?: OnlinePlayerPreview[]; notificationsCount?: number }
-        | null;
-
-      if (!response.ok || cancelled) {
-        return;
-      }
-
-      setPlayerCount(payload?.playerCount ?? 0);
-      setOnlinePlayers(payload?.onlinePlayers ?? []);
-      setNotificationsCount(payload?.notificationsCount ?? 0);
+    if (!appShellQuery.data) {
+      return;
     }
 
-    void loadShellMetrics();
-    const interval = window.setInterval(() => {
-      void loadShellMetrics();
-    }, 60 * 1000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, []);
+    setPlayerCount(appShellQuery.data.playerCount ?? 0);
+    setOnlinePlayers((appShellQuery.data.onlinePlayers ?? []) as OnlinePlayerPreview[]);
+    setNotificationsCount(appShellQuery.data.notificationsCount ?? 0);
+  }, [appShellQuery.data]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadChatMessages() {
+    if (chatQuery.isPending) {
       setIsChatLoading(true);
-      const response = await fetch("/api/chat", { cache: "no-store" });
-      const payload = (await response.json().catch(() => null)) as
-        | { messages?: ChatMessage[]; error?: string }
-        | null;
-
-      if (cancelled) {
-        return;
-      }
-
-      if (!response.ok) {
-        setChatError(payload?.error ?? "Failed to load chat.");
-        setIsChatLoading(false);
-        return;
-      }
-
-      setChatMessages(mergeChatMessages([], payload?.messages ?? []));
-      setChatError(null);
-      setIsChatLoading(false);
+      return;
     }
 
-    void loadChatMessages();
+    if (chatQuery.error) {
+      setChatError(chatQuery.error instanceof Error ? chatQuery.error.message : "Failed to load chat.");
+      setIsChatLoading(false);
+      return;
+    }
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setChatMessages(mergeChatMessages([], chatQuery.data?.messages ?? []));
+    setChatError(null);
+    setIsChatLoading(false);
+  }, [chatQuery.data, chatQuery.error, chatQuery.isPending]);
 
   useEffect(() => {
     const heartbeat = window.setInterval(() => {
-      void fetch("/api/app-shell", { method: "POST", cache: "no-store" }).catch(() => null);
+      void fetch("/api/app-shell", { method: "POST" }).catch(() => null);
     }, 60 * 1000);
 
     return () => window.clearInterval(heartbeat);
   }, []);
+
+  useEffect(() => {
+    for (const route of prefetchableRoutes) {
+      if (route !== pathname) {
+        router.prefetch(route);
+      }
+    }
+  }, [pathname, router]);
 
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
@@ -197,7 +175,7 @@ export function Topbar({
     let removeChannel: (() => void) | null = null;
 
     async function connectChatRealtime() {
-      const response = await fetch("/api/realtime-auth", { cache: "no-store" });
+      const response = await fetch("/api/realtime-auth");
       const payload = (await response.json().catch(() => null)) as
         | { token?: string; error?: string }
         | null;
@@ -235,7 +213,9 @@ export function Topbar({
           },
           (change) => {
             const message = change.new as ChatMessage;
-            setChatMessages((current) => mergeChatMessages(current, [message]));
+            queryClient.setQueryData(queryKeys.chatMessages, (current: { messages?: ChatMessage[] } | undefined) => ({
+              messages: mergeChatMessages(current?.messages ?? [], [message]),
+            }));
             setChatError(null);
             setIsChatLoading(false);
 
@@ -257,7 +237,7 @@ export function Topbar({
       isCancelled = true;
       removeChannel?.();
     };
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     if (!isChatOpen) {
@@ -295,6 +275,29 @@ export function Topbar({
     };
   }, []);
 
+  const sendChatMutation = useMutation({
+    mutationFn: async (message: string) =>
+      apiPost<{ message?: ChatMessage; error?: string }>("/api/chat", { message }, { fallbackError: "Failed to send chat message." }),
+    onMutate: () => {
+      setIsSendingChat(true);
+      setChatError(null);
+    },
+    onSuccess: (payload) => {
+      if (payload.message) {
+        queryClient.setQueryData(queryKeys.chatMessages, (current: { messages?: ChatMessage[] } | undefined) => ({
+          messages: mergeChatMessages(current?.messages ?? [], [payload.message as ChatMessage]),
+        }));
+      }
+      setChatInput("");
+    },
+    onError: (error) => {
+      setChatError(error instanceof Error ? error.message : "Failed to send chat message.");
+    },
+    onSettled: () => {
+      setIsSendingChat(false);
+    },
+  });
+
   async function handleSendChatMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const message = chatInput.trim();
@@ -303,37 +306,7 @@ export function Topbar({
       return;
     }
 
-    setIsSendingChat(true);
-    setChatError(null);
-
-    try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ message }),
-      });
-
-      const payload = (await response.json().catch(() => null)) as
-        | { message?: ChatMessage; error?: string }
-        | null;
-
-      if (!response.ok) {
-        setChatError(payload?.error ?? "Failed to send chat message.");
-        return;
-      }
-
-      if (payload?.message) {
-        setChatMessages((current) => mergeChatMessages(current, [payload.message as ChatMessage]));
-      }
-
-      setChatInput("");
-    } catch {
-      setChatError("Failed to send chat message.");
-    } finally {
-      setIsSendingChat(false);
-    }
+    await sendChatMutation.mutateAsync(message);
   }
 
   return (

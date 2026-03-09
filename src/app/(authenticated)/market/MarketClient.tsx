@@ -1,44 +1,34 @@
 "use client";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NPC_PRICE_CEILINGS } from "@/config/items";
-import type { BusinessesResponse, BusinessWithBalance } from "@/domains/businesses";
 import type { MarketListing, MarketStorefrontSetting, MarketTransaction } from "@/domains/market";
 import { formatMarketTransactionLine } from "@/domains/market/feed";
-import { useAutoRefresh } from "@/hooks/useAutoRefresh";
-import { apiGet, apiPost } from "@/lib/client/api";
+import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
+import { fetchMarketPageData, queryKeys, type MarketPageData } from "@/lib/client/queries";
 import { formatItemKey } from "@/lib/items";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type Props = {
-  initialData: {
-    businesses: BusinessWithBalance[];
-    listings: MarketListing[];
-    transactions: MarketTransaction[];
-    storefront: MarketStorefrontSetting[];
-  };
-};
-
-type ListingsResponse = {
-  listings: MarketListing[];
-  transactions?: MarketTransaction[];
-  error?: string;
-};
-
-type StorefrontResponse = {
-  storefront: MarketStorefrontSetting[];
-  error?: string;
+  initialData: MarketPageData;
 };
 
 export default function MarketClient({ initialData }: Props) {
-  const [businesses, setBusinesses] = useState<BusinessWithBalance[]>(initialData.businesses);
-  const [listings, setListings] = useState<MarketListing[]>(initialData.listings);
-  const [transactions, setTransactions] = useState<MarketTransaction[]>(initialData.transactions);
-  const [storefrontByBusinessId, setStorefrontByBusinessId] = useState<Record<string, MarketStorefrontSetting>>(
-    Object.fromEntries(initialData.storefront.map((row) => [row.business_id, row]))
-  );
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
+  const marketPageQuery = useQuery({
+    queryKey: queryKeys.marketPage,
+    queryFn: fetchMarketPageData,
+    initialData,
+    refetchInterval: 15_000,
+  });
+  const businesses = marketPageQuery.data.businesses;
+  const listings = marketPageQuery.data.listings;
+  const transactions = marketPageQuery.data.transactions;
+  const storefrontByBusinessId = Object.fromEntries(
+    marketPageQuery.data.storefront.map((row) => [row.business_id, row])
+  ) as Record<string, MarketStorefrontSetting>;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,40 +84,6 @@ export default function MarketClient({ initialData }: Props) {
       .slice(0, 40);
   }, [businesses, listings, transactions]);
 
-  async function loadBusinesses() {
-    const payload = await apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." });
-    setBusinesses(payload.businesses ?? []);
-  }
-
-  async function loadListings() {
-    const payload = await apiGet<ListingsResponse>(apiRoutes.market.listings({ includeTransactions: true, transactionsLimit: 40 }), {
-      fallbackError: "Failed to load market listings.",
-    });
-    setListings(payload.listings ?? []);
-    setTransactions(payload.transactions ?? []);
-  }
-
-  async function loadStorefrontSettings() {
-    const payload = await apiGet<StorefrontResponse>(apiRoutes.market.storefront, { fallbackError: "Failed to load storefront settings." });
-
-    const mapped = Object.fromEntries((payload.storefront ?? []).map((row) => [row.business_id, row]));
-    setStorefrontByBusinessId(mapped);
-  }
-
-  async function loadData(showLoading = false) {
-    if (showLoading) setLoading(true);
-    setError(null);
-    try {
-      await Promise.all([loadBusinesses(), loadListings(), loadStorefrontSettings()]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to refresh market page.");
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  }
-
-  useAutoRefresh(() => loadData(false), { intervalMs: 15000, enabled: true });
-
   useEffect(() => {
     const selected = sourceBusinessId ? storefrontByBusinessId[sourceBusinessId] : null;
     if (!selected) {
@@ -142,13 +98,23 @@ export default function MarketClient({ initialData }: Props) {
     setStorefrontAdEnabled(selected.is_ad_enabled);
   }, [sourceBusinessId, storefrontByBusinessId]);
 
+  async function refreshMarketData() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.marketPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.bankingPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventoryPage }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.appShell }),
+    ]);
+  }
+
   async function createListing() {
     if (!sourceBusinessId || busy) return;
     setBusy(true);
     setError(null);
     try {
       await apiPost(apiRoutes.market.root, { sourceBusinessId, itemKey, quality, quantity, unitPrice }, { fallbackError: "Failed to create listing." });
-      await loadListings();
+      await refreshMarketData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create listing.");
     } finally {
@@ -162,7 +128,7 @@ export default function MarketClient({ initialData }: Props) {
     setError(null);
     try {
       await apiPost(apiRoutes.market.cancel(listingId), undefined, { fallbackError: "Failed to cancel listing." });
-      await loadListings();
+      await refreshMarketData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to cancel listing.");
     } finally {
@@ -184,7 +150,7 @@ export default function MarketClient({ initialData }: Props) {
         },
         { fallbackError: "Failed to buy listing." }
       );
-      await loadListings();
+      await refreshMarketData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to buy listing.");
     } finally {
@@ -207,10 +173,8 @@ export default function MarketClient({ initialData }: Props) {
         },
         { fallbackError: "Failed to update storefront settings." }
       );
-
       if (payload.storefront) {
-        const storefront = payload.storefront;
-        setStorefrontByBusinessId((prev) => ({ ...prev, [storefront.business_id]: storefront }));
+        await refreshMarketData();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update storefront settings.");
@@ -231,7 +195,7 @@ export default function MarketClient({ initialData }: Props) {
         </div>
       </header>
 
-      {loading ? <p>Refreshing market...</p> : null}
+      {marketPageQuery.isFetching ? <p>Refreshing market...</p> : null}
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
 
       <section>
