@@ -1,6 +1,6 @@
 "use client";
 
-import { isStoreBusinessType } from "@/config/businesses";
+import { isStoreBusinessType, MANUFACTURING_TICK_MINUTES } from "@/config/businesses";
 import { useState, useEffect, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
@@ -785,6 +785,13 @@ export default function BusinessDetailsClient({ business, production, manufactur
                     <div style={{ display: "grid", gap: 8 }}>
                       {manufacturing.lines.map((line) => {
                         const assignedEmp = employees.find((employee) => employee.id === line.employee_id);
+                        const recipeDetails = line.configured_recipe ?? line.pending_recipe;
+                        const perMinuteMultiplier = 60 / MANUFACTURING_TICK_MINUTES;
+                        const productionNote = recipeDetails
+                          ? `Consumes ${recipeDetails.inputs
+                              .map((input) => `${(input.quantity * perMinuteMultiplier).toLocaleString()} ${formatItemKey(input.itemKey)}`)
+                              .join(", ")} and produces ${(recipeDetails.baseOutputQuantity * perMinuteMultiplier).toLocaleString()} ${formatItemKey(recipeDetails.outputItemKey)} per minute`
+                          : null;
                         return (
                           <div key={line.id} style={{ display: "flex", justifyContent: "space-between", padding: 12, background: "var(--bg-elevated)", borderRadius: 8, gap: 12, flexWrap: "wrap" }}>
                             <div>
@@ -792,6 +799,11 @@ export default function BusinessDetailsClient({ business, production, manufactur
                               <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                                 Tooled For: {line.configured_recipe?.displayName ?? "Not configured"}
                               </div>
+                              {productionNote ? (
+                                <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: 2 }}>
+                                  {productionNote}
+                                </div>
+                              ) : null}
                               <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                                 Worker: {assignedEmp ? `${assignedEmp.first_name} ${assignedEmp.last_name}` : "None"}
                               </div>
@@ -800,8 +812,8 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                   Retooling to {line.pending_recipe.displayName}
                                 </div>
                               ) : null}
-                              {!assignedEmp ? (
-                                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                {!assignedEmp ? (
                                   <select
                                     title="Select manufacturing worker"
                                     value={manufacturingAssignSelections[line.id] || ""}
@@ -813,17 +825,14 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                       <option key={employee.id} value={employee.id}>{employee.first_name} {employee.last_name}</option>
                                     ))}
                                   </select>
-                                  <button onClick={() => assignManufacturingWorker(line.id)} disabled={busy || !manufacturingAssignSelections[line.id] || line.status === "retooling"} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>Assign</button>
-                                </div>
-                              ) : (
-                                <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                ) : (
+                                  <>
                                   <button onClick={() => unassignManufacturingWorker(line.id)} disabled={busy} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>Unassign</button>
                                   <button onClick={() => setManufacturingLineRunning(line.id, line.status === "active" ? "idle" : "active")} disabled={busy || line.status === "retooling" || !line.configured_recipe} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>
                                     {line.status === "active" ? "Stop" : "Start"}
                                   </button>
-                                </div>
-                              )}
-                              <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                  </>
+                                )}
                                 <select
                                   title="Retool manufacturing line"
                                   value={manufacturingRetoolSelections[line.id] || ""}
@@ -836,6 +845,9 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                     <option key={recipe.key} value={recipe.key}>{recipe.displayName}</option>
                                   ))}
                                 </select>
+                                {!assignedEmp ? (
+                                  <button onClick={() => assignManufacturingWorker(line.id)} disabled={busy || !manufacturingAssignSelections[line.id] || line.status === "retooling"} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>Assign</button>
+                                ) : null}
                                 <button onClick={() => retoolManufacturingLine(line.id)} disabled={busy || line.status === "retooling" || !manufacturingRetoolSelections[line.id]} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>Retool</button>
                               </div>
                             </div>
