@@ -10,7 +10,6 @@ import type {
   BusinessUpgrade,
   BusinessUpgradeProject,
 } from "@/domains/businesses";
-import type { BankAccountWithBalance } from "@/domains/banking";
 import type { ProductionStatus, ManufacturingStatusView } from "@/domains/production";
 import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { StoreShelfItem } from "@/domains/stores";
@@ -43,7 +42,6 @@ type Props = {
   upgradeDefinitions?: UpgradeDefinition[];
   financeDashboard?: BusinessFinanceDashboard | null;
   ownedBusinesses?: Array<Pick<Business, "id" | "name" | "city_id">>;
-  bankAccounts?: BankAccountWithBalance[];
   initialTab?: string;
 };
 
@@ -61,7 +59,7 @@ const LAST_NAMES = [
   "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
 ];
 
-export default function BusinessDetailsClient({ business, production, manufacturing, inventory, shelfItems, upgrades, upgradeProjects, employees, upgradeDefinitions = [], financeDashboard, ownedBusinesses = [], bankAccounts = [], initialTab }: Props) {
+export default function BusinessDetailsClient({ business, production, manufacturing, inventory, shelfItems, upgrades, upgradeProjects, employees, upgradeDefinitions = [], financeDashboard, ownedBusinesses = [], initialTab }: Props) {
   const router = useRouter();
   const tempPayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.temp / 4);
   const partTimePayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.part_time / 4);
@@ -77,7 +75,6 @@ export default function BusinessDetailsClient({ business, production, manufactur
   const [actionQuantity, setActionQuantity] = useState(1);
   const [actionPrice, setActionPrice] = useState(1);
   const [transferBusinessId, setTransferBusinessId] = useState("");
-  const [transferFundingAccountId, setTransferFundingAccountId] = useState("");
   const [transferUnitPrice, setTransferUnitPrice] = useState(1);
   const [shelfActionItem, setShelfActionItem] = useState<{ itemKey: string; quality: number; maxQuantity: number } | null>(null);
   const [shelfQuantity, setShelfQuantity] = useState(1);
@@ -121,8 +118,6 @@ export default function BusinessDetailsClient({ business, production, manufactur
   });
   const isStoreBusiness = isStoreBusinessType(business.type);
   const transferBusinesses = ownedBusinesses.filter((row) => row.id !== business.id);
-  const defaultFundingAccountId =
-    bankAccounts.find((account) => account.account_type === "checking")?.id ?? bankAccounts[0]?.id ?? "";
   const shelfKey = (itemKey: string, quality: number) => `${itemKey}:${quality}`;
   const shelfByInventoryKey = Object.fromEntries(shelfItems.map((item) => [shelfKey(item.item_key, item.quality), item]));
   const activeUpgradeProject =
@@ -310,6 +305,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
           { fallbackError: "Failed to transfer item." }
         );
       } else if (marketActionItem.type === "business_transfer") {
+        const destinationBusiness = transferBusinesses.find((candidate) => candidate.id === transferBusinessId);
         await apiPost(
           apiRoutes.inventory.transfer,
           {
@@ -317,10 +313,10 @@ export default function BusinessDetailsClient({ business, production, manufactur
             sourceBusinessId: business.id,
             destinationType: "business",
             destinationBusinessId: transferBusinessId,
+            destinationCityId: destinationBusiness?.city_id,
             itemKey: item.item_key,
             quality: item.quality,
             quantity: actionQuantity,
-            fundingAccountId: transferFundingAccountId || undefined,
             unitPrice: transferUnitPrice,
           },
           { fallbackError: "Failed to transfer item." }
@@ -848,7 +844,6 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                   setMarketActionItem({ id: item.id, type: "business_transfer", available });
                                   setActionQuantity(1);
                                   setTransferBusinessId(transferBusinesses[0]?.id ?? "");
-                                  setTransferFundingAccountId(defaultFundingAccountId);
                                   setTransferUnitPrice(Math.max(1, actionPrice));
                                 }}
                                 disabled={busy || available <= 0 || transferBusinesses.length === 0}
@@ -926,21 +921,8 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                         style={{ width: 90, padding: "4px 8px", fontSize: "0.8rem", background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)" }}
                                       />
                                     </div>
-                                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                      <label style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Funding:</label>
-                                      <select
-                                        title="Funding account"
-                                        value={transferFundingAccountId}
-                                        onChange={(e) => setTransferFundingAccountId(e.target.value)}
-                                        style={{ padding: "4px 8px", fontSize: "0.8rem", background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)" }}
-                                      >
-                                        <option value="">Select account...</option>
-                                        {bankAccounts.map((account) => (
-                                          <option key={account.id} value={account.id}>
-                                            {account.account_type} ({formatCurrency(account.balance)})
-                                          </option>
-                                        ))}
-                                      </select>
+                                    <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                                      Shipping and purchase charges post to the businesses involved.
                                     </div>
                                   </>
                                 )}

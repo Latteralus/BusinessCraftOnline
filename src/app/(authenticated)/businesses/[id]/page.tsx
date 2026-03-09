@@ -1,5 +1,4 @@
 import { type FinancePeriod } from "@/config/finance";
-import { getAccountsWithBalances } from "@/domains/banking";
 import {
   getBusinessById,
   getBusinessFinanceDashboard,
@@ -44,7 +43,7 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
     "oil_well",
   ].includes(business.type);
 
-  const [city, production, manufacturing, inventory, shelfItems, upgrades, upgradeProjects, employeesRes, upgradeDefinitions, financeDashboard, ownedBusinesses, bankAccounts] = await Promise.all([
+  const [city, production, manufacturing, inventory, shelfItems, upgrades, upgradeProjects, employeesRes, upgradeDefinitions, financeDashboard, ownedBusinesses] = await Promise.all([
     getCityById(supabase, business.city_id).catch(() => null),
     isExtraction ? getProductionStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
     !isExtraction ? getManufacturingStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
@@ -61,7 +60,6 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
     getUpgradeDefinitionsForBusinessType(supabase, business.type as BusinessType).catch(() => []),
     getBusinessFinanceDashboard(supabase, user.id, business.id, requestedPeriod).catch(() => null),
     getBusinessesWithBalances(supabase, user.id).catch(() => []),
-    getAccountsWithBalances(supabase, user.id).catch(() => []),
   ]);
 
   const employees = employeesRes.data || [];
@@ -102,7 +100,6 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
         upgradeDefinitions={upgradeDefinitions}
         financeDashboard={financeDashboard}
         ownedBusinesses={ownedBusinesses}
-        bankAccounts={bankAccounts}
         initialTab={searchParams.tab}
       />
     </>

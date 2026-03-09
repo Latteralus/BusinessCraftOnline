@@ -77,7 +77,8 @@ export default function InventoryClient({ initialData }: Props) {
           itemKey: itemKey.trim(),
           quantity: Number(quantity),
           quality: Number(quality),
-          fundingAccountId,
+          fundingAccountId:
+            sourceType === "business" && destinationType === "business" ? undefined : fundingAccountId,
           unitPrice: sourceType === "business" && destinationType === "business" ? Number(unitPrice) : undefined,
         },
         { fallbackError: "Transfer failed." }
@@ -191,17 +192,23 @@ export default function InventoryClient({ initialData }: Props) {
               <input type="number" min="1" step="0.01" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} />
             </label>
           ) : null}
-          <label>
-            Funding Account (for shipping)
-            <select value={fundingAccountId} onChange={(event) => setFundingAccountId(event.target.value)}>
-              <option value="">Select account</option>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.account_type} ({formatCurrency(account.balance)})
-                </option>
-              ))}
-            </select>
-          </label>
+          {sourceType === "business" && destinationType === "business" ? (
+            <p style={{ margin: 0, color: "#94a3b8" }}>
+              Business-to-business shipping and purchase charges post to business accounts.
+            </p>
+          ) : (
+            <label>
+              Funding Account (for shipping)
+              <select value={fundingAccountId} onChange={(event) => setFundingAccountId(event.target.value)}>
+                <option value="">Select account</option>
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.account_type} ({formatCurrency(account.balance)})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button onClick={submitTransfer} disabled={submitting || !itemKey.trim() || Number(quantity) <= 0 || Number(quality) < 1 || Number(quality) > 100 || (sourceType === "business" && destinationType === "business" && Number(unitPrice) < 1)}>
             {submitting ? "Submitting..." : "Submit Transfer"}
           </button>

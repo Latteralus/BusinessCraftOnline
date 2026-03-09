@@ -1,6 +1,7 @@
 import { getAccountsWithBalances } from "@/domains/banking";
+import { getBusinessById } from "@/domains/businesses";
 import { getCharacter } from "@/domains/auth-character";
-import { getBusinessInventory, transferItems, transferItemsSchema } from "@/domains/inventory";
+import { transferItems, transferItemsSchema } from "@/domains/inventory";
 import { badRequest, fail, parseJsonBody, requireAuthedUser } from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
@@ -35,16 +36,21 @@ export async function POST(request: Request) {
     }
 
     if (input.sourceType === "business" && input.sourceBusinessId) {
-      const sourceRows = await getBusinessInventory(supabase, user.id, input.sourceBusinessId);
-      const sourceCityId = sourceRows[0]?.city_id;
+      const sourceBusiness = await getBusinessById(supabase, user.id, input.sourceBusinessId);
+      const sourceCityId = sourceBusiness?.city_id;
       if (!sourceCityId) {
         return badRequest("Unable to resolve source business city for transfer.");
       }
       input.sourceCityId = sourceCityId;
     }
 
-    if (input.destinationType === "business" && !input.destinationCityId) {
-      return badRequest("destinationCityId is required for business destinations.");
+    if (input.destinationType === "business" && input.destinationBusinessId) {
+      const destinationBusiness = await getBusinessById(supabase, user.id, input.destinationBusinessId);
+      const destinationCityId = destinationBusiness?.city_id;
+      if (!destinationCityId) {
+        return badRequest("Unable to resolve destination business city for transfer.");
+      }
+      input.destinationCityId = destinationCityId;
     }
 
     if (
@@ -52,15 +58,23 @@ export async function POST(request: Request) {
       input.destinationCityId &&
       input.sourceCityId !== input.destinationCityId
     ) {
-      if (!input.fundingAccountId) {
+      const isBusinessToBusiness =
+        input.sourceType === "business" &&
+        input.destinationType === "business" &&
+        Boolean(input.sourceBusinessId) &&
+        Boolean(input.destinationBusinessId);
+
+      if (!isBusinessToBusiness && !input.fundingAccountId) {
         return badRequest("fundingAccountId is required for cross-city shipping.");
       }
 
-      const accounts = await getAccountsWithBalances(supabase, user.id);
-      const fundingAccount = accounts.find((account) => account.id === input.fundingAccountId);
+      if (!isBusinessToBusiness) {
+        const accounts = await getAccountsWithBalances(supabase, user.id);
+        const fundingAccount = accounts.find((account) => account.id === input.fundingAccountId);
 
-      if (!fundingAccount) {
-        return badRequest("Funding account not found.");
+        if (!fundingAccount) {
+          return badRequest("Funding account not found.");
+        }
       }
     }
 
