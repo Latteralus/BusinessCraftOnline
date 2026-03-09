@@ -155,7 +155,7 @@ export async function insertBusinessFinancialEvents(
     reference_id: row.reference_id ?? null,
     description: row.description,
     effective_at: row.effective_at ?? new Date().toISOString(),
-    metadata: row.metadata ?? null,
+    metadata: row.metadata ?? {},
   }));
 
   const { error } = await client.from("business_financial_events").insert(payload);
