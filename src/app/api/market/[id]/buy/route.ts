@@ -36,10 +36,16 @@ export async function POST(request: Request, { params }: Params) {
     const result = await buyMarketListing(supabase, user.id, parsed.data);
     return NextResponse.json(result);
   } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === "object" && error !== null && "message" in error && typeof error.message === "string"
+          ? error.message
+          : "Failed to buy listing.";
+
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to buy listing." },
+      { error: message },
       { status: 400 }
     );
   }
 }
-
