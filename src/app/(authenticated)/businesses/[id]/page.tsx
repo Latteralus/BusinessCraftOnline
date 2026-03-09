@@ -1,4 +1,3 @@
-import { getCharacter } from "@/domains/auth-character";
 import { getBusinessById, getBusinessUpgrades, getBusinessFinanceSummary } from "@/domains/businesses";
 import { getCityById } from "@/domains/cities-travel";
 import { getProductionStatus, getManufacturingStatus } from "@/domains/production";
@@ -6,27 +5,17 @@ import { getBusinessInventory } from "@/domains/inventory";
 import { getStoreShelfItems } from "@/domains/stores";
 import { getUpgradeDefinitionsForBusinessType, type BusinessType } from "@/domains/upgrades";
 import { formatLabel } from "@/lib/formatters";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { requireAuthedPageContext } from "../../server-data";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import BusinessDetailsClient from "@/components/businesses/BusinessDetailsClient";
 
 export default async function BusinessDetailsPage(props: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string }> }) {
-  const params = await props.params;
-  const searchParams = await props.searchParams;
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const character = await getCharacter(supabase, user.id).catch(() => null);
-  if (!character) {
-    redirect("/character-setup");
-  }
+  const [params, searchParams, { supabase, user }] = await Promise.all([
+    props.params,
+    props.searchParams,
+    requireAuthedPageContext(),
+  ]);
 
   const business = await getBusinessById(supabase, user.id, params.id).catch(() => null);
 

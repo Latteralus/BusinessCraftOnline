@@ -1,6 +1,6 @@
-import { getCharacter, getPlayer } from "@/domains/auth-character";
+import { getPlayer } from "@/domains/auth-character";
 import { getBankingSnapshot } from "@/domains/banking";
-import { getBusinessesWithBalances, getBusinessSummary } from "@/domains/businesses";
+import { getBusinessesWithBalances, summarizeBusinessesWithBalances } from "@/domains/businesses";
 import { getActiveTravel, getCityById } from "@/domains/cities-travel";
 import { getEmployeeStatusFromShift, getEmployeeSummary } from "@/domains/employees";
 import {
@@ -20,6 +20,7 @@ import { cookies } from "next/headers";
 import { DashboardClock } from "@/components/dashboard/DashboardClock";
 import { DashboardGreeting } from "@/components/dashboard/DashboardGreeting";
 import { formatItemKey } from "@/lib/items";
+import { requireAuthedPageContext } from "../server-data";
 
 async function logout() {
   "use server";
@@ -68,23 +69,8 @@ function getBusinessIcon(type: string): string {
 }
 
 export default async function DashboardPage() {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const [player, character] = await Promise.all([
-    getPlayer(supabase, user.id).catch(() => null),
-    getCharacter(supabase, user.id).catch(() => null),
-  ]);
-
-  if (!character) {
-    redirect("/character-setup");
-  }
+  const { supabase, user, character } = await requireAuthedPageContext();
+  const player = await getPlayer(supabase, user.id).catch(() => null);
 
   const [activeTravel, currentCity] = await Promise.all([
     getActiveTravel(supabase, user.id).catch(() => null),
@@ -99,7 +85,6 @@ export default async function DashboardPage() {
 
   const [
     bankingSnapshot,
-    businessSummary,
     businessesWithBalances,
     employeeSummary,
     marketTransactions,
@@ -112,7 +97,6 @@ export default async function DashboardPage() {
     extRes,
   ] = await Promise.all([
     getBankingSnapshot(supabase, user.id).catch(() => null),
-    getBusinessSummary(supabase, user.id).catch(() => null),
     getBusinessesWithBalances(supabase, user.id).catch(() => []),
     getEmployeeSummary(supabase, user.id).catch(() => null),
     getMarketTransactions(supabase, user.id, 20).catch(() => []),
@@ -138,6 +122,7 @@ export default async function DashboardPage() {
       .order("updated_at", { ascending: false })
       .limit(20),
   ]);
+  const businessSummary = summarizeBusinessesWithBalances(businessesWithBalances);
 
   const mfgJobs = (mfgRes.data ?? []) as Array<any>;
   const extSlots = (extRes.data ?? []) as Array<any>;

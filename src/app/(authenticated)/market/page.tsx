@@ -1,9 +1,8 @@
 import MarketClient from "./MarketClient";
-import { loadMarketPageData, requireAuthedPageContext } from "../server-data";
+import { loadMarketPageData } from "../server-data";
 
 export default async function MarketPage() {
-  const { user } = await requireAuthedPageContext();
-  const initialData = await loadMarketPageData(user.id);
+  const initialData = await loadMarketPageData();
 
   return <MarketClient initialData={initialData} />;
 }

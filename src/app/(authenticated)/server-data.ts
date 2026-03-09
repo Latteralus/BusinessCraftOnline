@@ -30,8 +30,9 @@ import {
 } from "@/domains/market";
 import { getManufacturingStatus } from "@/domains/production";
 import { getUpgradeDefinitions } from "@/domains/upgrades";
+import { cache } from "react";
 
-export async function requireAuthedPageContext() {
+const getAuthedPageContext = cache(async () => {
   const supabase = createSupabaseServerClient();
   const {
     data: { user },
@@ -47,22 +48,23 @@ export async function requireAuthedPageContext() {
   }
 
   return { supabase, user, character };
+});
+
+export async function requireAuthedPageContext() {
+  return getAuthedPageContext();
 }
 
-export async function loadBusinessesPageData(userId: string) {
-  const supabase = createSupabaseServerClient();
-  const [businesses, cities, activeTravel, upgradeDefinitions, canBuyBusiness] = await Promise.all([
-    getBusinessesWithBalances(supabase, userId).catch(() => []),
+export async function loadBusinessesPageData() {
+  const { supabase, user, character } = await requireAuthedPageContext();
+  const [businesses, cities, activeTravel, upgradeDefinitions, canBuyBusiness, resolvedCurrentCity] = await Promise.all([
+    getBusinessesWithBalances(supabase, user.id).catch(() => []),
     getCities(supabase).catch(() => []),
-    getActiveTravel(supabase, userId).catch(() => null),
+    getActiveTravel(supabase, user.id).catch(() => null),
     getUpgradeDefinitions(supabase).catch(() => []),
-    canPurchaseBusiness(supabase, userId).catch(() => false),
+    canPurchaseBusiness(supabase, user.id).catch(() => false),
+    character.current_city_id ? getCityById(supabase, character.current_city_id).catch(() => null) : Promise.resolve(null),
   ]);
 
-  const currentCity = activeTravel ? null : null;
-  const character = await getCharacter(supabase, userId).catch(() => null);
-  const resolvedCurrentCity =
-    character?.current_city_id ? await getCityById(supabase, character.current_city_id).catch(() => null) : currentCity;
   const travelState: TravelState = {
     currentCity: resolvedCurrentCity,
     activeTravel,
@@ -78,17 +80,17 @@ export async function loadBusinessesPageData(userId: string) {
   };
 }
 
-export async function loadBankingPageData(userId: string, businessLevel: number) {
-  const supabase = createSupabaseServerClient();
+export async function loadBankingPageData() {
+  const { supabase, user, character } = await requireAuthedPageContext();
   const [snapshot, loanSummary, transactions, businesses] = await Promise.all([
-    getBankingSnapshot(supabase, userId).catch(() => ({ accounts: [], activeLoan: null })),
-    getLoanSummary(supabase, userId, businessLevel).catch(() => null),
-    getTransactionHistory(supabase, userId, { limit: 30 }).catch(() => []),
-    getBusinessesWithBalances(supabase, userId).catch(() => []),
+    getBankingSnapshot(supabase, user.id).catch(() => ({ accounts: [], activeLoan: null })),
+    getLoanSummary(supabase, user.id, character.business_level).catch(() => null),
+    getTransactionHistory(supabase, user.id, { limit: 30 }).catch(() => []),
+    getBusinessesWithBalances(supabase, user.id).catch(() => []),
   ]);
   const loanData: BankingLoanState = {
     summary: loanSummary,
-    maxLoanAvailable: calculateMaxLoanForBusinessLevel(businessLevel),
+    maxLoanAvailable: calculateMaxLoanForBusinessLevel(character.business_level),
   };
 
   return {
@@ -99,15 +101,15 @@ export async function loadBankingPageData(userId: string, businessLevel: number)
   };
 }
 
-export async function loadInventoryPageData(userId: string) {
-  const supabase = createSupabaseServerClient();
+export async function loadInventoryPageData() {
+  const { supabase, user } = await requireAuthedPageContext();
   const [personalInventory, businessInventory, shippingQueue, accountsSnapshot, businesses, cities] =
     await Promise.all([
-      getPersonalInventory(supabase, userId).catch(() => []),
-      getBusinessInventory(supabase, userId).catch(() => []),
-      getShippingQueue(supabase, userId).catch(() => []),
-      getBankingSnapshot(supabase, userId).catch(() => ({ accounts: [] })),
-      getBusinessesWithBalances(supabase, userId).catch(() => []),
+      getPersonalInventory(supabase, user.id).catch(() => []),
+      getBusinessInventory(supabase, user.id).catch(() => []),
+      getShippingQueue(supabase, user.id).catch(() => []),
+      getBankingSnapshot(supabase, user.id).catch(() => ({ accounts: [] })),
+      getBusinessesWithBalances(supabase, user.id).catch(() => []),
       getCities(supabase).catch(() => []),
     ]);
 
@@ -132,12 +134,12 @@ export async function loadInventoryPageData(userId: string) {
   };
 }
 
-export async function loadEmployeesPageData(userId: string) {
-  const supabase = createSupabaseServerClient();
+export async function loadEmployeesPageData() {
+  const { supabase, user } = await requireAuthedPageContext();
   const [employees, summary, businesses] = await Promise.all([
-    getPlayerEmployees(supabase, userId).catch(() => []),
-    getEmployeeSummary(supabase, userId).catch(() => null),
-    getBusinessesWithBalances(supabase, userId).catch(() => []),
+    getPlayerEmployees(supabase, user.id).catch(() => []),
+    getEmployeeSummary(supabase, user.id).catch(() => null),
+    getBusinessesWithBalances(supabase, user.id).catch(() => []),
   ]);
 
   return {
@@ -147,19 +149,19 @@ export async function loadEmployeesPageData(userId: string) {
   };
 }
 
-export async function loadContractsPageData(userId: string) {
-  const supabase = createSupabaseServerClient();
+export async function loadContractsPageData() {
+  const { supabase, user } = await requireAuthedPageContext();
   const [businesses, contracts] = await Promise.all([
-    getBusinessesWithBalances(supabase, userId).catch(() => []),
-    getContracts(supabase, userId).catch(() => []),
+    getBusinessesWithBalances(supabase, user.id).catch(() => []),
+    getContracts(supabase, user.id).catch(() => []),
   ]);
 
   return { businesses, contracts };
 }
 
-export async function loadProductionPageData(userId: string) {
-  const supabase = createSupabaseServerClient();
-  const businesses = await getBusinessesWithBalances(supabase, userId).catch(() => []);
+export async function loadProductionPageData() {
+  const { supabase, user } = await requireAuthedPageContext();
+  const businesses = await getBusinessesWithBalances(supabase, user.id).catch(() => []);
   const manufacturingBusinesses = businesses.filter((business) =>
     [
       "sawmill",
@@ -171,7 +173,7 @@ export async function loadProductionPageData(userId: string) {
   );
   const selectedBusinessId = manufacturingBusinesses[0]?.id ?? "";
   const manufacturing = selectedBusinessId
-    ? await getManufacturingStatus(supabase, userId, selectedBusinessId).catch(() => null)
+    ? await getManufacturingStatus(supabase, user.id, selectedBusinessId).catch(() => null)
     : null;
 
   return {
@@ -181,13 +183,13 @@ export async function loadProductionPageData(userId: string) {
   };
 }
 
-export async function loadMarketPageData(userId: string) {
-  const supabase = createSupabaseServerClient();
+export async function loadMarketPageData() {
+  const { supabase, user } = await requireAuthedPageContext();
   const [businesses, listings, transactions, storefront] = await Promise.all([
-    getBusinessesWithBalances(supabase, userId).catch(() => []),
-    getMarketListings(supabase, userId).catch(() => []),
-    getMarketTransactions(supabase, userId, 40).catch(() => []),
-    getMarketStorefrontSettings(supabase, userId).catch(() => []),
+    getBusinessesWithBalances(supabase, user.id).catch(() => []),
+    getMarketListings(supabase, user.id).catch(() => []),
+    getMarketTransactions(supabase, user.id, 40).catch(() => []),
+    getMarketStorefrontSettings(supabase, user.id).catch(() => []),
   ]);
 
   return { businesses, listings, transactions, storefront };

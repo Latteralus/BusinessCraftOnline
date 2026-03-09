@@ -98,6 +98,13 @@ export async function getBusinessUpgrades(
   const business = await getBusinessById(client, playerId, businessId);
   if (!business) throw new Error("Business not found.");
 
+  return getBusinessUpgradesById(client, businessId);
+}
+
+async function getBusinessUpgradesById(
+  client: QueryClient,
+  businessId: string
+): Promise<BusinessUpgrade[]> {
   const { data, error } = await client
     .from("business_upgrades")
     .select("*")
@@ -136,16 +143,18 @@ export async function getBusinessesWithBalances(
   playerId: string,
   filters?: { type?: BusinessType; cityId?: string }
 ): Promise<BusinessWithBalance[]> {
-  const businesses = await getPlayerBusinesses(client, playerId, filters);
+  const { data, error } = await client.rpc("get_player_businesses_with_balances", {
+    p_player_id: playerId,
+    p_type: filters?.type ?? null,
+    p_city_id: filters?.cityId ?? null,
+  });
 
-  const withBalances = await Promise.all(
-    businesses.map(async (business) => ({
-      ...business,
-      balance: await getBusinessBalanceById(client, business.id),
-    }))
-  );
+  if (error) throw error;
 
-  return withBalances;
+  return ((data as Array<BusinessWithBalance>) ?? []).map((row) => ({
+    ...normalizeBusiness(row),
+    balance: round2(toNumber(row.balance)),
+  }));
 }
 
 export async function getBusinessDetail(
@@ -157,8 +166,8 @@ export async function getBusinessDetail(
   if (!business) return null;
 
   const [balance, upgrades] = await Promise.all([
-    getBusinessBalance(client, playerId, businessId),
-    getBusinessUpgrades(client, playerId, businessId),
+    getBusinessBalanceById(client, businessId),
+    getBusinessUpgradesById(client, businessId),
   ]);
 
   return {

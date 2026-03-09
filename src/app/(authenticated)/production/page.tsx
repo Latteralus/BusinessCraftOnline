@@ -1,9 +1,8 @@
 import ProductionClient from "./ProductionClient";
-import { loadProductionPageData, requireAuthedPageContext } from "../server-data";
+import { loadProductionPageData } from "../server-data";
 
 export default async function ProductionPage() {
-  const { user } = await requireAuthedPageContext();
-  const initialData = await loadProductionPageData(user.id);
+  const initialData = await loadProductionPageData();
 
   return <ProductionClient initialData={initialData} />;
 }

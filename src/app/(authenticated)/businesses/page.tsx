@@ -1,9 +1,8 @@
 import BusinessesClient from "./BusinessesClient";
-import { loadBusinessesPageData, requireAuthedPageContext } from "../server-data";
+import { loadBusinessesPageData } from "../server-data";
 
 export default async function BusinessesPage() {
-  const { user } = await requireAuthedPageContext();
-  const initialData = await loadBusinessesPageData(user.id);
+  const initialData = await loadBusinessesPageData();
 
   return <BusinessesClient initialData={initialData} />;
 }
