@@ -189,13 +189,18 @@ async function settleStoreInventorySale(
   const inventoryReserved = toNumber(inventoryRow.reserved_quantity);
   const shelfQty = toNumber(shelfRow.quantity);
   const listingPrice = Math.max(0.01, toNumber(shelfRow.unit_price));
+  const availableBackedQty = Math.max(0, Math.min(shelfQty, inventoryQty, inventoryReserved));
+
+  if (soldQty > availableBackedQty) {
+    throw new Error("Shelf sale exceeds reserved inventory backing.");
+  }
 
   const gross = Number((listingPrice * soldQty).toFixed(2));
   const fee = 0;
   const net = gross;
 
   const nextQty = inventoryQty - soldQty;
-  const nextReserved = Math.max(0, Math.min(inventoryReserved, nextQty));
+  const nextReserved = Math.max(0, Math.min(nextQty, inventoryReserved - soldQty));
   const nextShelfQty = shelfQty - soldQty;
   const now = new Date().toISOString();
 
@@ -488,14 +493,20 @@ Deno.serve(async (request) => {
     const availableRows = (shelfRows ?? [])
       .map((row) => {
         const inventory = inventoryByKey.get(`${row.item_key}:${row.quality}`);
+        const backedQuantity = Math.max(
+          0,
+          Math.min(toNumber(row.quantity), toNumber(inventory?.quantity), toNumber(inventory?.reserved_quantity))
+        );
         return {
           ...row,
           city_id: String(store.city_id),
           business_name: String(store.name ?? "Unknown Business"),
           inventory_quantity: inventory?.quantity ?? 0,
+          backing_reserved_quantity: inventory?.reserved_quantity ?? 0,
+          backed_quantity: backedQuantity,
         };
       })
-      .filter((row) => toNumber(row.quantity) > 0 && toNumber(row.inventory_quantity) > 0 && toNumber(row.unit_price) > 0);
+      .filter((row) => toNumber(row.backed_quantity) > 0 && toNumber(row.unit_price) > 0);
 
     if (availableRows.length === 0) {
       await writeStorefrontSnapshot(supabase, {
@@ -533,7 +544,7 @@ Deno.serve(async (request) => {
       const desiredPurchases = Math.max(1, Math.min(6, shopperMaxItems));
 
       for (let purchaseAttempt = 0; purchaseAttempt < desiredPurchases; purchaseAttempt += 1) {
-        const activeRows = availableRows.filter((row) => toNumber(row.quantity) > 0 && toNumber(row.inventory_quantity) > 0);
+        const activeRows = availableRows.filter((row) => toNumber(row.backed_quantity) > 0);
         if (activeRows.length === 0 || remainingItems <= 0 || remainingBudget <= 0) break;
 
         const itemKeys = Array.from(new Set(activeRows.map((row) => String(row.item_key))));
@@ -569,7 +580,7 @@ Deno.serve(async (request) => {
         const chosenPrice = toNumber(chosen.unit_price);
         if (chosenPrice <= 0) continue;
 
-        const available = Math.max(0, Math.min(toNumber(chosen.quantity), toNumber(chosen.inventory_quantity)));
+        const available = Math.max(0, toNumber(chosen.backed_quantity));
         const affordable = Math.floor(remainingBudget / chosenPrice);
         const maxByAttempt = Math.max(1, Math.min(6, 1 + Math.floor(Number(listingCapacityLevel) / 2)));
         const soldQty = Math.max(
@@ -596,6 +607,15 @@ Deno.serve(async (request) => {
 
         chosen.quantity = Math.max(0, toNumber(chosen.quantity) - soldQty);
         chosen.inventory_quantity = Math.max(0, toNumber(chosen.inventory_quantity) - soldQty);
+        chosen.backing_reserved_quantity = Math.max(0, toNumber(chosen.backing_reserved_quantity) - soldQty);
+        chosen.backed_quantity = Math.max(
+          0,
+          Math.min(
+            toNumber(chosen.quantity),
+            toNumber(chosen.inventory_quantity),
+            toNumber(chosen.backing_reserved_quantity)
+          )
+        );
 
         remainingBudget = round2(Math.max(0, remainingBudget - settled.gross));
         remainingItems = Math.max(0, remainingItems - soldQty);
