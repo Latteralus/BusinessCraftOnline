@@ -48,6 +48,28 @@ export default function InventoryClient({ initialData }: Props) {
     [businesses]
   );
 
+  const maxTransferQuantity = useMemo(() => {
+    const normalizedItemKey = itemKey.trim();
+    const normalizedQuality = Number(quality);
+    if (!normalizedItemKey || !Number.isFinite(normalizedQuality) || normalizedQuality < 1) return 0;
+
+    if (sourceType === "personal") {
+      return personalInventory
+        .filter((row) => row.item_key === normalizedItemKey && row.quality === normalizedQuality)
+        .reduce((sum, row) => sum + row.quantity, 0);
+    }
+
+    if (!sourceBusinessId) return 0;
+    return businessInventory
+      .filter(
+        (row) =>
+          row.business_id === sourceBusinessId &&
+          row.item_key === normalizedItemKey &&
+          row.quality === normalizedQuality
+      )
+      .reduce((sum, row) => sum + Math.max(0, row.quantity - row.reserved_quantity), 0);
+  }, [businessInventory, itemKey, personalInventory, quality, sourceBusinessId, sourceType]);
+
   type TransferResponse = {
     transferType?: "shipping" | "same_city";
     shippingMinutes?: number;
@@ -180,7 +202,16 @@ export default function InventoryClient({ initialData }: Props) {
           </label>
           <label>
             Quantity
-            <input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+              <button
+                type="button"
+                onClick={() => setQuantity(String(maxTransferQuantity))}
+                disabled={submitting || maxTransferQuantity <= 0}
+              >
+                Max
+              </button>
+            </div>
           </label>
           <label>
             Quality

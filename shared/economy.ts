@@ -107,6 +107,29 @@ export const NPC_PRICE_CEILINGS = {
   corn_whiskey: 18.0,
 } as const;
 
+export const NPC_BUYER_MIN_PRICE = 0.01;
+
+export type NpcBuyerPriceRange = {
+  min: number;
+  max: number;
+};
+
+export const NPC_BUYER_PRICE_RANGES: Record<string, NpcBuyerPriceRange> = Object.fromEntries(
+  Object.entries(NPC_PRICE_CEILINGS).map(([itemKey, max]) => [itemKey, { min: NPC_BUYER_MIN_PRICE, max }])
+);
+
+export function getNpcBuyerPriceRange(itemKey: string): NpcBuyerPriceRange {
+  return NPC_BUYER_PRICE_RANGES[itemKey] ?? {
+    min: NPC_BUYER_MIN_PRICE,
+    max: 1,
+  };
+}
+
+export function getNpcSuggestedBasePrice(itemKey: string): number {
+  const range = getNpcBuyerPriceRange(itemKey);
+  return Number((((range.min + range.max) / 2) * 100).toFixed(0)) / 100;
+}
+
 export function getDemandCurveMultiplierForHour(hour: number): number {
   const match = NPC_DEMAND_CURVE.find((window) => hour >= window.startHour && hour <= window.endHour);
   return match?.multiplier ?? 1;

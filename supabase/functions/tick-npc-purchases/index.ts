@@ -7,6 +7,7 @@ import {
   isStoreBusinessType,
 } from "../../../shared/businesses/store.ts";
 import {
+  getNpcBuyerPriceRange,
   NPC_STOREFRONT_FEE,
   NPC_CATEGORY_INTEREST_WEIGHTS,
   NPC_DEMAND_CURVE,
@@ -42,7 +43,7 @@ function toNumber(value: number | string | null | undefined): number {
 }
 
 function ceilForItem(itemKey: string): number {
-  return NPC_PRICE_CEILINGS[itemKey] ?? 1;
+  return getNpcBuyerPriceRange(itemKey).max;
 }
 
 function randBetweenWithRng(rng: () => number, min: number, max: number): number {

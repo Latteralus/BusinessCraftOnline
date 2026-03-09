@@ -20,6 +20,7 @@ import { calculateUpgradePreview, formatInstallTimeMinutes } from "@/domains/upg
 import { BASE_WAGE_PER_HOUR } from "@/config/employees";
 import { apiDelete, apiPatch, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
+import { getNpcBuyerPriceRange, getNpcSuggestedBasePrice } from "@/config/items";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import BusinessEmployeesDashboard from "./BusinessEmployeesDashboard";
@@ -120,7 +121,8 @@ export default function BusinessDetailsClient({ business, production, manufactur
   const isStoreBusiness = isStoreBusinessType(business.type);
   const transferBusinesses = ownedBusinesses.filter((row) => row.id !== business.id);
   const shelfKey = (itemKey: string, quality: number) => `${itemKey}:${quality}`;
-  const shelfByInventoryKey = Object.fromEntries(shelfItems.map((item) => [shelfKey(item.item_key, item.quality), item]));
+  const activeShelfItems = shelfItems.filter((item) => item.quantity > 0);
+  const shelfByInventoryKey = Object.fromEntries(activeShelfItems.map((item) => [shelfKey(item.item_key, item.quality), item]));
   const activeUpgradeProject =
     upgradeProjects.find((project) => project.project_status === "installing") ?? null;
   const availableWorkersForSlots = thisBusinessEmployees
@@ -379,6 +381,12 @@ export default function BusinessDetailsClient({ business, production, manufactur
     }, "Error removing shelf item");
   }
 
+  function getShelfPricingGuide(itemKey: string) {
+    const range = getNpcBuyerPriceRange(itemKey);
+    const suggested = getNpcSuggestedBasePrice(itemKey);
+    return { range, suggested };
+  }
+
   return (
     <div className="card anim" style={{ marginTop: 24 }}>
       <div className="card-header" style={{ padding: 0, borderBottom: "1px solid var(--border-subtle)", overflowX: "auto" }}>
@@ -440,7 +448,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
               production={production}
               manufacturing={manufacturing}
               inventory={inventory}
-              shelfItems={shelfItems}
+              shelfItems={activeShelfItems}
               employees={employees}
             />
             {isStoreBusiness && (
@@ -454,52 +462,60 @@ export default function BusinessDetailsClient({ business, production, manufactur
                       </p>
                     </div>
                     <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-                      Active shelf rows: {shelfItems.length}
+                      Active shelf rows: {activeShelfItems.length}
                     </div>
                   </div>
 
-                  {shelfItems.length > 0 ? (
+                  {activeShelfItems.length > 0 ? (
                     <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
-                      {shelfItems.map((item) => (
-                        <div
-                          key={item.id}
-                          style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", padding: 12, background: "var(--bg-elevated)", borderRadius: 8, flexWrap: "wrap" }}
-                        >
-                          <div>
-                            <div style={{ fontWeight: 600 }}>{formatItemKey(item.item_key)} (Q{item.quality})</div>
-                            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                              On shelf: {item.quantity} | Price: {formatCurrency(item.unit_price)}
+                      {activeShelfItems.map((item) => (
+                        (() => {
+                          const pricingGuide = getShelfPricingGuide(item.item_key);
+                          return (
+                            <div
+                              key={item.id}
+                              style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", padding: 12, background: "var(--bg-elevated)", borderRadius: 8, flexWrap: "wrap" }}
+                            >
+                              <div>
+                                <div style={{ fontWeight: 600 }}>{formatItemKey(item.item_key)} (Q{item.quality})</div>
+                                <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                                  On shelf: {item.quantity} | Price: {formatCurrency(item.unit_price)} | Suggested: {formatCurrency(pricingGuide.suggested)}
+                                </div>
+                                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
+                                  NPC range: {formatCurrency(pricingGuide.range.min)} to {formatCurrency(pricingGuide.range.max)}
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                <button
+                                  onClick={() => {
+                                    const inventoryItem = inventory.find(
+                                      (inventoryRow) => inventoryRow.item_key === item.item_key && inventoryRow.quality === item.quality
+                                    );
+                                    const available = inventoryItem ? inventoryItem.quantity - inventoryItem.reserved_quantity : 0;
+                                    setShelfActionItem({
+                                      itemKey: item.item_key,
+                                      quality: item.quality,
+                                      maxQuantity: Math.max(item.quantity, item.quantity + available),
+                                    });
+                                    setShelfQuantity(item.quantity);
+                                    setShelfPrice(item.unit_price);
+                                  }}
+                                  disabled={busy}
+                                  style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => void removeShelfItem(item.id)}
+                                  disabled={busy}
+                                  style={{ fontSize: "0.75rem", padding: "4px 8px", background: "rgba(248, 113, 113, 0.1)", color: "#f87171", border: "1px solid rgba(248, 113, 113, 0.2)" }}
+                                >
+                                  Remove
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <button
-                              onClick={() => {
-                                const inventoryItem = inventory.find(
-                                  (inventoryRow) => inventoryRow.item_key === item.item_key && inventoryRow.quality === item.quality
-                                );
-                                const available = inventoryItem ? inventoryItem.quantity - inventoryItem.reserved_quantity : 0;
-                                setShelfActionItem({
-                                  itemKey: item.item_key,
-                                  quality: item.quality,
-                                  maxQuantity: Math.max(item.quantity, item.quantity + available),
-                                });
-                                setShelfQuantity(item.quantity);
-                                setShelfPrice(item.unit_price);
-                              }}
-                              disabled={busy}
-                              style={{ fontSize: "0.75rem", padding: "4px 8px" }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => void removeShelfItem(item.id)}
-                              disabled={busy}
-                              style={{ fontSize: "0.75rem", padding: "4px 8px", background: "rgba(248, 113, 113, 0.1)", color: "#f87171", border: "1px solid rgba(248, 113, 113, 0.2)" }}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        </div>
+                          );
+                        })()
                       ))}
                     </div>
                   ) : (
@@ -524,6 +540,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                           const maxShelfQuantity = available + (existingShelf?.quantity ?? 0);
                           const isShelfRow =
                             shelfActionItem?.itemKey === item.item_key && shelfActionItem?.quality === item.quality;
+                          const pricingGuide = getShelfPricingGuide(item.item_key);
 
                           return (
                             <Fragment key={`${item.id}-shelf`}>
@@ -541,7 +558,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                         maxQuantity: maxShelfQuantity,
                                       });
                                       setShelfQuantity(existingShelf?.quantity ?? 1);
-                                      setShelfPrice(existingShelf?.unit_price ?? 1);
+                                      setShelfPrice(existingShelf?.unit_price ?? pricingGuide.suggested);
                                     }}
                                     disabled={busy || maxShelfQuantity <= 0}
                                     style={{ fontSize: "0.75rem", padding: "4px 8px" }}
@@ -555,6 +572,12 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                   <td colSpan={5} style={{ padding: "12px 16px" }}>
                                     <div style={{ display: "flex", gap: 16, alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" }}>
                                       <div style={{ fontSize: "0.85rem", fontWeight: 500 }}>Shelf setup:</div>
+                                      <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                                        Suggested: {formatCurrency(pricingGuide.suggested)} base
+                                      </div>
+                                      <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                                        NPC range: {formatCurrency(pricingGuide.range.min)} to {formatCurrency(pricingGuide.range.max)}
+                                      </div>
                                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                                         <label style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Qty:</label>
                                         <input
@@ -566,6 +589,21 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                           onChange={(e) => setShelfQuantity(Math.min(maxShelfQuantity, Math.max(1, parseInt(e.target.value) || 1)))}
                                           style={{ width: 70, padding: "4px 8px", fontSize: "0.8rem", background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)" }}
                                         />
+                                        <button
+                                          type="button"
+                                          onClick={() => setShelfQuantity(maxShelfQuantity)}
+                                          disabled={busy || maxShelfQuantity <= 0}
+                                          style={{
+                                            fontSize: "0.75rem",
+                                            padding: "4px 8px",
+                                            background: "transparent",
+                                            color: "var(--text-primary)",
+                                            border: "1px solid var(--border-subtle)",
+                                            borderRadius: "var(--radius-sm)",
+                                          }}
+                                        >
+                                          Max
+                                        </button>
                                       </div>
                                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                                         <label style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Unit Price ($):</label>
@@ -896,6 +934,21 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                     onChange={(e) => setActionQuantity(Math.min(available, Math.max(1, parseInt(e.target.value) || 1)))} 
                                     style={{ width: 60, padding: "4px 8px", fontSize: "0.8rem", background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)" }} 
                                   />
+                                  <button
+                                    type="button"
+                                    onClick={() => setActionQuantity(available)}
+                                    disabled={busy || available <= 0}
+                                    style={{
+                                      fontSize: "0.75rem",
+                                      padding: "4px 8px",
+                                      background: "transparent",
+                                      color: "var(--text-primary)",
+                                      border: "1px solid var(--border-subtle)",
+                                      borderRadius: "var(--radius-sm)",
+                                    }}
+                                  >
+                                    Max
+                                  </button>
                                 </div>
                                 {marketActionItem.type === "market" && (
                                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

@@ -596,18 +596,37 @@ export default function MarketClient({ initialData }: Props) {
                       <div style={{ display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
                         <label style={{ minWidth: 110 }}>
                           <FieldLabel>Buy Qty</FieldLabel>
-                          <input
-                            type="number"
-                            min={1}
-                            max={listing.quantity}
-                            value={requestedQty}
-                            onChange={(event) =>
-                              setBuyQuantityByListingId((prev) => ({
-                                ...prev,
-                                [listing.id]: Number(event.target.value) || 1,
-                              }))
-                            }
-                          />
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <input
+                              type="number"
+                              min={1}
+                              max={listing.quantity}
+                              value={requestedQty}
+                              onChange={(event) =>
+                                setBuyQuantityByListingId((prev) => ({
+                                  ...prev,
+                                  [listing.id]: Number(event.target.value) || 1,
+                                }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setBuyQuantityByListingId((prev) => ({
+                                  ...prev,
+                                  [listing.id]: listing.quantity,
+                                }))
+                              }
+                              disabled={busy || listing.quantity <= 0}
+                              style={{
+                                border: "1px solid rgba(148, 163, 184, 0.16)",
+                                background: "rgba(15, 23, 42, 0.72)",
+                                color: "#e2e8f0",
+                              }}
+                            >
+                              Max
+                            </button>
+                          </div>
                         </label>
                         <div style={{ color: "var(--text-secondary)", fontSize: 12, paddingBottom: 10 }}>
                           Ticket value {formatCurrency(total)}

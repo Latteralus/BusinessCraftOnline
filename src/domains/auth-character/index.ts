@@ -2,7 +2,9 @@ export {
   createCharacter,
   getCharacter,
   getOnlinePlayerPreviews,
+  getPlayerProfilePreview,
   getPlayer,
+  getPublicPlayerBusinesses,
   getPlayerCount,
   touchPlayerPresence,
   updateCharacterCity,
@@ -22,5 +24,7 @@ export type {
   LoginInput,
   OnlinePlayerPreview,
   Player,
+  PlayerProfilePreview,
+  PublicPlayerBusiness,
   RegisterInput,
 } from "./types";

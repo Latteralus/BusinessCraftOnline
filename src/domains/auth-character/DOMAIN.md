@@ -10,6 +10,8 @@
 ## Public API
 - `getPlayer`
 - `getCharacter`
+- `getPlayerProfilePreview`
+- `getPublicPlayerBusinesses`
 - `upsertPlayerFromAuthUser`
 - `createCharacter`
 - `updateCharacterCity`

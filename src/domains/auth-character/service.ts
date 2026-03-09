@@ -1,5 +1,12 @@
 import type { User } from "@supabase/supabase-js";
-import type { Character, CreateCharacterInput, OnlinePlayerPreview, Player } from "./types";
+import type {
+  Character,
+  CreateCharacterInput,
+  OnlinePlayerPreview,
+  Player,
+  PlayerProfilePreview,
+  PublicPlayerBusiness,
+} from "./types";
 
 type QueryClient = {
   from: (table: string) => any;
@@ -42,6 +49,49 @@ export async function getOnlinePlayerPreviews(
     ...row,
     business_level: Number(row.business_level),
     wealth: Number(row.wealth),
+  }));
+}
+
+export async function getPlayerProfilePreview(
+  client: QueryClient,
+  playerId: string
+): Promise<PlayerProfilePreview | null> {
+  const { data, error } = await client.rpc("get_player_profile_preview", {
+    p_player_id: playerId,
+  });
+
+  if (error) throw error;
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+
+  return {
+    ...(row as PlayerProfilePreview),
+    business_level: Number((row as PlayerProfilePreview).business_level),
+    net_worth: Number((row as PlayerProfilePreview).net_worth),
+    personal_cash: Number((row as PlayerProfilePreview).personal_cash),
+    business_cash: Number((row as PlayerProfilePreview).business_cash),
+    business_asset_value: Number((row as PlayerProfilePreview).business_asset_value),
+    liabilities: Number((row as PlayerProfilePreview).liabilities),
+    total_businesses: Number((row as PlayerProfilePreview).total_businesses),
+    is_online: Boolean((row as PlayerProfilePreview).is_online),
+  };
+}
+
+export async function getPublicPlayerBusinesses(
+  client: QueryClient,
+  playerId: string
+): Promise<PublicPlayerBusiness[]> {
+  const { data, error } = await client.rpc("get_player_public_businesses", {
+    p_player_id: playerId,
+  });
+
+  if (error) throw error;
+
+  return ((data as PublicPlayerBusiness[]) ?? []).map((row) => ({
+    ...row,
+    value: Number(row.value),
+    balance: Number(row.balance),
   }));
 }
 

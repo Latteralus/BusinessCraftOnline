@@ -27,6 +27,39 @@ export type OnlinePlayerPreview = {
   last_seen_at: string;
 };
 
+export type PlayerProfilePreview = {
+  player_id: string;
+  username: string;
+  character_name: string;
+  first_name: string;
+  last_name: string;
+  business_level: number;
+  current_city_id: string | null;
+  current_city_name: string | null;
+  joined_at: string;
+  last_seen_at: string | null;
+  is_online: boolean;
+  net_worth: number;
+  personal_cash: number;
+  business_cash: number;
+  business_asset_value: number;
+  liabilities: number;
+  total_businesses: number;
+};
+
+export type PublicPlayerBusiness = {
+  business_id: string;
+  player_id: string;
+  name: string;
+  type: string;
+  city_id: string;
+  city_name: string | null;
+  entity_type: string;
+  value: number;
+  balance: number;
+  created_at: string;
+};
+
 export type RegisterInput = {
   password: string;
   username: string;
