@@ -6,7 +6,7 @@ type AuthedUserResult = Awaited<ReturnType<typeof requireAuthedUser>>;
 type AuthedContext = Extract<AuthedUserResult, { ok: true }>;
 
 export async function requireAuthedUser() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();

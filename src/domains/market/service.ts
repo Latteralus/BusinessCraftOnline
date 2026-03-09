@@ -1,6 +1,11 @@
 import { STORE_BUSINESS_TYPES, isStoreBusinessType } from "@/config/businesses";
 import { MARKET_TRANSACTION_FEE } from "@/config/market";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
+import {
+  computeWeightedAverageCost,
+  consumeInventoryCostByRowId,
+  insertBusinessFinancialEvents,
+} from "@/domains/businesses/financial-events";
 import { round2, round4, toNumber } from "@/lib/core/number";
 import { addHoursToNowIso, nowIso, toIso } from "@/lib/core/time";
 import type { QueryClient } from "@/lib/db/query-client";
@@ -123,38 +128,10 @@ async function applySourceInventorySale(
   client: QueryClient,
   listing: MarketListing,
   soldQuantity: number
-): Promise<void> {
-  if (!listing.source_inventory_id) return;
-
-  const { data: row, error } = await client
-    .from("business_inventory")
-    .select("id, quantity, reserved_quantity")
-    .eq("id", listing.source_inventory_id)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!row) return;
-
-  const quantity = toNumber(row.quantity);
-  const reserved = toNumber(row.reserved_quantity);
-  const nextQuantity = quantity - soldQuantity;
-
-  if (nextQuantity <= 0) {
-    const { error: deleteError } = await client.from("business_inventory").delete().eq("id", row.id);
-    if (deleteError) throw deleteError;
-    return;
-  }
-
-  const { error: updateError } = await client
-    .from("business_inventory")
-    .update({
-      quantity: nextQuantity,
-      reserved_quantity: Math.max(0, Math.min(nextQuantity, reserved - soldQuantity)),
-      updated_at: nowIso(),
-    })
-    .eq("id", row.id);
-
-  if (updateError) throw updateError;
+): Promise<{ totalCost: number; estimated: boolean }> {
+  if (!listing.source_inventory_id) return { totalCost: 0, estimated: true };
+  const result = await consumeInventoryCostByRowId(client, listing.source_inventory_id, soldQuantity);
+  return { totalCost: result.totalCost, estimated: result.estimated };
 }
 
 async function releaseSourceInventoryReservation(client: QueryClient, listing: MarketListing): Promise<void> {
@@ -202,6 +179,9 @@ async function settleSaleAccounting(
   const gross = round2(listing.unit_price * soldQuantity);
   const fee = round2(gross * MARKET_TRANSACTION_FEE);
   const net = round2(gross - fee);
+  const saleCost = listing.source_inventory_id
+    ? await consumeInventoryCostByRowId(client, listing.source_inventory_id, soldQuantity)
+    : { totalCost: 0, itemKey: listing.item_key, quantity: soldQuantity, estimated: true };
   const sellerBusinessName = await getBusinessNameSafe(client, listing.source_business_id);
   const buyerBusinessName = buyerType === "player" ? await getBusinessNameSafe(client, buyerBusinessId) : null;
 
@@ -225,6 +205,52 @@ async function settleSaleAccounting(
   ]);
 
   if (ledgerError) throw ledgerError;
+
+  await insertBusinessFinancialEvents(client, [
+    {
+      business_id: listing.source_business_id,
+      account_code: "revenue",
+      amount: gross,
+      quantity: soldQuantity,
+      item_key: listing.item_key,
+      reference_type: "market_transaction",
+      reference_id: listing.id,
+      description: `${buyerType.toUpperCase()} sale revenue: ${soldQuantity}x ${listing.item_key}`,
+      metadata: { buyerType },
+    },
+    {
+      business_id: listing.source_business_id,
+      account_code: "cogs",
+      amount: saleCost.totalCost,
+      quantity: soldQuantity,
+      item_key: listing.item_key,
+      reference_type: "market_transaction",
+      reference_id: listing.id,
+      description: `COGS on sale: ${soldQuantity}x ${listing.item_key}`,
+      metadata: { estimatedCost: saleCost.estimated },
+    },
+    {
+      business_id: listing.source_business_id,
+      account_code: "inventory",
+      amount: saleCost.totalCost,
+      quantity: soldQuantity,
+      item_key: listing.item_key,
+      reference_type: "market_transaction",
+      reference_id: listing.id,
+      description: `Inventory relieved on sale: ${soldQuantity}x ${listing.item_key}`,
+      metadata: { direction: "out", estimatedCost: saleCost.estimated },
+    },
+    {
+      business_id: listing.source_business_id,
+      account_code: "operating_expense",
+      amount: fee,
+      quantity: soldQuantity,
+      item_key: listing.item_key,
+      reference_type: "market_transaction",
+      reference_id: listing.id,
+      description: `Market fee expense: ${soldQuantity}x ${listing.item_key}`,
+    },
+  ]);
 
   if (buyerType === "player") {
     if (buyerBusinessId) {
@@ -429,9 +455,57 @@ export async function buyMarketListing(
     throw new Error("Market purchase did not return listing and transaction.");
   }
 
+  const transaction = normalizeTransaction(result.transaction);
+  const { data: destinationInventory, error: destinationInventoryError } = await client
+    .from("business_inventory")
+    .select("id, quantity, unit_cost, total_cost")
+    .eq("owner_player_id", playerId)
+    .eq("business_id", input.buyerBusinessId)
+    .eq("item_key", transaction.item_key)
+    .eq("quality", transaction.quality)
+    .maybeSingle();
+
+  if (!destinationInventoryError && destinationInventory) {
+    const postPurchaseQuantity = toNumber(destinationInventory.quantity);
+    const addedQuantity = Math.max(1, transaction.quantity);
+    const existingQuantity = Math.max(0, postPurchaseQuantity - addedQuantity);
+    const purchaseUnitCost = addedQuantity > 0 ? round2(transaction.gross_total / addedQuantity) : 0;
+    const existingTotalCost = destinationInventory.total_cost === undefined || destinationInventory.total_cost === null
+      ? existingQuantity * toNumber(destinationInventory.unit_cost)
+      : Math.max(0, toNumber(destinationInventory.total_cost) - transaction.gross_total);
+    const next = computeWeightedAverageCost({
+      existingQuantity,
+      existingTotalCost,
+      addedQuantity,
+      addedUnitCost: purchaseUnitCost,
+    });
+
+    await client
+      .from("business_inventory")
+      .update({
+        unit_cost: next.nextUnitCost,
+        total_cost: next.nextTotalCost,
+        updated_at: nowIso(),
+      })
+      .eq("id", destinationInventory.id);
+
+    await insertBusinessFinancialEvents(client, [
+      {
+        business_id: input.buyerBusinessId,
+        account_code: "inventory",
+        amount: transaction.gross_total,
+        quantity: transaction.quantity,
+        item_key: transaction.item_key,
+        reference_type: "market_transaction",
+        reference_id: transaction.id,
+        description: `Inventory acquired: ${transaction.quantity}x ${transaction.item_key}`,
+      },
+    ]);
+  }
+
   return {
     listing: normalizeListing(result.listing),
-    transaction: normalizeTransaction(result.transaction),
+    transaction,
   };
 }
 
@@ -449,7 +523,6 @@ export async function recordNpcPurchase(
   if (listing.status !== "active") throw new Error("Listing is not active.");
 
   const soldQuantity = Math.max(1, Math.min(input.quantity, listing.quantity));
-  await applySourceInventorySale(client, listing, soldQuantity);
 
   const nextQty = listing.quantity - soldQuantity;
   const nextReserved = Math.max(0, listing.reserved_quantity - soldQuantity);

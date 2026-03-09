@@ -1,4 +1,5 @@
 import { calculateShippingQuote, getCityById } from "@/domains/cities-travel";
+import { computeWeightedAverageCost } from "@/domains/businesses/financial-events";
 import { toNumber } from "@/lib/core/number";
 import type {
   BusinessInventoryItem,
@@ -27,6 +28,8 @@ function normalizeBusinessRow(row: BusinessInventoryItem): BusinessInventoryItem
     quantity: toNumber(row.quantity),
     quality: toNumber(row.quality),
     reserved_quantity: toNumber(row.reserved_quantity),
+    unit_cost: row.unit_cost === undefined || row.unit_cost === null ? null : toNumber(row.unit_cost),
+    total_cost: row.total_cost === undefined || row.total_cost === null ? null : toNumber(row.total_cost),
   };
 }
 
@@ -128,6 +131,17 @@ export async function transferItems(
   input: TransferItemsInput
 ): Promise<TransferOutcome> {
   const shippingPlan = await resolveShippingPlan(client, input);
+  const sourceCostBasis =
+    input.sourceType === "business" && input.sourceBusinessId
+      ? await client
+          .from("business_inventory")
+          .select("id, quantity, unit_cost, total_cost")
+          .eq("owner_player_id", playerId)
+          .eq("business_id", input.sourceBusinessId)
+          .eq("item_key", input.itemKey)
+          .eq("quality", input.quality)
+          .maybeSingle()
+      : null;
 
   const { data, error } = await client.rpc("execute_inventory_transfer", {
     p_source_type: input.sourceType,
@@ -155,6 +169,57 @@ export async function transferItems(
 
   if (!result?.transferType) {
     throw new Error("Transfer did not return a valid result.");
+  }
+
+  if (
+    sourceCostBasis &&
+    !sourceCostBasis.error &&
+    result.transferType === "same_city" &&
+    input.sourceType === "business" &&
+    input.destinationType === "business" &&
+    input.destinationBusinessId
+  ) {
+    const sourceRow = sourceCostBasis.data as {
+      quantity?: number | string;
+      unit_cost?: number | string | null;
+      total_cost?: number | string | null;
+    } | null;
+    const sourceQuantity = Math.max(0, toNumber(sourceRow?.quantity));
+    const sourceTotalCost = sourceRow?.total_cost === undefined || sourceRow?.total_cost === null
+      ? sourceQuantity * toNumber(sourceRow?.unit_cost)
+      : toNumber(sourceRow?.total_cost);
+    const transferredUnitCost = sourceQuantity > 0 ? sourceTotalCost / sourceQuantity : toNumber(sourceRow?.unit_cost);
+
+    const { data: destinationRow, error: destinationError } = await client
+      .from("business_inventory")
+      .select("id, quantity, unit_cost, total_cost")
+      .eq("owner_player_id", playerId)
+      .eq("business_id", input.destinationBusinessId)
+      .eq("item_key", input.itemKey)
+      .eq("quality", input.quality)
+      .maybeSingle();
+
+    if (!destinationError && destinationRow && transferredUnitCost > 0) {
+      const existingQuantity = Math.max(0, toNumber(destinationRow.quantity) - input.quantity);
+      const existingTotalCost = destinationRow.total_cost === undefined || destinationRow.total_cost === null
+        ? existingQuantity * toNumber(destinationRow.unit_cost)
+        : toNumber(destinationRow.total_cost) - input.quantity * transferredUnitCost;
+      const next = computeWeightedAverageCost({
+        existingQuantity: Math.max(0, existingQuantity),
+        existingTotalCost: Math.max(0, existingTotalCost),
+        addedQuantity: input.quantity,
+        addedUnitCost: transferredUnitCost,
+      });
+
+      await client
+        .from("business_inventory")
+        .update({
+          unit_cost: next.nextUnitCost,
+          total_cost: next.nextTotalCost,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", destinationRow.id);
+    }
   }
 
   return {

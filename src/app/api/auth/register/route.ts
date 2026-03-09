@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const { password, username } = parsed.data;
 
     // Call the Postgres RPC to securely register the player (hashes password)
@@ -42,7 +42,8 @@ export async function POST(request: Request) {
     const token = await signCustomJwt(newPlayerId);
 
     // Set as an HttpOnly cookie so the client sends it automatically
-    cookies().set(CUSTOM_SESSION_COOKIE_NAME, token, {
+    const cookieStore = await cookies();
+    cookieStore.set(CUSTOM_SESSION_COOKIE_NAME, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       path: "/",

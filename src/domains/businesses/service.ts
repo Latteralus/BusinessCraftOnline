@@ -6,10 +6,12 @@ import {
   type BusinessType,
   type BusinessUpgradeKey,
 } from "@/config/businesses";
+import { type FinancePeriod } from "@/config/finance";
 import { canPurchaseBusiness } from "@/domains/cities-travel";
 import { getUpgradePreviewForBusiness } from "@/domains/upgrades";
 import { round2, toNumber } from "@/lib/core/number";
-import { addHoursToNowIso, nowIso } from "@/lib/core/time";
+import { nowIso } from "@/lib/core/time";
+import { getBusinessFinanceDashboard as buildBusinessFinanceDashboard } from "./finance";
 import type {
   Business,
   BusinessAccountEntry,
@@ -354,45 +356,30 @@ export async function getBusinessFinanceSummary(
   playerId: string,
   businessId: string
 ) {
-  const balance = await getBusinessBalance(client, playerId, businessId);
+  const business = await getBusinessById(client, playerId, businessId);
+  if (!business) throw new Error("Business not found.");
 
-  const yesterday = addHoursToNowIso(-24);
-
-  const [marketListingsRes, recentTransactionsRes] = await Promise.all([
-    client
-      .from("market_listings")
-      .select("quantity, unit_price")
-      .eq("source_business_id", businessId)
-      .eq("status", "active"),
-    client
-      .from("market_transactions")
-      .select("quantity, net_total")
-      .eq("seller_business_id", businessId)
-      .gte("created_at", yesterday)
-  ]);
-
-  let totalValueOnMarket = 0;
-  if (marketListingsRes.data) {
-    for (const listing of marketListingsRes.data) {
-      totalValueOnMarket += Number(listing.quantity) * Number(listing.unit_price);
-    }
-  }
-
-  let itemsSold24h = 0;
-  let revenue24h = 0;
-  if (recentTransactionsRes.data) {
-    for (const tx of recentTransactionsRes.data) {
-      itemsSold24h += Number(tx.quantity);
-      revenue24h += Number(tx.net_total);
-    }
-  }
+  const dashboard = await buildBusinessFinanceDashboard(client, playerId, business, "24h");
+  const period = dashboard.periods["24h"];
 
   return {
-    balance,
-    totalValueOnMarket,
-    itemsSold24h,
-    revenue24h
+    balance: period.kpis.cash,
+    totalValueOnMarket: dashboard.balanceSheet.find((row) => row.label === "Inventory")?.amount ?? 0,
+    itemsSold24h: 0,
+    revenue24h: period.kpis.revenue,
   };
+}
+
+export async function getBusinessFinanceDashboard(
+  client: QueryClient,
+  playerId: string,
+  businessId: string,
+  period: FinancePeriod = "30d"
+) {
+  const business = await getBusinessById(client, playerId, businessId);
+  if (!business) throw new Error("Business not found.");
+
+  return buildBusinessFinanceDashboard(client, playerId, business, period);
 }
 export async function getBusinessSummary(
   client: QueryClient,

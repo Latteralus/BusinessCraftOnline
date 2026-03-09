@@ -4,9 +4,10 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export async function POST() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   await supabase.auth.signOut();
-  cookies().delete(CUSTOM_SESSION_COOKIE_NAME);
+  const cookieStore = await cookies();
+  cookieStore.delete(CUSTOM_SESSION_COOKIE_NAME);
 
   return NextResponse.json({ ok: true });
 }

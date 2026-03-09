@@ -1,4 +1,8 @@
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
+import {
+  consumeBusinessInventoryCost,
+  insertBusinessFinancialEvents,
+} from "@/domains/businesses/financial-events";
 import type { QueryClient } from "@/lib/db/query-client";
 import type {
   AcceptContractInput,
@@ -37,7 +41,7 @@ async function getContractOrThrow(client: QueryClient, playerId: string, contrac
   return normalizeContract(data as Contract);
 }
 
-async function consumeBusinessInventory(
+async function hasEnoughBusinessInventory(
   client: QueryClient,
   playerId: string,
   businessId: string,
@@ -65,39 +69,7 @@ async function consumeBusinessInventory(
     availableTotal += Math.max(0, toNumber(row.quantity) - toNumber(row.reserved_quantity));
   }
 
-  if (availableTotal < quantity) return false;
-
-  let remaining = quantity;
-  for (const row of inventoryRows) {
-    if (remaining <= 0) break;
-
-    const currentQty = toNumber(row.quantity);
-    const currentReserved = toNumber(row.reserved_quantity);
-    const available = Math.max(0, currentQty - currentReserved);
-    if (available <= 0) continue;
-
-    const used = Math.min(available, remaining);
-    const nextQty = currentQty - used;
-
-    if (nextQty <= 0) {
-      const { error: deleteError } = await client.from("business_inventory").delete().eq("id", row.id);
-      if (deleteError) throw deleteError;
-    } else {
-      const { error: updateError } = await client
-        .from("business_inventory")
-        .update({
-          quantity: nextQty,
-          reserved_quantity: Math.min(currentReserved, nextQty),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", row.id);
-      if (updateError) throw updateError;
-    }
-
-    remaining -= used;
-  }
-
-  return true;
+  return availableTotal >= quantity;
 }
 
 export async function getContracts(
@@ -258,7 +230,7 @@ export async function fulfillContract(
     throw new Error("Contract is already fully delivered.");
   }
 
-  const consumed = await consumeBusinessInventory(
+  const available = await hasEnoughBusinessInventory(
     client,
     playerId,
     contract.business_id,
@@ -266,7 +238,7 @@ export async function fulfillContract(
     remaining
   );
 
-  if (!consumed) {
+  if (!available) {
     const { error: inProgressError } = await client
       .from("contracts")
       .update({ status: "in_progress", updated_at: new Date().toISOString() })
@@ -274,6 +246,14 @@ export async function fulfillContract(
     if (inProgressError) throw inProgressError;
     throw new Error("Not enough inventory to fulfill this contract.");
   }
+
+  const inventoryCost = await consumeBusinessInventoryCost(
+    client,
+    playerId,
+    contract.business_id,
+    contract.item_key,
+    remaining
+  );
 
   const payout = Number((remaining * contract.unit_price).toFixed(2));
 
@@ -287,6 +267,42 @@ export async function fulfillContract(
   });
 
   if (ledgerError) throw ledgerError;
+
+  await insertBusinessFinancialEvents(client, [
+    {
+      business_id: contract.business_id,
+      account_code: "revenue",
+      amount: payout,
+      quantity: remaining,
+      item_key: contract.item_key,
+      reference_type: "contract",
+      reference_id: contract.id,
+      description: `Contract revenue: ${remaining}x ${contract.item_key}`,
+      metadata: { estimatedCost: inventoryCost.estimated },
+    },
+    {
+      business_id: contract.business_id,
+      account_code: "cogs",
+      amount: inventoryCost.totalCost,
+      quantity: inventoryCost.quantityConsumed,
+      item_key: contract.item_key,
+      reference_type: "contract",
+      reference_id: contract.id,
+      description: `Contract COGS: ${remaining}x ${contract.item_key}`,
+      metadata: { estimatedCost: inventoryCost.estimated },
+    },
+    {
+      business_id: contract.business_id,
+      account_code: "inventory",
+      amount: inventoryCost.totalCost,
+      quantity: inventoryCost.quantityConsumed,
+      item_key: contract.item_key,
+      reference_type: "contract",
+      reference_id: contract.id,
+      description: `Inventory relieved for contract: ${remaining}x ${contract.item_key}`,
+      metadata: { direction: "out", estimatedCost: inventoryCost.estimated },
+    },
+  ]);
 
   const now = new Date().toISOString();
   const { data, error } = await client

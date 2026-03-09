@@ -25,9 +25,10 @@ import { requireAuthedPageContext } from "../server-data";
 async function logout() {
   "use server";
 
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   await supabase.auth.signOut();
-  cookies().delete(CUSTOM_SESSION_COOKIE_NAME);
+  const cookieStore = await cookies();
+  cookieStore.delete(CUSTOM_SESSION_COOKIE_NAME);
   redirect("/login");
 }
 

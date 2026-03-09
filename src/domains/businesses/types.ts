@@ -71,4 +71,15 @@ export type BusinessSummary = {
   topBusiness: BusinessWithBalance | null;
 };
 
+export type {
+  BalanceSheetSection,
+  BusinessFinanceDashboard,
+  BusinessFinancePeriodSnapshot,
+  BusinessFinanceRecentEvent,
+  BusinessFinanceSeriesPoint,
+  BusinessValuationBreakdown,
+  CashFlowSection,
+  IncomeStatementRow,
+} from "./finance";
+
 export type { BusinessEntityType, BusinessType, BusinessUpgradeKey };

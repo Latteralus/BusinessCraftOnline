@@ -4,7 +4,7 @@ import { isStoreBusinessType } from "@/config/businesses";
 import { useState, useEffect, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
-import type { Business, BusinessUpgrade } from "@/domains/businesses";
+import type { Business, BusinessFinanceDashboard, BusinessUpgrade } from "@/domains/businesses";
 import type { ProductionStatus, ManufacturingStatusView } from "@/domains/production";
 import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { StoreShelfItem } from "@/domains/stores";
@@ -17,6 +17,7 @@ import { apiDelete, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
+import BusinessFinanceDashboardPanel from "./BusinessFinanceDashboard";
 
 type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades";
 
@@ -29,7 +30,7 @@ type Props = {
   upgrades: BusinessUpgrade[];
   employees: (Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] })[];
   upgradeDefinitions?: UpgradeDefinition[];
-  financeSummary?: { balance: number; totalValueOnMarket: number; itemsSold24h: number; revenue24h: number } | null;
+  financeDashboard?: BusinessFinanceDashboard | null;
   initialTab?: string;
 };
 
@@ -47,7 +48,7 @@ const LAST_NAMES = [
   "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
 ];
 
-export default function BusinessDetailsClient({ business, production, manufacturing, inventory, shelfItems, upgrades, employees, upgradeDefinitions = [], financeSummary, initialTab }: Props) {
+export default function BusinessDetailsClient({ business, production, manufacturing, inventory, shelfItems, upgrades, employees, upgradeDefinitions = [], financeDashboard, initialTab }: Props) {
   const router = useRouter();
   const tempPayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.temp / 4);
   const partTimePayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.part_time / 4);
@@ -367,7 +368,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
               </div>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                 <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Valuation</div>
-                <div>{formatCurrency(business.value)}</div>
+                <div>{formatCurrency(financeDashboard?.valuation.currentValue ?? business.value)}</div>
               </div>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                 <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Inventory Items</div>
@@ -383,37 +384,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
 
         {activeTab === "finance" && (
           <div>
-            <h3 style={{ marginBottom: 16 }}>Finance Overview</h3>
-            {financeSummary ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
-                <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
-                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Bank Balance</div>
-                  <div style={{ fontSize: "1.5rem", fontWeight: 600, color: financeSummary.balance >= 0 ? "var(--text-primary)" : "#f87171" }}>
-                    {formatCurrency(financeSummary.balance)}
-                  </div>
-                </div>
-                <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
-                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Revenue (24h)</div>
-                  <div style={{ fontSize: "1.2rem", fontWeight: 500, color: "var(--accent-green)" }}>
-                    +{formatCurrency(financeSummary.revenue24h)}
-                  </div>
-                </div>
-                <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
-                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Items Sold (24h)</div>
-                  <div style={{ fontSize: "1.2rem", fontWeight: 500 }}>
-                    {financeSummary.itemsSold24h}
-                  </div>
-                </div>
-                <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
-                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Active Listings Value</div>
-                  <div style={{ fontSize: "1.2rem", fontWeight: 500 }}>
-                    {formatCurrency(financeSummary.totalValueOnMarket)}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <p>Loading finance data...</p>
-            )}
+            <BusinessFinanceDashboardPanel financeDashboard={financeDashboard ?? null} />
           </div>
         )}
         

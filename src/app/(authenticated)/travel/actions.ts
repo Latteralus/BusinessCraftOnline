@@ -25,7 +25,7 @@ function hasArrived(isoDate: string) {
 }
 
 async function ensureUserAndCharacter() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();

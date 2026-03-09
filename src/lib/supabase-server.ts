@@ -5,7 +5,7 @@ import { verifyCustomJwt } from "./auth-jwt";
 import { CUSTOM_SESSION_COOKIE_NAME } from "./session";
 
 const getCachedServerUser = cache(async () => {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const customToken = cookieStore.get(CUSTOM_SESSION_COOKIE_NAME)?.value;
 
   if (!customToken) {
@@ -24,8 +24,8 @@ const getCachedServerUser = cache(async () => {
   }
 });
 
-export function createSupabaseServerClient() {
-  const cookieStore = cookies();
+export async function createSupabaseServerClient() {
+  const cookieStore = await cookies();
   const customToken = cookieStore.get(CUSTOM_SESSION_COOKIE_NAME)?.value;
 
   const headers: Record<string, string> = {};

@@ -1,4 +1,5 @@
-import { getBusinessById, getBusinessUpgrades, getBusinessFinanceSummary } from "@/domains/businesses";
+import { type FinancePeriod } from "@/config/finance";
+import { getBusinessById, getBusinessUpgrades, getBusinessFinanceDashboard } from "@/domains/businesses";
 import { getCityById } from "@/domains/cities-travel";
 import { getProductionStatus, getManufacturingStatus } from "@/domains/production";
 import { getBusinessInventory } from "@/domains/inventory";
@@ -10,7 +11,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import BusinessDetailsClient from "@/components/businesses/BusinessDetailsClient";
 
-export default async function BusinessDetailsPage(props: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string }> }) {
+export default async function BusinessDetailsPage(props: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string; period?: string }> }) {
   const [params, searchParams, { supabase, user }] = await Promise.all([
     props.params,
     props.searchParams,
@@ -23,6 +24,10 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
     redirect("/businesses"); // Redirect if it doesn't exist or isn't theirs
   }
 
+  const requestedPeriod = (["24h", "7d", "30d", "all"].includes(searchParams.period ?? "")
+    ? searchParams.period
+    : "30d") as FinancePeriod;
+
   // Handle differences between extraction and manufacturing businesses
   const isExtraction = [
     "mine",
@@ -32,7 +37,7 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
     "oil_well",
   ].includes(business.type);
 
-  const [city, production, manufacturing, inventory, shelfItems, upgrades, employeesRes, upgradeDefinitions, financeSummary] = await Promise.all([
+  const [city, production, manufacturing, inventory, shelfItems, upgrades, employeesRes, upgradeDefinitions, financeDashboard] = await Promise.all([
     getCityById(supabase, business.city_id).catch(() => null),
     isExtraction ? getProductionStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
     !isExtraction ? getManufacturingStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
@@ -46,7 +51,7 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
       .eq("employer_business_id", business.id)
       .order("created_at", { ascending: false }),
     getUpgradeDefinitionsForBusinessType(supabase, business.type as BusinessType).catch(() => []),
-    getBusinessFinanceSummary(supabase, user.id, business.id).catch(() => null)
+    getBusinessFinanceDashboard(supabase, user.id, business.id, requestedPeriod).catch(() => null)
   ]);
 
   const employees = employeesRes.data || [];
@@ -84,7 +89,7 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
         upgrades={upgrades}
         employees={employees as any}
         upgradeDefinitions={upgradeDefinitions}
-        financeSummary={financeSummary}
+        financeDashboard={financeDashboard}
         initialTab={searchParams.tab}
       />
     </>

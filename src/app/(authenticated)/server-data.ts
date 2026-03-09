@@ -33,7 +33,7 @@ import { getUpgradeDefinitions } from "@/domains/upgrades";
 import { cache } from "react";
 
 const getAuthedPageContext = cache(async () => {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -196,7 +196,7 @@ export async function loadMarketPageData() {
 }
 
 export async function loadDashboardAnalytics(userId: string) {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const player = await getPlayer(supabase, userId).catch(() => null);
 
   const [businessSummary, employeeSummary, storefrontSettings] = await Promise.all([

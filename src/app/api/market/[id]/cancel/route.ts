@@ -9,7 +9,7 @@ type Params = {
 export async function POST(_request: Request, { params }: Params) {
   const { id } = await params;
 
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -36,4 +36,3 @@ export async function POST(_request: Request, { params }: Params) {
     );
   }
 }
-

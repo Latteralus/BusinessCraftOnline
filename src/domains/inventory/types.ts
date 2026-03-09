@@ -21,6 +21,8 @@ export type BusinessInventoryItem = {
   quantity: number;
   quality: number;
   reserved_quantity: number;
+  unit_cost?: number | null;
+  total_cost?: number | null;
   updated_at: string;
   created_at: string;
 };

@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const { username, password } = parsed.data;
 
     // Use RPC to verify password securely
@@ -40,7 +40,8 @@ export async function POST(request: Request) {
     // they are already in the DB. We just sign a token.
     const token = await signCustomJwt(playerId);
 
-    cookies().set(CUSTOM_SESSION_COOKIE_NAME, token, {
+    const cookieStore = await cookies();
+    cookieStore.set(CUSTOM_SESSION_COOKIE_NAME, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       path: "/",
