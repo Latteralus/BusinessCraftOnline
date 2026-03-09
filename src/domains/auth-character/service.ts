@@ -1,8 +1,9 @@
 import type { User } from "@supabase/supabase-js";
-import type { Character, CreateCharacterInput, Player } from "./types";
+import type { Character, CreateCharacterInput, OnlinePlayerPreview, Player } from "./types";
 
 type QueryClient = {
   from: (table: string) => any;
+  rpc: (fn: string, args?: Record<string, unknown>) => any;
 };
 
 export async function getPlayerCount(
@@ -14,6 +15,34 @@ export async function getPlayerCount(
 
   if (error) throw error;
   return count ?? 0;
+}
+
+export async function touchPlayerPresence(
+  client: QueryClient,
+  playerId: string
+): Promise<void> {
+  const { error } = await client.rpc("touch_player_presence", {
+    p_player_id: playerId,
+  });
+
+  if (error) throw error;
+}
+
+export async function getOnlinePlayerPreviews(
+  client: QueryClient,
+  windowSeconds = 300
+): Promise<OnlinePlayerPreview[]> {
+  const { data, error } = await client.rpc("get_online_player_previews", {
+    p_window_seconds: windowSeconds,
+  });
+
+  if (error) throw error;
+
+  return ((data as OnlinePlayerPreview[]) ?? []).map((row) => ({
+    ...row,
+    business_level: Number(row.business_level),
+    wealth: Number(row.wealth),
+  }));
 }
 
 export async function getPlayer(

@@ -368,12 +368,103 @@ th {
     font-size: 0.75rem;
     color: var(--text-secondary);
   }
+  .server-badge-wrap {
+    position: relative;
+  }
+  .server-badge-button {
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, color 0.2s, transform 0.2s;
+  }
+  .server-badge-button:hover,
+  .server-badge-button.is-open {
+    border-color: var(--border-medium);
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+  }
   .server-dot {
     width: 6px; height: 6px;
     border-radius: 50%;
     background: var(--accent-green);
     box-shadow: 0 0 6px var(--accent-green);
     animation: pulse-dot 2s infinite;
+  }
+  .online-players-popover {
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 0;
+    width: min(380px, calc(100vw - 32px));
+    max-height: 420px;
+    overflow: hidden;
+    border-radius: 16px;
+    border: 1px solid var(--border-medium);
+    background: rgba(12, 16, 23, 0.96);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+    z-index: 120;
+  }
+  .online-players-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+  .online-players-list {
+    display: grid;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+  .online-player-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    text-decoration: none;
+    color: inherit;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background 0.2s;
+  }
+  .online-player-row:hover {
+    background: rgba(255,255,255,0.04);
+  }
+  .online-player-rank {
+    min-width: 32px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--gold);
+  }
+  .online-player-main {
+    min-width: 0;
+  }
+  .online-player-name {
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .online-player-meta {
+    margin-top: 2px;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+  }
+  .online-player-wealth {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--accent-green);
+  }
+  .online-players-empty {
+    padding: 16px 14px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
   }
   @keyframes pulse-dot {
     0%, 100% { opacity: 1; }

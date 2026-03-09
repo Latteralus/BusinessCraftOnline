@@ -18,6 +18,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { DashboardClock } from "@/components/dashboard/DashboardClock";
+import { DashboardGreeting } from "@/components/dashboard/DashboardGreeting";
 import { formatItemKey } from "@/lib/items";
 
 async function logout() {
@@ -280,7 +281,7 @@ export default async function DashboardPage() {
     <>
       <div className="welcome-strip anim">
           <div className="welcome-left">
-            <h1>Good afternoon, {character.first_name}</h1>
+            <DashboardGreeting firstName={character.first_name} />
             <p>All systems running · <span>{businessSummary?.totalBusinesses ?? 0} businesses active</span></p>
           </div>
           <DashboardClock />

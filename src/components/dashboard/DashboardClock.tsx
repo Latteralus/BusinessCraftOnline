@@ -32,22 +32,15 @@ export function DashboardClock() {
     );
   }
 
-  // Format the time as HH:MM:SS in Eastern Time (America/New_York)
   const timeString = now.toLocaleTimeString("en-US", {
-    timeZone: "America/New_York",
     hour12: false,
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
   });
 
-  // Calculate next 10-minute tick (e.g. 10:00, 10:10, 10:20)
-  // Get minutes in Eastern Time using Intl.DateTimeFormat
-  const etMinutesFormatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    minute: "numeric",
-  });
-  const currentMinutes = parseInt(etMinutesFormatter.format(now), 10);
+  // Calculate next 10-minute tick from the user's local clock.
+  const currentMinutes = now.getMinutes();
   const currentSeconds = now.getSeconds();
   
   const minutesToNextTick = 9 - (currentMinutes % 10);

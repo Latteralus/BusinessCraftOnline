@@ -1,8 +1,10 @@
 export {
   createCharacter,
   getCharacter,
+  getOnlinePlayerPreviews,
   getPlayer,
   getPlayerCount,
+  touchPlayerPresence,
   updateCharacterCity,
   upsertPlayerFromAuthUser,
 } from "./service";
@@ -18,6 +20,7 @@ export type {
   CreateCharacterInput,
   Gender,
   LoginInput,
+  OnlinePlayerPreview,
   Player,
   RegisterInput,
 } from "./types";

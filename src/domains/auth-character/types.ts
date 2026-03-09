@@ -19,6 +19,14 @@ export type Character = {
   created_at: string;
 };
 
+export type OnlinePlayerPreview = {
+  player_id: string;
+  character_name: string;
+  business_level: number;
+  wealth: number;
+  last_seen_at: string;
+};
+
 export type RegisterInput = {
   password: string;
   username: string;

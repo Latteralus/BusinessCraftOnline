@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { OnlinePlayerPreview } from "@/domains/auth-character";
+import { formatCurrency } from "@/lib/formatters";
 
 interface TopbarProps {
   initials: string;
@@ -19,7 +21,10 @@ export function Topbar({
 }: TopbarProps) {
   const pathname = usePathname();
   const [playerCount, setPlayerCount] = useState<number | null>(null);
+  const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayerPreview[]>([]);
   const [notificationsCount, setNotificationsCount] = useState<number | null>(null);
+  const [isOnlineListOpen, setIsOnlineListOpen] = useState(false);
+  const onlineListRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -27,7 +32,7 @@ export function Topbar({
     async function loadShellMetrics() {
       const response = await fetch("/api/app-shell", { cache: "no-store" });
       const payload = (await response.json().catch(() => null)) as
-        | { playerCount?: number; notificationsCount?: number }
+        | { playerCount?: number; onlinePlayers?: OnlinePlayerPreview[]; notificationsCount?: number }
         | null;
 
       if (!response.ok || cancelled) {
@@ -35,12 +40,47 @@ export function Topbar({
       }
 
       setPlayerCount(payload?.playerCount ?? 0);
+      setOnlinePlayers(payload?.onlinePlayers ?? []);
       setNotificationsCount(payload?.notificationsCount ?? 0);
     }
 
     void loadShellMetrics();
+    const interval = window.setInterval(() => {
+      void loadShellMetrics();
+    }, 60 * 1000);
+
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    const heartbeat = window.setInterval(() => {
+      void fetch("/api/app-shell", { method: "POST", cache: "no-store" }).catch(() => null);
+    }, 60 * 1000);
+
+    return () => window.clearInterval(heartbeat);
+  }, []);
+
+  useEffect(() => {
+    function handleOutsideClick(event: MouseEvent) {
+      if (!onlineListRef.current?.contains(event.target as Node)) {
+        setIsOnlineListOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsOnlineListOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("keydown", handleEscape);
     };
   }, []);
 
@@ -48,9 +88,46 @@ export function Topbar({
     <div className="topbar">
       <div className="topbar-left">
         <div className="logo">Life<span>Craft</span>Online</div>
-        <div className="server-badge">
-          <div className="server-dot"></div>
-          Players Online: {playerCount ?? "..."}
+        <div className="server-badge-wrap" ref={onlineListRef}>
+          <button
+            type="button"
+            className={`server-badge server-badge-button ${isOnlineListOpen ? "is-open" : ""}`}
+            onClick={() => setIsOnlineListOpen((value) => !value)}
+            aria-haspopup="dialog"
+            aria-expanded={isOnlineListOpen}
+          >
+            <div className="server-dot"></div>
+            Players Online: {playerCount ?? "..."}
+          </button>
+          {isOnlineListOpen ? (
+            <div className="online-players-popover" role="dialog" aria-label="Online players">
+              <div className="online-players-header">
+                <div>Online Characters</div>
+                <div>{onlinePlayers.length}</div>
+              </div>
+              {onlinePlayers.length > 0 ? (
+                <div className="online-players-list">
+                  {onlinePlayers.map((player, index) => (
+                    <Link
+                      key={player.player_id}
+                      href={`/players/${player.player_id}`}
+                      className="online-player-row"
+                      onClick={() => setIsOnlineListOpen(false)}
+                    >
+                      <div className="online-player-rank">#{index + 1}</div>
+                      <div className="online-player-main">
+                        <div className="online-player-name">{player.character_name}</div>
+                        <div className="online-player-meta">Biz Level {player.business_level}</div>
+                      </div>
+                      <div className="online-player-wealth">{formatCurrency(player.wealth)}</div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="online-players-empty">No online characters found.</div>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="topbar-nav">
