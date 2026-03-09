@@ -28,6 +28,7 @@ export const apiRoutes = {
   employees: {
     root: "/api/employees",
     assign: "/api/employees/assign",
+    settle: "/api/employees/settle",
     unassign: "/api/employees/unassign",
     detail: (employeeId: string) => `/api/employees/${employeeId}`,
   },

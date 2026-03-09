@@ -16,6 +16,7 @@ export type Employee = {
   specialty_skill_key: EmployeeSkillKey | null;
   hire_cost: number;
   wage_per_hour: number;
+  unpaid_wage_due?: number;
   last_wage_charged_at: string | null;
   shift_ends_at: string | null;
   created_at: string;
@@ -84,6 +85,10 @@ export type UnassignEmployeeInput = {
 };
 
 export type FireEmployeeInput = {
+  employeeId: string;
+};
+
+export type SettleEmployeeWagesInput = {
   employeeId: string;
 };
 

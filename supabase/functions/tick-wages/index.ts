@@ -57,6 +57,14 @@ Deno.serve(async (request) => {
 
     if (employeesError) throw employeesError;
 
+    const { data: assignmentRows, error: assignmentError } = await supabase
+      .from("employee_assignments")
+      .select("employee_id");
+
+    if (assignmentError) throw assignmentError;
+
+    const assignedEmployeeIds = new Set((assignmentRows ?? []).map((row) => String(row.employee_id)));
+
     let employeesChecked = 0;
     let wagesCharged = 0;
     let totalWages = 0;
@@ -65,6 +73,7 @@ Deno.serve(async (request) => {
     let skippedByInterval = 0;
     let skippedByStatus = 0;
     let skippedByEmployer = 0;
+    let skippedByAssignment = 0;
 
     for (const employee of employeeRows ?? []) {
       employeesChecked += 1;
@@ -86,6 +95,15 @@ Deno.serve(async (request) => {
 
       if (!employee.employer_business_id) {
         skippedByEmployer += 1;
+        continue;
+      }
+
+      if (!assignedEmployeeIds.has(String(employee.id))) {
+        skippedByAssignment += 1;
+        await supabase
+          .from("employees")
+          .update({ last_wage_charged_at: chargeAnchorIso, updated_at: nowIso })
+          .eq("id", employee.id);
         continue;
       }
 
@@ -175,6 +193,7 @@ Deno.serve(async (request) => {
       skippedByInterval,
       skippedByStatus,
       skippedByEmployer,
+      skippedByAssignment,
     };
 
     await writeTickRunLog(supabase, {

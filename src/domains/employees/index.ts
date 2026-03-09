@@ -10,6 +10,7 @@ export {
   getPlayerEmployees,
   hireEmployee,
   reactivateEmployee,
+  settleEmployeeWages,
   unassignEmployee,
 } from "./service";
 
@@ -39,5 +40,6 @@ export type {
   FireEmployeeInput,
   HireEmployeeInput,
   ReactivateEmployeeInput,
+  SettleEmployeeWagesInput,
   UnassignEmployeeInput,
 } from "./types";

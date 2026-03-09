@@ -97,7 +97,10 @@ export default function BusinessDetailsClient({ business, production, manufactur
     (employee) =>
       Boolean(getAssignmentForBusiness(employee)) || employee.employer_business_id === business.id
   );
-  const availableEmployees = employees.filter(e => e.status === "available");
+  const availableEmployees = thisBusinessEmployees.filter((employee) => {
+    const effectiveStatus = getWorkerEffectiveStatus(employee.status, employee.shift_ends_at);
+    return !getAssignmentForBusiness(employee) && effectiveStatus === "available";
+  });
   const isStoreBusiness = business.type === "general_store" || business.type === "specialty_store";
   const shelfKey = (itemKey: string, quality: number) => `${itemKey}:${quality}`;
   const shelfByInventoryKey = Object.fromEntries(shelfItems.map((item) => [shelfKey(item.item_key, item.quality), item]));
@@ -166,13 +169,44 @@ export default function BusinessDetailsClient({ business, production, manufactur
     }, "Error purchasing upgrade");
   }
 
+  async function assignEmployeeToBusinessAndMaybeSlot(employeeId: string) {
+    await apiPost(
+      apiRoutes.employees.assign,
+      {
+        employeeId,
+        businessId: business.id,
+        role: "production",
+        roleSkillKey: "logistics"
+      },
+      { fallbackError: "Failed to assign employee." }
+    );
+
+    if (production?.slots?.length) {
+      const firstOpenSlot = production.slots.find((slot) => !slot.employee_id);
+      if (firstOpenSlot) {
+        try {
+          await apiPost(
+            apiRoutes.production.assignSlot,
+            { slotId: firstOpenSlot.id, employeeId },
+            { fallbackError: "Employee assigned to business, but slot assignment failed." }
+          );
+        } catch (err) {
+          const slotMessage = err instanceof Error
+            ? `Employee assigned to business, but slot assignment failed: ${err.message}`
+            : "Employee assigned to business, but slot assignment failed.";
+          setError(slotMessage);
+        }
+      }
+    }
+  }
+
   async function hireEmployee(employeeType: string) {
     if (busy) return;
     const randomFirstName = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
     const randomLastName = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
 
     await runBusyAction(async () => {
-      await apiPost(
+      const hireResponse = await apiPost<{ employee: Employee }>(
         apiRoutes.employees.root,
         {
           firstName: randomFirstName,
@@ -183,6 +217,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
         },
         { fallbackError: "Failed to hire employee." }
       );
+      await assignEmployeeToBusinessAndMaybeSlot(hireResponse.employee.id);
       router.refresh();
     }, "Error hiring employee");
   }
@@ -203,37 +238,18 @@ export default function BusinessDetailsClient({ business, production, manufactur
     }, "Error unassigning employee");
   }
 
+  async function settleEmployee(employeeId: string) {
+    if (busy) return;
+    await runBusyAction(async () => {
+      await apiPost(apiRoutes.employees.settle, { employeeId }, { fallbackError: "Failed to settle employee wages." });
+      router.refresh();
+    }, "Error settling employee wages");
+  }
+
   async function assignEmployeeToThisBusiness(employeeId: string) {
     if (busy) return;
     await runBusyAction(async () => {
-      await apiPost(
-        apiRoutes.employees.assign,
-        {
-          employeeId,
-          businessId: business.id,
-          role: "production",
-          roleSkillKey: "logistics"
-        },
-        { fallbackError: "Failed to assign employee." }
-      );
-
-      if (production?.slots?.length) {
-        const firstOpenSlot = production.slots.find((slot) => !slot.employee_id);
-        if (firstOpenSlot) {
-          try {
-            await apiPost(
-              apiRoutes.production.assignSlot,
-              { slotId: firstOpenSlot.id, employeeId },
-              { fallbackError: "Employee assigned to business, but slot assignment failed." }
-            );
-          } catch (err) {
-            const slotMessage = err instanceof Error
-              ? `Employee assigned to business, but slot assignment failed: ${err.message}`
-              : "Employee assigned to business, but slot assignment failed.";
-            setError(slotMessage);
-          }
-        }
-      }
+      await assignEmployeeToBusinessAndMaybeSlot(employeeId);
 
       if (employeeId === businessAssignEmployeeId) {
         setBusinessAssignEmployeeId("");
@@ -574,7 +590,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                         onChange={(e) => setBusinessAssignEmployeeId(e.target.value)}
                         style={{ fontSize: "0.75rem", padding: "4px 8px", minWidth: 180 }}
                       >
-                        <option value="">Select available employee...</option>
+                        <option value="">Select unassigned employee...</option>
                         {availableEmployees.map((employee) => (
                           <option key={employee.id} value={employee.id}>
                             {employee.first_name} {employee.last_name}
@@ -738,7 +754,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                       <div>
                         <div style={{ fontWeight: 600 }}>{e.first_name} {e.last_name}</div>
                         <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: 4 }}>
-                          {formatEmployeeType(e.employee_type)} • {formatLabel(e.status)}
+                          {formatEmployeeType(e.employee_type)} • {formatLabel(getWorkerEffectiveStatus(e.status, e.shift_ends_at))}
                         </div>
                         {assignment && (
                           <div style={{ fontSize: "0.8rem", color: "var(--accent-blue)", marginTop: 4 }}>
@@ -750,6 +766,9 @@ export default function BusinessDetailsClient({ business, production, manufactur
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        {e.status === "unpaid" && (
+                          <button onClick={() => settleEmployee(e.id)} disabled={busy} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "rgba(96, 165, 250, 0.12)", color: "#60a5fa", border: "1px solid rgba(96, 165, 250, 0.25)" }}>Settle Wages</button>
+                        )}
                         {assignment && (
                           <button onClick={() => unassignEmployeeGlobal(e.id)} disabled={busy} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)" }}>Unassign</button>
                         )}

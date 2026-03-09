@@ -9,6 +9,7 @@ import {
   type EmployeeStatus,
   type EmployeeType,
 } from "@/config/employees";
+import { addBusinessAccountEntry, getBusinessBalance } from "@/domains/businesses";
 import { syncManufacturingWorkerAssigned } from "@/domains/_shared/manufacturing-workers";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
 import { getWorkerEffectiveStatus } from "./worker-state";
@@ -24,6 +25,7 @@ import type {
   FireEmployeeInput,
   HireEmployeeInput,
   ReactivateEmployeeInput,
+  SettleEmployeeWagesInput,
   UnassignEmployeeInput,
 } from "./types";
 
@@ -38,6 +40,7 @@ function normalizeEmployee(row: Employee): Employee {
     ...row,
     hire_cost: toNumber(row.hire_cost),
     wage_per_hour: toNumber(row.wage_per_hour),
+    unpaid_wage_due: toNumber(row.unpaid_wage_due),
   };
 }
 
@@ -447,6 +450,71 @@ export async function fireEmployee(
     shift_ends_at: null,
     assignment: null,
     skills: [],
+  };
+}
+
+export async function settleEmployeeWages(
+  client: QueryClient,
+  playerId: string,
+  input: SettleEmployeeWagesInput
+): Promise<EmployeeWithDetails> {
+  const employee = await getEmployeeById(client, playerId, input.employeeId);
+  if (!employee) throw new Error("Employee not found.");
+  if (employee.status !== "unpaid") throw new Error("Employee does not have unpaid wages.");
+  if (!employee.employer_business_id) throw new Error("Employee is not tied to a business.");
+
+  const { data: debtRow, error: debtError } = await client
+    .from("employees")
+    .select("unpaid_wage_due")
+    .eq("id", employee.id)
+    .eq("player_id", playerId)
+    .maybeSingle();
+
+  if (debtError) throw debtError;
+
+  const unpaidWageDue = toNumber((debtRow as { unpaid_wage_due?: number | string | null } | null)?.unpaid_wage_due);
+  if (unpaidWageDue > 0) {
+    const balance = await getBusinessBalance(client, playerId, employee.employer_business_id);
+    if (balance < unpaidWageDue) {
+      throw new Error(
+        `Insufficient business funds. Wage settlement is $${unpaidWageDue.toFixed(2)} and balance is $${balance.toFixed(2)}.`
+      );
+    }
+
+    await addBusinessAccountEntry(client, playerId, employee.employer_business_id, {
+      amount: unpaidWageDue,
+      entryType: "debit",
+      category: "employee_wage_settlement",
+      description: `Wage settlement: ${employee.first_name} ${employee.last_name}`,
+      referenceId: employee.id,
+    });
+  }
+
+  const nowIso = new Date().toISOString();
+  const { data: updatedEmployeeRow, error: updateError } = await client
+    .from("employees")
+    .update({
+      status: "available",
+      unpaid_wage_due: 0,
+      unpaid_since: null,
+      last_unassigned_for_unpaid_at: null,
+      shift_ends_at: null,
+      last_wage_charged_at: nowIso,
+      updated_at: nowIso,
+    })
+    .eq("id", employee.id)
+    .eq("player_id", playerId)
+    .select("*")
+    .single();
+
+  if (updateError) throw updateError;
+
+  const skills = await getEmployeeSkills(client, playerId, employee.id);
+
+  return {
+    ...normalizeEmployee(updatedEmployeeRow as Employee),
+    assignment: null,
+    skills,
   };
 }
 
