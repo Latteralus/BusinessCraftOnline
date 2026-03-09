@@ -3,52 +3,35 @@ import {
   createCharacterSchema,
   getCharacter,
 } from "@/domains/auth-character";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import {
+  handleAuthedJsonRequest,
+  handleAuthedRequest,
+} from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 export async function GET() {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  const character = await getCharacter(supabase, user.id);
-  return NextResponse.json({ character });
+  return handleAuthedRequest(async ({ supabase, user }) => {
+    const character = await getCharacter(supabase, user.id);
+    return NextResponse.json({ character });
+  });
 }
 
 export async function POST(request: Request) {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return handleAuthedJsonRequest(
+    request,
+    createCharacterSchema,
+    "Invalid input.",
+    async ({ supabase, user }, data) => {
+      const existing = await getCharacter(supabase, user.id);
+      if (existing) {
+        return NextResponse.json(
+          { error: "Character already exists.", character: existing },
+          { status: 409 }
+        );
+      }
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  const body = await request.json().catch(() => null);
-  const parsed = createCharacterSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid input." },
-      { status: 400 }
-    );
-  }
-
-  const existing = await getCharacter(supabase, user.id);
-  if (existing) {
-    return NextResponse.json(
-      { error: "Character already exists.", character: existing },
-      { status: 409 }
-    );
-  }
-
-  const character = await createCharacter(supabase, user.id, parsed.data);
-
-  return NextResponse.json({ character }, { status: 201 });
+      const character = await createCharacter(supabase, user.id, data);
+      return NextResponse.json({ character }, { status: 201 });
+    }
+  );
 }

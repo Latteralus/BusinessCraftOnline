@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+export { toNumber } from "../../../shared/core/number.ts";
 
 export type TickLogInput = {
   tickName: string;
@@ -112,12 +113,6 @@ export async function writeTickRunLog(
     metrics: input.metrics ?? {},
     error_message: input.errorMessage ?? null,
   });
-}
-
-export function toNumber(value: number | string | null | undefined): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value);
-  return 0;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

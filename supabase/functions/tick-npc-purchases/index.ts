@@ -90,10 +90,10 @@ function pickWeighted<T>(rows: T[], getWeight: (row: T) => number, rng: () => nu
   return rows[rows.length - 1];
 }
 
-function makeShopperName(subTickIndex: number, shopperIndex: number, rng: () => number): string {
+function makeShopperName(_subTickIndex: number, _shopperIndex: number, rng: () => number): string {
   const first = SHOPPER_NAME_PREFIXES[randomIntWithRng(rng, 0, SHOPPER_NAME_PREFIXES.length - 1)];
   const last = SHOPPER_NAME_SUFFIXES[randomIntWithRng(rng, 0, SHOPPER_NAME_SUFFIXES.length - 1)];
-  return `${first} ${last} #${subTickIndex + 1}-${shopperIndex + 1}`;
+  return `${first} ${last}`;
 }
 
 async function getOrCreateSubtickState(supabase: ReturnType<typeof createClient>) {

@@ -2,6 +2,9 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
 import type { z, ZodTypeAny } from "zod";
 
+type AuthedUserResult = Awaited<ReturnType<typeof requireAuthedUser>>;
+type AuthedContext = Extract<AuthedUserResult, { ok: true }>;
+
 export async function requireAuthedUser() {
   const supabase = createSupabaseServerClient();
   const {
@@ -58,3 +61,46 @@ export function fail(error: unknown, fallback: string, status = 400) {
   );
 }
 
+export async function handleAuthedRequest(
+  handler: (context: AuthedContext) => Promise<Response>,
+  options?: {
+    errorMessage?: string;
+    errorStatus?: number;
+  }
+) {
+  const auth = await requireAuthedUser();
+  if (!auth.ok) return auth.response;
+
+  try {
+    return await handler(auth);
+  } catch (error) {
+    if (!options?.errorMessage) {
+      throw error;
+    }
+
+    return fail(error, options.errorMessage, options.errorStatus);
+  }
+}
+
+export async function handleAuthedJsonRequest<TSchema extends ZodTypeAny>(
+  request: Request,
+  schema: TSchema,
+  invalidMessage: string,
+  handler: (
+    context: AuthedContext,
+    data: z.infer<TSchema>
+  ) => Promise<Response>,
+  options?: {
+    errorMessage?: string;
+    errorStatus?: number;
+  }
+) {
+  return handleAuthedRequest(async (context) => {
+    const parsed = await parseJsonBody(request, schema, invalidMessage);
+    if (!parsed.ok) {
+      return parsed.response;
+    }
+
+    return handler(context, parsed.data);
+  }, options);
+}

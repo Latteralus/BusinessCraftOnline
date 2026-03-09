@@ -4,57 +4,40 @@ import {
   startTravelSchema,
 } from "@/domains/cities-travel";
 import { getCharacter } from "@/domains/auth-character";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import {
+  badRequest,
+  fail,
+  handleAuthedJsonRequest,
+  notFound,
+} from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return handleAuthedJsonRequest(
+    request,
+    startTravelSchema,
+    "Invalid input.",
+    async ({ supabase, user }, data) => {
+      const character = await getCharacter(supabase, user.id);
+      if (!character?.current_city_id) {
+        return badRequest("Character does not currently have a city.");
+      }
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+      const [fromCity, toCity] = await Promise.all([
+        getCityById(supabase, character.current_city_id),
+        getCityById(supabase, data.toCityId),
+      ]);
 
-  const payload = await request.json().catch(() => null);
-  const parsed = startTravelSchema.safeParse(payload);
+      if (!fromCity || !toCity) {
+        return notFound("Origin or destination city not found.");
+      }
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid input." },
-      { status: 400 }
-    );
-  }
-
-  const character = await getCharacter(supabase, user.id);
-  if (!character?.current_city_id) {
-    return NextResponse.json(
-      { error: "Character does not currently have a city." },
-      { status: 400 }
-    );
-  }
-
-  const [fromCity, toCity] = await Promise.all([
-    getCityById(supabase, character.current_city_id),
-    getCityById(supabase, parsed.data.toCityId),
-  ]);
-
-  if (!fromCity || !toCity) {
-    return NextResponse.json(
-      { error: "Origin or destination city not found." },
-      { status: 404 }
-    );
-  }
-
-  try {
-    const quote = calculateTravelQuote(fromCity, toCity);
-    return NextResponse.json({ quote });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Invalid travel route." },
-      { status: 400 }
-    );
-  }
+      try {
+        const quote = calculateTravelQuote(fromCity, toCity);
+        return NextResponse.json({ quote });
+      } catch (error) {
+        return fail(error, "Invalid travel route.");
+      }
+    }
+  );
 }
-

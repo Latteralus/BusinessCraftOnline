@@ -1,5 +1,7 @@
 import { MARKET_TRANSACTION_FEE } from "@/config/market";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
+import { round2, round4, toNumber } from "@/lib/core/number";
+import { addHoursToNowIso, nowIso, toIso } from "@/lib/core/time";
 import type { QueryClient } from "@/lib/db/query-client";
 import type {
   AdminEconomySummary,
@@ -19,12 +21,6 @@ import type {
   TickRunLog,
   UpdateMarketStorefrontSettingsInput,
 } from "./types";
-
-function toNumber(value: number | string | null | undefined): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value);
-  return 0;
-}
 
 function normalizeListing(row: MarketListing & { business?: { name: string } }): MarketListing {
   return {
@@ -153,7 +149,7 @@ async function applySourceInventorySale(
     .update({
       quantity: nextQuantity,
       reserved_quantity: Math.max(0, Math.min(nextQuantity, reserved - soldQuantity)),
-      updated_at: new Date().toISOString(),
+      updated_at: nowIso(),
     })
     .eq("id", row.id);
 
@@ -180,7 +176,7 @@ async function releaseSourceInventoryReservation(client: QueryClient, listing: M
     .from("business_inventory")
     .update({
       reserved_quantity: nextReserved,
-      updated_at: new Date().toISOString(),
+      updated_at: nowIso(),
     })
     .eq("id", row.id);
 
@@ -202,9 +198,9 @@ async function settleSaleAccounting(
     tickWindowStartedAt?: string | null;
   }
 ): Promise<MarketTransaction> {
-  const gross = Number((listing.unit_price * soldQuantity).toFixed(2));
-  const fee = Number((gross * MARKET_TRANSACTION_FEE).toFixed(2));
-  const net = Number((gross - fee).toFixed(2));
+  const gross = round2(listing.unit_price * soldQuantity);
+  const fee = round2(gross * MARKET_TRANSACTION_FEE);
+  const net = round2(gross - fee);
   const sellerBusinessName = await getBusinessNameSafe(client, listing.source_business_id);
   const buyerBusinessName = buyerType === "player" ? await getBusinessNameSafe(client, buyerBusinessId) : null;
 
@@ -354,7 +350,7 @@ export async function createMarketListing(
     .from("business_inventory")
     .update({
       reserved_quantity: reserved + input.quantity,
-      updated_at: new Date().toISOString(),
+      updated_at: nowIso(),
     })
     .eq("id", inventoryRow.id);
   if (reserveError) throw reserveError;
@@ -394,7 +390,7 @@ export async function cancelMarketListing(
 
   await releaseSourceInventoryReservation(client, listing);
 
-  const now = new Date().toISOString();
+  const now = nowIso();
   const { data, error } = await client
     .from("market_listings")
     .update({
@@ -457,7 +453,7 @@ export async function recordNpcPurchase(
   const nextQty = listing.quantity - soldQuantity;
   const nextReserved = Math.max(0, listing.reserved_quantity - soldQuantity);
   const nextStatus = nextQty <= 0 ? "filled" : "active";
-  const now = new Date().toISOString();
+  const now = nowIso();
 
   const { data: updatedRow, error: listingError } = await client
     .from("market_listings")
@@ -521,7 +517,7 @@ export async function getOrCreateNpcMarketSubtickState(
     .from("npc_market_subtick_state")
     .insert({
       state_key: "global",
-      tick_window_started_at: new Date().toISOString(),
+      tick_window_started_at: nowIso(),
       sub_tick_index: 0,
     })
     .select("*")
@@ -540,7 +536,7 @@ export async function updateNpcMarketSubtickState(
     .update({
       tick_window_started_at: input.tickWindowStartedAt,
       sub_tick_index: input.subTickIndex,
-      updated_at: new Date().toISOString(),
+      updated_at: nowIso(),
     })
     .eq("state_key", "global")
     .select("*")
@@ -593,8 +589,8 @@ export async function getMarketStorefrontSettings(
       ad_budget_per_tick: 0,
       traffic_multiplier: 1,
       is_ad_enabled: true,
-      created_at: new Date(0).toISOString(),
-      updated_at: new Date(0).toISOString(),
+      created_at: toIso(0),
+      updated_at: toIso(0),
     }));
 
   return [...existing, ...defaults];
@@ -616,7 +612,7 @@ export async function updateMarketStorefrontSettings(
     ad_budget_per_tick: input.adBudgetPerTick,
     traffic_multiplier: input.trafficMultiplier,
     is_ad_enabled: input.isAdEnabled,
-    updated_at: new Date().toISOString(),
+    updated_at: nowIso(),
   };
 
   const { data, error } = await client
@@ -636,7 +632,7 @@ function toWindowHours(value: number): number {
 
 function toRoi(adSpend: number, netRevenue: number): number | null {
   if (adSpend <= 0) return null;
-  return Number((netRevenue / adSpend).toFixed(4));
+  return round4(netRevenue / adSpend);
 }
 
 function summarizeTickRuns(
@@ -678,7 +674,7 @@ function summarizeTickRuns(
 
   const totalRuns = rows.length;
   const errorRuns = rows.reduce((sum, row) => sum + (row.status === "error" ? 1 : 0), 0);
-  const successRate = totalRuns === 0 ? 1 : Number(((totalRuns - errorRuns) / totalRuns).toFixed(4));
+  const successRate = totalRuns === 0 ? 1 : round4((totalRuns - errorRuns) / totalRuns);
 
   return {
     window_hours: windowHours,
@@ -696,8 +692,8 @@ function summarizeTickRuns(
         success_rate:
           item.total_runs === 0
             ? 1
-            : Number(((item.total_runs - item.error_runs) / item.total_runs).toFixed(4)),
-        average_duration_ms: Number((item.duration_sum / Math.max(1, item.total_runs)).toFixed(2)),
+            : round4((item.total_runs - item.error_runs) / item.total_runs),
+        average_duration_ms: round2(item.duration_sum / Math.max(1, item.total_runs)),
         last_status: item.last_status,
         last_finished_at: item.last_finished_at,
       }))
@@ -711,9 +707,8 @@ export async function getStorefrontPerformanceSummary(
   windowHoursInput = 24
 ): Promise<StorefrontPerformanceSummary> {
   const windowHours = toWindowHours(windowHoursInput);
-  const now = new Date();
-  const from = new Date(now.getTime() - windowHours * 60 * 60 * 1000).toISOString();
-  const to = now.toISOString();
+  const from = addHoursToNowIso(-windowHours);
+  const to = nowIso();
 
   const [snapshotsResult, businessesResult] = await Promise.all([
     client
@@ -768,7 +763,7 @@ export async function getStorefrontPerformanceSummary(
         ad_spend: row.ad_spend,
         gross_revenue: row.gross_revenue,
         fee_total: row.fee_total,
-        net_revenue: Number((row.gross_revenue - row.fee_total).toFixed(2)),
+        net_revenue: round2(row.gross_revenue - row.fee_total),
         sales_count: row.sales_count,
         units_sold: row.units_sold,
         shoppers_generated: row.shoppers_generated,
@@ -777,25 +772,25 @@ export async function getStorefrontPerformanceSummary(
       continue;
     }
 
-    existing.ad_spend = Number((existing.ad_spend + row.ad_spend).toFixed(2));
-    existing.gross_revenue = Number((existing.gross_revenue + row.gross_revenue).toFixed(2));
-    existing.fee_total = Number((existing.fee_total + row.fee_total).toFixed(2));
-    existing.net_revenue = Number((existing.gross_revenue - existing.fee_total).toFixed(2));
+    existing.ad_spend = round2(existing.ad_spend + row.ad_spend);
+    existing.gross_revenue = round2(existing.gross_revenue + row.gross_revenue);
+    existing.fee_total = round2(existing.fee_total + row.fee_total);
+    existing.net_revenue = round2(existing.gross_revenue - existing.fee_total);
     existing.sales_count += row.sales_count;
     existing.units_sold += row.units_sold;
     existing.shoppers_generated += row.shoppers_generated;
     existing.roi = toRoi(existing.ad_spend, existing.net_revenue);
   }
 
-  const netRevenue = Number((totals.gross_revenue - totals.fee_total).toFixed(2));
+  const netRevenue = round2(totals.gross_revenue - totals.fee_total);
 
   return {
     window_hours: windowHours,
     captured_from: from,
     captured_to: to,
-    ad_spend: Number(totals.ad_spend.toFixed(2)),
-    gross_revenue: Number(totals.gross_revenue.toFixed(2)),
-    fee_total: Number(totals.fee_total.toFixed(2)),
+    ad_spend: round2(totals.ad_spend),
+    gross_revenue: round2(totals.gross_revenue),
+    fee_total: round2(totals.fee_total),
     net_revenue: netRevenue,
     sales_count: totals.sales_count,
     units_sold: totals.units_sold,
@@ -810,9 +805,8 @@ export async function getTickHealthSummary(
   windowHoursInput = 24
 ): Promise<TickHealthSummary> {
   const windowHours = toWindowHours(windowHoursInput);
-  const now = new Date();
-  const from = new Date(now.getTime() - windowHours * 60 * 60 * 1000).toISOString();
-  const to = now.toISOString();
+  const from = addHoursToNowIso(-windowHours);
+  const to = nowIso();
 
   const { data, error } = await client
     .from("tick_run_logs")
@@ -831,9 +825,8 @@ export async function getAdminEconomySummary(
   windowHoursInput = 24
 ): Promise<AdminEconomySummary> {
   const windowHours = toWindowHours(windowHoursInput);
-  const now = new Date();
-  const from = new Date(now.getTime() - windowHours * 60 * 60 * 1000).toISOString();
-  const to = now.toISOString();
+  const from = addHoursToNowIso(-windowHours);
+  const to = nowIso();
 
   const [tickRowsResult, snapshotsResult] = await Promise.all([
     client
@@ -877,7 +870,7 @@ export async function getAdminEconomySummary(
       shoppers_generated: 0,
     }
   );
-  const netRevenue = Number((totals.gross_revenue - totals.fee_total).toFixed(2));
+  const netRevenue = round2(totals.gross_revenue - totals.fee_total);
 
   return {
     tick_health: summarizeTickRuns(tickRows, windowHours, from, to),
@@ -886,9 +879,9 @@ export async function getAdminEconomySummary(
       captured_from: from,
       captured_to: to,
       snapshots: snapshots.length,
-      ad_spend: Number(totals.ad_spend.toFixed(2)),
-      gross_revenue: Number(totals.gross_revenue.toFixed(2)),
-      fee_total: Number(totals.fee_total.toFixed(2)),
+      ad_spend: round2(totals.ad_spend),
+      gross_revenue: round2(totals.gross_revenue),
+      fee_total: round2(totals.fee_total),
       net_revenue: netRevenue,
       sales_count: totals.sales_count,
       units_sold: totals.units_sold,

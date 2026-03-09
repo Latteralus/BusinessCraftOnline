@@ -7,6 +7,8 @@ import {
 } from "@/config/businesses";
 import { canPurchaseBusiness } from "@/domains/cities-travel";
 import { getUpgradePreviewForBusiness } from "@/domains/upgrades";
+import { round2, toNumber } from "@/lib/core/number";
+import { addHoursToNowIso, nowIso } from "@/lib/core/time";
 import type {
   Business,
   BusinessAccountEntry,
@@ -22,12 +24,6 @@ type QueryClient = {
   from: (table: string) => any;
   rpc: (fn: string, args?: Record<string, unknown>) => any;
 };
-
-function toNumber(value: number | string | null | undefined): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value);
-  return 0;
-}
 
 function normalizeBusiness(row: Business): Business {
   return {
@@ -131,7 +127,7 @@ async function getBusinessBalanceById(
   });
 
   if (error) throw error;
-  return Number(toNumber(data).toFixed(2));
+  return round2(toNumber(data));
 }
 
 export async function getBusinessesWithBalances(
@@ -302,7 +298,7 @@ export async function purchaseUpgrade(
   if (existing) {
     const { data, error } = await client
       .from("business_upgrades")
-      .update({ level: nextLevel, purchased_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update({ level: nextLevel, purchased_at: nowIso(), updated_at: nowIso() })
       .eq("id", existing.id)
       .eq("business_id", businessId)
       .select("*")
@@ -338,7 +334,7 @@ export async function purchaseUpgrade(
   return {
     businessId,
     upgrade: upgradedRow,
-    debitedAmount: Number(upgradeCost.toFixed(2)),
+    debitedAmount: round2(upgradeCost),
     resultingBalance,
   };
 }
@@ -350,8 +346,7 @@ export async function getBusinessFinanceSummary(
 ) {
   const balance = await getBusinessBalance(client, playerId, businessId);
 
-  const now = new Date();
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const yesterday = addHoursToNowIso(-24);
 
   const [marketListingsRes, recentTransactionsRes] = await Promise.all([
     client
@@ -415,7 +410,7 @@ export function summarizeBusinessesWithBalances(
 
   return {
     totalBusinesses: businesses.length,
-    totalBusinessBalance: Number(totalBusinessBalance.toFixed(2)),
+    totalBusinessBalance: round2(totalBusinessBalance),
     producingTypesOwned,
     topBusiness,
   };

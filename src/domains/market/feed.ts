@@ -7,6 +7,11 @@ type FormatMarketTransactionLineInput = {
   formatTimestamp: (value: string) => string;
 };
 
+function formatNpcShopperName(value: string | null): string {
+  if (!value) return "NPC shopper";
+  return value.replace(/\s+#\d+-\d+$/, "");
+}
+
 export function formatMarketTransactionLine(input: FormatMarketTransactionLineInput): string {
   const { transaction: tx, businessNameById, formatTimestamp } = input;
 
@@ -17,7 +22,7 @@ export function formatMarketTransactionLine(input: FormatMarketTransactionLineIn
 
   const buyerName =
     tx.buyer_type === "npc"
-      ? tx.shopper_name ?? "NPC shopper"
+      ? formatNpcShopperName(tx.shopper_name)
       : tx.buyer_business_name ??
         (tx.buyer_business_id ? businessNameById?.get(tx.buyer_business_id) : null) ??
         (tx.buyer_business_id ? `Business ${tx.buyer_business_id.slice(0, 8)}` : "A player");
