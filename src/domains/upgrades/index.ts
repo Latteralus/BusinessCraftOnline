@@ -5,6 +5,9 @@ export {
   getUpgradeDefinitionsForBusinessType,
   getUpgradePreviewForBusiness,
 } from "./service";
+export { formatInstallTimeMinutes, formatUpgradeEffectValue } from "./formatting";
+export { applyCompletedUpgradeProjects, createUpgradeProject, getBusinessUpgradeProjects } from "./projects";
+export { getBusinessUpgradeProjectState, getResolvedUpgradeEffects } from "./runtime";
 
 export {
   upgradeDefinitionsFilterSchema,

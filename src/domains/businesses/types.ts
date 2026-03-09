@@ -37,12 +37,34 @@ export type BusinessUpgrade = {
   updated_at: string;
 };
 
+export type BusinessUpgradeProjectStatus =
+  | "queued"
+  | "installing"
+  | "completed"
+  | "cancelled";
+
+export type BusinessUpgradeProject = {
+  id: string;
+  business_id: string;
+  upgrade_key: BusinessUpgradeKey;
+  target_level: number;
+  project_status: BusinessUpgradeProjectStatus;
+  quoted_cost: number;
+  started_at: string | null;
+  completes_at: string | null;
+  applied_at: string | null;
+  downtime_policy: "none" | "partial" | "full";
+  created_at: string;
+  updated_at: string;
+};
+
 export type BusinessWithBalance = Business & {
   balance: number;
 };
 
 export type BusinessDetail = BusinessWithBalance & {
   upgrades: BusinessUpgrade[];
+  upgradeProjects: BusinessUpgradeProject[];
 };
 
 export type CreateBusinessInput = {
@@ -59,7 +81,7 @@ export type PurchaseUpgradeInput = {
 
 export type PurchaseUpgradeResult = {
   businessId: string;
-  upgrade: BusinessUpgrade;
+  project: BusinessUpgradeProject;
   debitedAmount: number;
   resultingBalance: number;
 };

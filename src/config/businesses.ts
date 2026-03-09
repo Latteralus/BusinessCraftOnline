@@ -2,6 +2,11 @@ import {
   STORE_BUSINESS_TYPES as SHARED_STORE_BUSINESS_TYPES,
   isStoreBusinessType as sharedIsStoreBusinessType,
 } from "../../shared/businesses/store";
+import {
+  BUSINESS_UPGRADE_KEYS,
+  getBusinessUpgradeKeysForBusinessType,
+  type BusinessUpgradeKey,
+} from "./business-upgrades";
 
 export const BUSINESS_TYPES = [
   "mine",
@@ -48,72 +53,17 @@ export const STARTUP_COSTS: Record<BusinessType, number> = {
   specialty_store: 3500,
 };
 
-export const BUSINESS_UPGRADE_KEYS_BY_TYPE: Record<BusinessType, readonly string[]> = {
-  mine: ["extraction_efficiency", "worker_capacity", "tool_durability", "ore_quality"],
-  farm: ["crop_yield", "water_efficiency", "worker_capacity"],
-  water_company: ["extraction_efficiency", "worker_capacity"],
-  logging_camp: ["extraction_efficiency", "worker_capacity", "tool_durability"],
-  oil_well: ["extraction_efficiency", "worker_capacity", "tool_durability"],
-  sawmill: ["production_efficiency", "worker_capacity", "equipment_quality", "input_reduction"],
-  metalworking_factory: [
-    "production_efficiency",
-    "worker_capacity",
-    "equipment_quality",
-    "input_reduction",
-  ],
-  food_processing_plant: [
-    "production_efficiency",
-    "worker_capacity",
-    "equipment_quality",
-    "input_reduction",
-  ],
-  winery_distillery: [
-    "production_efficiency",
-    "worker_capacity",
-    "equipment_quality",
-    "input_reduction",
-  ],
-  carpentry_workshop: [
-    "production_efficiency",
-    "worker_capacity",
-    "equipment_quality",
-    "input_reduction",
-  ],
-  general_store: ["storefront_appeal", "listing_capacity", "customer_service"],
-  specialty_store: ["storefront_appeal", "listing_capacity", "customer_service"],
-};
+export const BUSINESS_UPGRADE_KEYS_BY_TYPE: Record<BusinessType, readonly BusinessUpgradeKey[]> =
+  BUSINESS_TYPES.reduce(
+    (accumulator, businessType) => {
+      accumulator[businessType] = getBusinessUpgradeKeysForBusinessType(businessType);
+      return accumulator;
+    },
+    {} as Record<BusinessType, readonly BusinessUpgradeKey[]>
+  );
 
-export const BUSINESS_UPGRADE_BASE_COSTS = {
-  extraction_efficiency: 500,
-  worker_capacity: 2000,
-  tool_durability: 1500,
-  ore_quality: 1000,
-  crop_yield: 400,
-  water_efficiency: 600,
-  production_efficiency: 600,
-  equipment_quality: 1200,
-  input_reduction: 1800,
-  storefront_appeal: 800,
-  listing_capacity: 1000,
-  customer_service: 1500,
-} as const;
-
-export const BUSINESS_UPGRADE_KEYS = [
-  "extraction_efficiency",
-  "worker_capacity",
-  "tool_durability",
-  "ore_quality",
-  "crop_yield",
-  "water_efficiency",
-  "production_efficiency",
-  "equipment_quality",
-  "input_reduction",
-  "storefront_appeal",
-  "listing_capacity",
-  "customer_service",
-] as const;
-
-export type BusinessUpgradeKey = (typeof BUSINESS_UPGRADE_KEYS)[number];
+export { BUSINESS_UPGRADE_KEYS };
+export type { BusinessUpgradeKey };
 
 export const EXTRACTION_BASE_RATE_PER_MINUTE = 1;
 export const MANUFACTURING_TICK_MINUTES = 10;

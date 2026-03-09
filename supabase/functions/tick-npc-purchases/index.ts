@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { startTickRequest } from "../_shared/tick-runtime.ts";
+import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
 import {
   STORE_BUSINESS_TYPES,
   isStoreBusinessType,
@@ -451,24 +452,16 @@ Deno.serve(async (request) => {
       let storeGrossRevenue = 0;
       let storeFeeTotal = 0;
       const isStoreType = isStoreBusinessType(String(store.type));
-      let listingCapacityLevel = 0;
-      let storefrontAppealLevel = 0;
-      let customerServiceLevel = 0;
+      const effects = isStoreType
+        ? await getResolvedBusinessUpgradeEffects(supabase, store.id, store.type)
+        : null;
 
-      if (isStoreType) {
-        const { data: upgrades } = await supabase
-          .from("business_upgrades")
-          .select("upgrade_key, level")
-          .eq("business_id", store.id)
-          .in("upgrade_key", ["listing_capacity", "storefront_appeal", "customer_service"]);
-
-        listingCapacityLevel = upgrades?.find((row) => row.upgrade_key === "listing_capacity")?.level ?? 0;
-        storefrontAppealLevel = upgrades?.find((row) => row.upgrade_key === "storefront_appeal")?.level ?? 0;
-        customerServiceLevel = upgrades?.find((row) => row.upgrade_key === "customer_service")?.level ?? 0;
-      }
-
-      const trafficMultiplier = isStoreType ? Math.pow(1.05, Math.max(0, Number(storefrontAppealLevel))) : 1;
-      const priceToleranceMultiplier = isStoreType ? Math.pow(1.03, Math.max(0, Number(customerServiceLevel))) : 1;
+      const trafficMultiplier = isStoreType ? effects?.storefrontTrafficMultiplier ?? 1 : 1;
+      const priceToleranceMultiplier = isStoreType
+        ? effects?.storefrontPriceToleranceMultiplier ?? 1
+        : 1;
+      const conversionMultiplier = isStoreType ? effects?.storefrontConversionMultiplier ?? 1 : 1;
+      const listingCapacityBonus = isStoreType ? effects?.storefrontListingCapacityBonus ?? 0 : 0;
 
       const { data: storefront } = isStoreType
         ? await supabase
@@ -651,7 +644,7 @@ Deno.serve(async (request) => {
         if (weightedCandidates.length === 0) continue;
 
         const bestScore = Math.max(...weightedCandidates.map((entry) => entry.score));
-        const purchaseChance = clamp(bestScore / 1.15, 0, 0.995);
+        const purchaseChance = clamp((bestScore * conversionMultiplier) / 1.15, 0, 0.995);
         if (seededRng() > purchaseChance) continue;
 
         const chosen = pickWeighted(
@@ -665,7 +658,7 @@ Deno.serve(async (request) => {
 
         const available = Math.max(0, toNumber(chosen.backed_quantity));
         const affordable = Math.floor(remainingBudget / chosenPrice);
-        const maxByAttempt = Math.max(1, Math.min(6, 1 + Math.floor(Number(listingCapacityLevel) / 2)));
+        const maxByAttempt = Math.max(1, Math.min(6, 1 + Math.floor(Number(listingCapacityBonus) / 2)));
         const soldQty = Math.max(
           1,
           Math.min(

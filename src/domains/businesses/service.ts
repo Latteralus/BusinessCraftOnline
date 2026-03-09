@@ -8,9 +8,12 @@ import {
 } from "@/config/businesses";
 import { type FinancePeriod } from "@/config/finance";
 import { canPurchaseBusiness } from "@/domains/cities-travel";
-import { getUpgradePreviewForBusiness } from "@/domains/upgrades";
+import {
+  createUpgradeProject,
+  getBusinessUpgradeProjectState,
+  getUpgradePreviewForBusiness,
+} from "@/domains/upgrades";
 import { round2, toNumber } from "@/lib/core/number";
-import { nowIso } from "@/lib/core/time";
 import { getBusinessFinanceDashboard as buildBusinessFinanceDashboard } from "./finance";
 import type {
   Business,
@@ -18,6 +21,7 @@ import type {
   BusinessDetail,
   BusinessSummary,
   BusinessUpgrade,
+  BusinessUpgradeProject,
   BusinessWithBalance,
   CreateBusinessInput,
   PurchaseUpgradeResult,
@@ -39,6 +43,14 @@ function normalizeUpgrade(row: BusinessUpgrade): BusinessUpgrade {
   return {
     ...row,
     level: Number(row.level),
+  };
+}
+
+function normalizeUpgradeProject(row: BusinessUpgradeProject): BusinessUpgradeProject {
+  return {
+    ...row,
+    target_level: Number(row.target_level),
+    quoted_cost: toNumber(row.quoted_cost),
   };
 }
 
@@ -107,6 +119,8 @@ async function getBusinessUpgradesById(
   client: QueryClient,
   businessId: string
 ): Promise<BusinessUpgrade[]> {
+  await getBusinessUpgradeProjectState(client, businessId);
+
   const { data, error } = await client
     .from("business_upgrades")
     .select("*")
@@ -115,6 +129,18 @@ async function getBusinessUpgradesById(
 
   if (error) throw error;
   return ((data as BusinessUpgrade[]) ?? []).map(normalizeUpgrade);
+}
+
+export async function getBusinessUpgradeProjects(
+  client: QueryClient,
+  playerId: string,
+  businessId: string
+): Promise<BusinessUpgradeProject[]> {
+  const business = await getBusinessById(client, playerId, businessId);
+  if (!business) throw new Error("Business not found.");
+
+  const projects = await getBusinessUpgradeProjectState(client, businessId);
+  return projects.map(normalizeUpgradeProject);
 }
 
 export async function getBusinessBalance(
@@ -171,11 +197,13 @@ export async function getBusinessDetail(
     getBusinessBalanceById(client, businessId),
     getBusinessUpgradesById(client, businessId),
   ]);
+  const upgradeProjects = await getBusinessUpgradeProjectState(client, businessId);
 
   return {
     ...business,
     balance,
     upgrades,
+    upgradeProjects: upgradeProjects.map(normalizeUpgradeProject),
   };
 }
 
@@ -238,6 +266,7 @@ export async function createBusiness(
     ...business,
     balance: 0,
     upgrades: [],
+    upgradeProjects: [],
   };
 }
 
@@ -305,47 +334,26 @@ export async function purchaseUpgrade(
     );
   }
 
-  let upgradedRow: BusinessUpgrade;
-
-  if (existing) {
-    const { data, error } = await client
-      .from("business_upgrades")
-      .update({ level: nextLevel, purchased_at: nowIso(), updated_at: nowIso() })
-      .eq("id", existing.id)
-      .eq("business_id", businessId)
-      .select("*")
-      .single();
-
-    if (error) throw error;
-    upgradedRow = normalizeUpgrade(data as BusinessUpgrade);
-  } else {
-    const { data, error } = await client
-      .from("business_upgrades")
-      .insert({
-        business_id: businessId,
-        upgrade_key: upgradeKey,
-        level: 1,
-      })
-      .select("*")
-      .single();
-
-    if (error) throw error;
-    upgradedRow = normalizeUpgrade(data as BusinessUpgrade);
-  }
+  const project = await createUpgradeProject(client, {
+    businessId,
+    upgradeKey,
+    targetLevel: nextLevel,
+    quotedCost: upgradeCost,
+  });
 
   await addBusinessAccountEntry(client, playerId, businessId, {
     amount: upgradeCost,
     entryType: "debit",
     category: "upgrade_purchase",
-    description: `Upgrade purchase: ${upgradeKey} Lv.${nextLevel}`,
-    referenceId: upgradedRow.id,
+    description: `Upgrade project funded: ${upgradeKey} Lv.${nextLevel}`,
+    referenceId: project.id,
   });
 
   const resultingBalance = await getBusinessBalance(client, playerId, businessId);
 
   return {
     businessId,
-    upgrade: upgradedRow,
+    project: normalizeUpgradeProject(project),
     debitedAmount: round2(upgradeCost),
     resultingBalance,
   };

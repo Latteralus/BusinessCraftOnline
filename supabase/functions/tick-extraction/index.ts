@@ -1,11 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isRecord, readNumber, readString, startTickRequest, writeTickRunLog } from "../_shared/tick-runtime.ts";
 import { isWorkerOperational } from "../_shared/employee-status.ts";
+import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
 import {
   EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
   EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
   EXTRACTION_SKILL_KEY_BY_BUSINESS,
-  EXTRACTION_UPGRADE_KEY_BY_BUSINESS,
   EXTRACTION_XP_PER_LEVEL,
   EXTRACTION_XP_PER_TICK,
 } from "../../../shared/production/extraction.ts";
@@ -49,17 +49,11 @@ type ToolDurabilityRow = {
   uses_remaining: number;
 };
 
-type UpgradeRow = {
-  level: number;
-};
-
 type SkillRow = {
   id: string;
   level: number;
   xp: number;
 };
-
-const GAIN_MULTIPLIER = 1.1;
 
 function parseExtractionSlotRows(value: unknown): ExtractionSlotRow[] {
   if (!Array.isArray(value)) return [];
@@ -155,13 +149,6 @@ function parseToolDurabilityRow(value: unknown): ToolDurabilityRow | null {
   };
 }
 
-function parseUpgradeRow(value: unknown): UpgradeRow | null {
-  if (!isRecord(value)) return null;
-  const level = readNumber(value.level);
-  if (level === null) return null;
-  return { level };
-}
-
 function parseSkillRow(value: unknown): SkillRow | null {
   if (!isRecord(value)) return null;
   const id = readString(value.id);
@@ -186,8 +173,12 @@ async function failSlot(
 async function consumeFarmInputs(
   supabase: ReturnType<typeof createClient>,
   businessId: string,
-  ownerPlayerId: string
+  ownerPlayerId: string,
+  waterUseMultiplier: number
 ): Promise<boolean> {
+  const consumeThisTick = Math.random() < Math.max(0, Math.min(1, waterUseMultiplier));
+  if (!consumeThisTick) return true;
+
   const { data: water } = await supabase
     .from("business_inventory")
     .select("id, quantity, reserved_quantity")
@@ -339,32 +330,32 @@ Deno.serve(async (request) => {
       }
     }
 
+    const effects = await getResolvedBusinessUpgradeEffects(
+      supabase,
+      typedBusiness.id,
+      typedBusiness.type as BusinessRow["type"]
+    );
+
     if (typedBusiness.type === "farm") {
-      const consumed = await consumeFarmInputs(supabase, typedBusiness.id, typedBusiness.player_id);
+      const consumed = await consumeFarmInputs(
+        supabase,
+        typedBusiness.id,
+        typedBusiness.player_id,
+        effects.farmWaterUseMultiplier
+      );
       if (!consumed) {
         continue;
       }
     }
-
-    const upgradeKey =
-      EXTRACTION_UPGRADE_KEY_BY_BUSINESS[typedBusiness.type as keyof typeof EXTRACTION_UPGRADE_KEY_BY_BUSINESS] ??
-      "extraction_efficiency";
-    const { data: upgrade } = await supabase
-      .from("business_upgrades")
-      .select("level")
-      .eq("business_id", typedBusiness.id)
-      .eq("upgrade_key", upgradeKey)
-      .maybeSingle();
-
-    const level = parseUpgradeRow(upgrade)?.level ?? 0;
-    const units = Math.max(1, Math.round(1 * Math.pow(GAIN_MULTIPLIER, Math.max(level, 0))));
+    const units = Math.max(1, Math.round(1 * effects.extractionOutputMultiplier));
+    const quality = Math.max(1, Math.min(100, Math.round(40 + effects.extractionQualityBonus)));
 
     const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
       p_owner_player_id: typedBusiness.player_id,
       p_business_id: typedBusiness.id,
       p_city_id: typedBusiness.city_id,
       p_item_key: outputItem,
-      p_quality: 40,
+      p_quality: quality,
       p_quantity: units,
     });
     if (addInventoryError) throw addInventoryError;

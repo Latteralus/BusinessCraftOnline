@@ -2,32 +2,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { startTickRequest, writeTickRunLog } from "../_shared/tick-runtime.ts";
 import { isWorkerOperational } from "../_shared/employee-status.ts";
-
-const RECIPE_INPUTS: Record<string, Array<{ itemKey: string; quantity: number }>> = {
-  sawmill_planks: [{ itemKey: "raw_wood", quantity: 2 }],
-  metal_iron_bars: [
-    { itemKey: "iron_ore", quantity: 2 },
-    { itemKey: "coal", quantity: 1 },
-  ],
-  food_flour: [{ itemKey: "wheat", quantity: 2 }],
-  winery_red_wine: [{ itemKey: "red_grape", quantity: 3 }],
-  carpentry_chair: [
-    { itemKey: "wood_plank", quantity: 2 },
-    { itemKey: "wood_handle", quantity: 1 },
-  ],
-};
-
-const RECIPE_OUTPUT: Record<string, { itemKey: string; baseQty: number; skillKey: string }> = {
-  sawmill_planks: { itemKey: "wood_plank", baseQty: 1, skillKey: "carpentry" },
-  metal_iron_bars: { itemKey: "iron_bar", baseQty: 1, skillKey: "metalworking" },
-  food_flour: { itemKey: "flour", baseQty: 1, skillKey: "food_production" },
-  winery_red_wine: { itemKey: "red_wine", baseQty: 1, skillKey: "brewing" },
-  carpentry_chair: { itemKey: "chair", baseQty: 1, skillKey: "carpentry" },
-};
+import { getManufacturingRecipeByKey } from "../../../src/config/production.ts";
+import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
 
 const XP_PER_TICK = 5;
 const XP_PER_LEVEL = 100;
-const GAIN_MULTIPLIER = 1.1;
 const CONTRACT_ACTIVE_STATUSES = ["accepted", "in_progress"];
 
 function toNumber(value: number | string | null | undefined): number {
@@ -56,6 +35,13 @@ async function getInventoryRows(
     reserved_quantity: number | string;
     quality: number | string;
   }>;
+}
+
+function scaleRecipeInputQuantity(baseQuantity: number, inputUseMultiplier: number): number {
+  const scaled = Math.max(0, baseQuantity * inputUseMultiplier);
+  const whole = Math.floor(scaled);
+  const fractional = scaled - whole;
+  return whole + (Math.random() < fractional ? 1 : 0);
 }
 
 async function consumeInventoryForContract(
@@ -147,17 +133,24 @@ Deno.serve(async (request) => {
     for (const job of jobs ?? []) {
     if (!job.active_recipe_key) continue;
 
-    const recipeInputs = RECIPE_INPUTS[job.active_recipe_key];
-    const recipeOutput = RECIPE_OUTPUT[job.active_recipe_key];
-    if (!recipeInputs || !recipeOutput) continue;
+    const recipe = getManufacturingRecipeByKey(job.active_recipe_key);
+    if (!recipe) continue;
 
     const { data: business } = await supabase
       .from("businesses")
-      .select("id, player_id, city_id")
+      .select("id, player_id, city_id, type")
       .eq("id", job.business_id)
       .maybeSingle();
 
     if (!business) continue;
+
+    const effects = await getResolvedBusinessUpgradeEffects(supabase, business.id, business.type);
+    const recipeInputs = recipe.inputs
+      .map((input) => ({
+        itemKey: input.itemKey,
+        quantity: scaleRecipeInputQuantity(input.quantity, effects.manufacturingInputUseMultiplier),
+      }))
+      .filter((input) => input.quantity > 0);
 
       const { data: assignment, error: assignmentError } = await supabase
       .from("employee_assignments")
@@ -267,46 +260,32 @@ Deno.serve(async (request) => {
       }
     }
 
-    const [{ data: efficiencyUpgrade }, { data: qualityUpgrade }] = await Promise.all([
-      supabase
-        .from("business_upgrades")
-        .select("level")
-        .eq("business_id", business.id)
-        .eq("upgrade_key", "production_efficiency")
-        .maybeSingle(),
-      supabase
-        .from("business_upgrades")
-        .select("level")
-        .eq("business_id", business.id)
-        .eq("upgrade_key", "equipment_quality")
-        .maybeSingle(),
-    ]);
-
-    const efficiencyLevel = efficiencyUpgrade ? Number(efficiencyUpgrade.level) : 0;
-    const qualityLevel = qualityUpgrade ? Number(qualityUpgrade.level) : 0;
     const outputQty = Math.max(
       1,
-      Math.floor(recipeOutput.baseQty * Math.pow(GAIN_MULTIPLIER, Math.max(efficiencyLevel, 0)))
+      Math.floor(recipe.baseOutputQuantity * effects.manufacturingOutputMultiplier)
     );
 
     const { data: skill } = await supabase
       .from("employee_skills")
       .select("id, level, xp")
       .eq("employee_id", workerAssignment.employee_id)
-      .eq("skill_key", recipeOutput.skillKey)
+      .eq("skill_key", recipe.skillKey)
       .maybeSingle();
 
     const skillLevel = skill ? Number(skill.level) : 1;
     const quality = Math.max(
       1,
-      Math.min(100, Math.round(skillLevel * 0.8 + qualityLevel * 5 + (Math.random() * 10 - 5)))
+      Math.min(
+        100,
+        Math.round(skillLevel * 0.8 + effects.manufacturingQualityBonus + (Math.random() * 10 - 5))
+      )
     );
 
     const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
       p_owner_player_id: business.player_id,
       p_business_id: business.id,
       p_city_id: business.city_id,
-      p_item_key: recipeOutput.itemKey,
+      p_item_key: recipe.outputItemKey,
       p_quality: quality,
       p_quantity: outputQty,
     });

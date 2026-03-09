@@ -4,14 +4,20 @@ import { isStoreBusinessType } from "@/config/businesses";
 import { useState, useEffect, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
-import type { Business, BusinessFinanceDashboard, BusinessUpgrade } from "@/domains/businesses";
+import type {
+  Business,
+  BusinessFinanceDashboard,
+  BusinessUpgrade,
+  BusinessUpgradeProject,
+} from "@/domains/businesses";
+import type { BankAccountWithBalance } from "@/domains/banking";
 import type { ProductionStatus, ManufacturingStatusView } from "@/domains/production";
 import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { StoreShelfItem } from "@/domains/stores";
 import type { EmployeeAssignment, Employee } from "@/domains/employees";
 import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import type { UpgradeDefinition } from "@/domains/upgrades";
-import { calculateUpgradePreview } from "@/domains/upgrades";
+import { calculateUpgradePreview, formatInstallTimeMinutes } from "@/domains/upgrades";
 import { BASE_WAGE_PER_HOUR } from "@/config/employees";
 import { apiDelete, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
@@ -19,6 +25,7 @@ import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatter
 import { formatItemKey } from "@/lib/items";
 import BusinessEmployeesDashboard from "./BusinessEmployeesDashboard";
 import BusinessFinanceDashboardPanel from "./BusinessFinanceDashboard";
+import BusinessInventoryDashboard from "./BusinessInventoryDashboard";
 import BusinessOverviewDashboard from "./BusinessOverviewDashboard";
 import BusinessOperationsDashboard from "./BusinessOperationsDashboard";
 
@@ -31,9 +38,12 @@ type Props = {
   inventory: BusinessInventoryItem[];
   shelfItems: StoreShelfItem[];
   upgrades: BusinessUpgrade[];
+  upgradeProjects: BusinessUpgradeProject[];
   employees: (Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] })[];
   upgradeDefinitions?: UpgradeDefinition[];
   financeDashboard?: BusinessFinanceDashboard | null;
+  ownedBusinesses?: Array<Pick<Business, "id" | "name" | "city_id">>;
+  bankAccounts?: BankAccountWithBalance[];
   initialTab?: string;
 };
 
@@ -51,7 +61,7 @@ const LAST_NAMES = [
   "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
 ];
 
-export default function BusinessDetailsClient({ business, production, manufacturing, inventory, shelfItems, upgrades, employees, upgradeDefinitions = [], financeDashboard, initialTab }: Props) {
+export default function BusinessDetailsClient({ business, production, manufacturing, inventory, shelfItems, upgrades, upgradeProjects, employees, upgradeDefinitions = [], financeDashboard, ownedBusinesses = [], bankAccounts = [], initialTab }: Props) {
   const router = useRouter();
   const tempPayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.temp / 4);
   const partTimePayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.part_time / 4);
@@ -63,9 +73,12 @@ export default function BusinessDetailsClient({ business, production, manufactur
   const [error, setError] = useState<string | null>(null);
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
   const [businessAssignEmployeeId, setBusinessAssignEmployeeId] = useState("");
-  const [marketActionItem, setMarketActionItem] = useState<{ id: string; type: "market" | "transfer"; available: number } | null>(null);
+  const [marketActionItem, setMarketActionItem] = useState<{ id: string; type: "market" | "personal_transfer" | "business_transfer"; available: number } | null>(null);
   const [actionQuantity, setActionQuantity] = useState(1);
   const [actionPrice, setActionPrice] = useState(1);
+  const [transferBusinessId, setTransferBusinessId] = useState("");
+  const [transferFundingAccountId, setTransferFundingAccountId] = useState("");
+  const [transferUnitPrice, setTransferUnitPrice] = useState(1);
   const [shelfActionItem, setShelfActionItem] = useState<{ itemKey: string; quality: number; maxQuantity: number } | null>(null);
   const [shelfQuantity, setShelfQuantity] = useState(1);
   const [shelfPrice, setShelfPrice] = useState(1);
@@ -107,8 +120,13 @@ export default function BusinessDetailsClient({ business, production, manufactur
     return !getAssignmentForBusiness(employee) && effectiveStatus === "available";
   });
   const isStoreBusiness = isStoreBusinessType(business.type);
+  const transferBusinesses = ownedBusinesses.filter((row) => row.id !== business.id);
+  const defaultFundingAccountId =
+    bankAccounts.find((account) => account.account_type === "checking")?.id ?? bankAccounts[0]?.id ?? "";
   const shelfKey = (itemKey: string, quality: number) => `${itemKey}:${quality}`;
   const shelfByInventoryKey = Object.fromEntries(shelfItems.map((item) => [shelfKey(item.item_key, item.quality), item]));
+  const activeUpgradeProject =
+    upgradeProjects.find((project) => project.project_status === "installing") ?? null;
   const availableWorkersForSlots = thisBusinessEmployees
     .filter((employee) => {
       const assignment = getAssignmentForBusiness(employee);
@@ -278,7 +296,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
           },
           { fallbackError: "Failed to create market listing." }
         );
-      } else if (marketActionItem.type === "transfer") {
+      } else if (marketActionItem.type === "personal_transfer") {
         await apiPost(
           apiRoutes.inventory.transfer,
           {
@@ -288,6 +306,22 @@ export default function BusinessDetailsClient({ business, production, manufactur
             itemKey: item.item_key,
             quality: item.quality,
             quantity: actionQuantity,
+          },
+          { fallbackError: "Failed to transfer item." }
+        );
+      } else if (marketActionItem.type === "business_transfer") {
+        await apiPost(
+          apiRoutes.inventory.transfer,
+          {
+            sourceType: "business",
+            sourceBusinessId: business.id,
+            destinationType: "business",
+            destinationBusinessId: transferBusinessId,
+            itemKey: item.item_key,
+            quality: item.quality,
+            quantity: actionQuantity,
+            fundingAccountId: transferFundingAccountId || undefined,
+            unitPrice: transferUnitPrice,
           },
           { fallbackError: "Failed to transfer item." }
         );
@@ -763,6 +797,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
         {activeTab === "inventory" && (
           <div>
             <h3 style={{ marginBottom: 16 }}>Inventory</h3>
+            <BusinessInventoryDashboard inventory={inventory} shelfItems={shelfItems} />
             {inventory.length > 0 ? (
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
@@ -788,18 +823,38 @@ export default function BusinessDetailsClient({ business, production, manufactur
                           <td style={{ padding: "12px 8px", textAlign: "right" }}>
                             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                               <button
-                                onClick={() => { setMarketActionItem({ id: item.id, type: "market", available }); setActionQuantity(1); setActionPrice(1); }}
+                                onClick={() => {
+                                  setMarketActionItem({ id: item.id, type: "market", available });
+                                  setActionQuantity(1);
+                                  setActionPrice(1);
+                                }}
                                 disabled={busy || available <= 0}
                                 style={{ fontSize: "0.75rem", padding: "4px 8px" }}
                               >
                                 Market
                               </button>
                               <button
-                                onClick={() => { setMarketActionItem({ id: item.id, type: "transfer", available }); setActionQuantity(1); }}
+                                onClick={() => {
+                                  setMarketActionItem({ id: item.id, type: "personal_transfer", available });
+                                  setActionQuantity(1);
+                                }}
                                 disabled={busy || available <= 0}
                                 style={{ fontSize: "0.75rem", padding: "4px 8px" }}
                               >
-                                Transfer
+                                To Personal
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setMarketActionItem({ id: item.id, type: "business_transfer", available });
+                                  setActionQuantity(1);
+                                  setTransferBusinessId(transferBusinesses[0]?.id ?? "");
+                                  setTransferFundingAccountId(defaultFundingAccountId);
+                                  setTransferUnitPrice(Math.max(1, actionPrice));
+                                }}
+                                disabled={busy || available <= 0 || transferBusinesses.length === 0}
+                                style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                              >
+                                To Business
                               </button>
                             </div>
                           </td>
@@ -809,7 +864,11 @@ export default function BusinessDetailsClient({ business, production, manufactur
                             <td colSpan={5} style={{ padding: "12px 16px" }}>
                               <div style={{ display: "flex", gap: 16, alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" }}>
                                 <div style={{ fontSize: "0.85rem", fontWeight: 500 }}>
-                                  {marketActionItem.type === "market" ? "List on Market:" : "Transfer to Personal:"}
+                                  {marketActionItem.type === "market"
+                                    ? "List on Market:"
+                                    : marketActionItem.type === "personal_transfer"
+                                      ? "Transfer to Personal:"
+                                      : "Transfer to Another Business:"}
                                 </div>
                                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                                   <label style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Qty:</label>
@@ -837,9 +896,67 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                     />
                                   </div>
                                 )}
+                                {marketActionItem.type === "business_transfer" && (
+                                  <>
+                                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                      <label style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Destination:</label>
+                                      <select
+                                        title="Destination business"
+                                        value={transferBusinessId}
+                                        onChange={(e) => setTransferBusinessId(e.target.value)}
+                                        style={{ padding: "4px 8px", fontSize: "0.8rem", background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)" }}
+                                      >
+                                        <option value="">Select business...</option>
+                                        {transferBusinesses.map((candidate) => (
+                                          <option key={candidate.id} value={candidate.id}>
+                                            {candidate.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                      <label style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Price / Unit:</label>
+                                      <input
+                                        type="number"
+                                        title="Transfer price"
+                                        min={1}
+                                        step={0.01}
+                                        value={transferUnitPrice}
+                                        onChange={(e) => setTransferUnitPrice(Math.max(1, parseFloat(e.target.value) || 1))}
+                                        style={{ width: 90, padding: "4px 8px", fontSize: "0.8rem", background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)" }}
+                                      />
+                                    </div>
+                                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                      <label style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Funding:</label>
+                                      <select
+                                        title="Funding account"
+                                        value={transferFundingAccountId}
+                                        onChange={(e) => setTransferFundingAccountId(e.target.value)}
+                                        style={{ padding: "4px 8px", fontSize: "0.8rem", background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)" }}
+                                      >
+                                        <option value="">Select account...</option>
+                                        {bankAccounts.map((account) => (
+                                          <option key={account.id} value={account.id}>
+                                            {account.account_type} ({formatCurrency(account.balance)})
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </>
+                                )}
                                 <div style={{ display: "flex", gap: 8 }}>
                                   <button onClick={() => setMarketActionItem(null)} disabled={busy} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "transparent", color: "var(--text-primary)", border: "1px solid var(--border-subtle)" }}>Cancel</button>
-                                  <button onClick={() => handleActionSubmit(item)} disabled={busy} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "var(--accent-blue)", color: "white", border: "none" }}>Confirm</button>
+                                  <button
+                                    onClick={() => handleActionSubmit(item)}
+                                    disabled={
+                                      busy ||
+                                      (marketActionItem.type === "business_transfer" &&
+                                        (!transferBusinessId || transferUnitPrice < 1))
+                                    }
+                                    style={{ fontSize: "0.75rem", padding: "4px 8px", background: "var(--accent-blue)", color: "white", border: "none" }}
+                                  >
+                                    Confirm
+                                  </button>
                                 </div>
                               </div>
                             </td>
@@ -859,36 +976,63 @@ export default function BusinessDetailsClient({ business, production, manufactur
         {activeTab === "upgrades" && (
           <div>
             <h3 style={{ marginBottom: 16 }}>Upgrades</h3>
+            {activeUpgradeProject && (
+              <div style={{ marginBottom: 16, padding: 16, borderRadius: 8, background: "rgba(96, 165, 250, 0.08)", border: "1px solid rgba(96, 165, 250, 0.2)" }}>
+                <div style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.08em", color: "#93c5fd", marginBottom: 6 }}>
+                  Active Capital Project
+                </div>
+                <div style={{ fontWeight: 600 }}>
+                  {upgradeDefinitions.find((definition) => definition.upgrade_key === activeUpgradeProject.upgrade_key)?.display_name ?? formatLabel(activeUpgradeProject.upgrade_key)}
+                  {" "}Lv.{activeUpgradeProject.target_level}
+                </div>
+                <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginTop: 4 }}>
+                  Completes {activeUpgradeProject.completes_at ? new Date(activeUpgradeProject.completes_at).toLocaleString() : "soon"} • Downtime: {formatLabel(activeUpgradeProject.downtime_policy)}
+                </div>
+              </div>
+            )}
             {upgradeDefinitions.length > 0 ? (
               <div style={{ display: "grid", gap: 12 }}>
                 {upgradeDefinitions.map((def) => {
-                  const currentUpgrade = upgrades.find(u => u.upgrade_key === def.upgrade_key);
+                  const currentUpgrade = upgrades.find((u) => u.upgrade_key === def.upgrade_key);
                   const currentLevel = currentUpgrade?.level || 0;
                   const preview = calculateUpgradePreview(def, { upgradeKey: def.upgrade_key, currentLevel });
-                  
+                  const project = upgradeProjects.find(
+                    (entry) =>
+                      entry.upgrade_key === def.upgrade_key &&
+                      (entry.project_status === "queued" || entry.project_status === "installing")
+                  );
                   const isMaxed = !def.is_infinite && def.max_level !== null && currentLevel >= def.max_level;
+                  const isInstalling = Boolean(project);
 
                   return (
-                    <div key={def.upgrade_key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 16, background: "var(--bg-primary)", borderRadius: 8 }}>
-                      <div>
+                    <div key={def.upgrade_key} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, padding: 16, background: "var(--bg-primary)", borderRadius: 8 }}>
+                      <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 600, fontSize: "1.05rem", marginBottom: 4 }}>{def.display_name}</div>
+                        <div style={{ fontSize: "0.8rem", color: "var(--accent-blue)", marginBottom: 8 }}>{def.immersive_label}</div>
                         <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: 8 }}>{def.description}</div>
-                        <div style={{ display: "flex", gap: 16, fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: "0.8rem", color: "var(--text-muted)" }}>
                           <span><strong>Level:</strong> {currentLevel} {def.max_level ? `/ ${def.max_level}` : ""}</span>
+                          <span><strong>Current:</strong> {preview.currentEffectDisplay}</span>
+                          {!isMaxed && <span><strong>Next:</strong> {preview.nextEffectDisplay}</span>}
                           {!isMaxed && <span><strong>Next Cost:</strong> {formatCurrency(preview.nextCost)}</span>}
-                          <span>
-                            <strong>Effect:</strong> {def.effect_label} (+{Math.round((preview.currentEffect - 1) * 100)}% {isMaxed ? "" : `→ +${Math.round((preview.nextEffect - 1) * 100)}%`})
-                          </span>
+                          <span><strong>Install:</strong> {formatInstallTimeMinutes(def.install_time_minutes)}</span>
+                          <span><strong>Downtime:</strong> {formatLabel(def.downtime_policy)}</span>
+                          <span><strong>Stage:</strong> {formatLabel(def.stage)}</span>
                         </div>
+                        {project && (
+                          <div style={{ marginTop: 10, fontSize: "0.8rem", color: "#93c5fd" }}>
+                            Project in progress for level {project.target_level}. Completion target: {project.completes_at ? new Date(project.completes_at).toLocaleString() : "pending"}.
+                          </div>
+                        )}
                       </div>
                       <div>
                         {!isMaxed && (
                           <button
                             onClick={() => purchaseUpgrade(def.upgrade_key)}
-                            disabled={busy}
+                            disabled={busy || isInstalling || Boolean(activeUpgradeProject)}
                             style={{ padding: "8px 16px", fontWeight: 600 }}
                           >
-                            Upgrade
+                            {isInstalling ? "Installing" : "Fund Project"}
                           </button>
                         )}
                         {isMaxed && (

@@ -11,9 +11,9 @@ import {
   type ManufacturingBusinessType,
 } from "@/config/production";
 import { getOperationalProductionWorkerForBusiness, syncManufacturingWorkerAssigned } from "@/domains/_shared/manufacturing-workers";
-import { getBusinessUpgrades } from "@/domains/businesses";
 import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
 import { getEmployeeAssignment, getEmployeeById, getEmployeeStatusFromShift } from "@/domains/employees";
+import { getResolvedUpgradeEffects } from "@/domains/upgrades";
 import type { QueryClient } from "@/lib/db/query-client";
 import type {
   AssignExtractionSlotInput,
@@ -59,8 +59,8 @@ function normalizeManufacturingJob(row: ManufacturingJob): ManufacturingJob {
   };
 }
 
-function getMaxSlots(workerCapacityLevel: number): number {
-  return 1 + Math.max(0, workerCapacityLevel);
+function getMaxSlots(workerCapacitySlots: number): number {
+  return 1 + Math.max(0, Math.trunc(workerCapacitySlots));
 }
 
 async function ensureOwnedExtractionBusiness(
@@ -182,9 +182,8 @@ export async function ensureExtractionSlots(
   businessId: string
 ): Promise<ExtractionSlot[]> {
   const business = await ensureOwnedExtractionBusiness(client, playerId, businessId);
-  const upgrades = await getBusinessUpgrades(client, playerId, business.id);
-  const workerCapacityLevel = upgrades.find((upgrade) => upgrade.upgrade_key === "worker_capacity")?.level ?? 0;
-  const targetSlots = getMaxSlots(workerCapacityLevel);
+  const effects = await getResolvedUpgradeEffects(client, business.id, business.type);
+  const targetSlots = getMaxSlots(effects.workerCapacitySlots);
 
   const { data: existingRows, error: existingError } = await client
     .from("extraction_slots")
@@ -239,9 +238,8 @@ export async function getProductionStatus(
   const tools = ((toolRows as ToolDurability[]) ?? []).map(normalizeTool);
   const toolBySlot = new Map(tools.map((tool) => [tool.extraction_slot_id, tool]));
 
-  const upgrades = await getBusinessUpgrades(client, playerId, business.id);
-  const workerCapacityLevel = upgrades.find((upgrade) => upgrade.upgrade_key === "worker_capacity")?.level ?? 0;
-  const maxSlots = getMaxSlots(workerCapacityLevel);
+  const effects = await getResolvedUpgradeEffects(client, business.id, business.type);
+  const maxSlots = getMaxSlots(effects.workerCapacitySlots);
 
   const detailed: ExtractionSlotWithDetails[] = [];
   for (const slot of slots) {
@@ -383,9 +381,11 @@ export async function installToolForSlot(
     throw new Error(`Business type '${business.type}' requires tool '${requiredTool}'.`);
   }
 
-  const upgrades = await getBusinessUpgrades(client, playerId, business.id);
-  const durabilityLevel = upgrades.find((upgrade) => upgrade.upgrade_key === "tool_durability")?.level ?? 0;
-  const uses = Math.max(1, Math.round(TOOL_BASE_DURABILITY[input.itemType] * Math.pow(1.1, durabilityLevel)));
+  const effects = await getResolvedUpgradeEffects(client, business.id, business.type);
+  const uses = Math.max(
+    1,
+    Math.round(TOOL_BASE_DURABILITY[input.itemType] * effects.toolDurabilityMultiplier)
+  );
 
   const { data: toolRow, error: toolError } = await client
     .from("tool_durability")

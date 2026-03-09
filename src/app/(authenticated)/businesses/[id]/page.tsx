@@ -1,5 +1,12 @@
 import { type FinancePeriod } from "@/config/finance";
-import { getBusinessById, getBusinessUpgrades, getBusinessFinanceDashboard } from "@/domains/businesses";
+import { getAccountsWithBalances } from "@/domains/banking";
+import {
+  getBusinessById,
+  getBusinessFinanceDashboard,
+  getBusinessUpgradeProjects,
+  getBusinessUpgrades,
+  getBusinessesWithBalances,
+} from "@/domains/businesses";
 import { getCityById } from "@/domains/cities-travel";
 import { getProductionStatus, getManufacturingStatus } from "@/domains/production";
 import { getBusinessInventory } from "@/domains/inventory";
@@ -37,13 +44,14 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
     "oil_well",
   ].includes(business.type);
 
-  const [city, production, manufacturing, inventory, shelfItems, upgrades, employeesRes, upgradeDefinitions, financeDashboard] = await Promise.all([
+  const [city, production, manufacturing, inventory, shelfItems, upgrades, upgradeProjects, employeesRes, upgradeDefinitions, financeDashboard, ownedBusinesses, bankAccounts] = await Promise.all([
     getCityById(supabase, business.city_id).catch(() => null),
     isExtraction ? getProductionStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
     !isExtraction ? getManufacturingStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
     getBusinessInventory(supabase, user.id, business.id).catch(() => []),
     getStoreShelfItems(supabase, user.id, { businessId: business.id }).catch(() => []),
     getBusinessUpgrades(supabase, user.id, business.id).catch(() => []),
+    getBusinessUpgradeProjects(supabase, user.id, business.id).catch(() => []),
     supabase
       .from("employees")
       .select("*, employee_assignments(*, business:businesses(*))")
@@ -51,7 +59,9 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
       .eq("employer_business_id", business.id)
       .order("created_at", { ascending: false }),
     getUpgradeDefinitionsForBusinessType(supabase, business.type as BusinessType).catch(() => []),
-    getBusinessFinanceDashboard(supabase, user.id, business.id, requestedPeriod).catch(() => null)
+    getBusinessFinanceDashboard(supabase, user.id, business.id, requestedPeriod).catch(() => null),
+    getBusinessesWithBalances(supabase, user.id).catch(() => []),
+    getAccountsWithBalances(supabase, user.id).catch(() => []),
   ]);
 
   const employees = employeesRes.data || [];
@@ -87,9 +97,12 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
         inventory={inventory}
         shelfItems={shelfItems}
         upgrades={upgrades}
+        upgradeProjects={upgradeProjects}
         employees={employees as any}
         upgradeDefinitions={upgradeDefinitions}
         financeDashboard={financeDashboard}
+        ownedBusinesses={ownedBusinesses}
+        bankAccounts={bankAccounts}
         initialTab={searchParams.tab}
       />
     </>
