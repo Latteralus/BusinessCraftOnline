@@ -19,6 +19,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { DashboardClock } from "@/components/dashboard/DashboardClock";
 import { PageAutoRefresh } from "@/components/realtime/PageAutoRefresh";
+import { formatItemKey } from "@/lib/items";
 
 async function logout() {
   "use server";
@@ -206,7 +207,7 @@ export default async function DashboardPage() {
           id: `ext-${slot.id}`,
           businessId: String(slot.business_id),
           name: slot.business?.name || "Unknown Business",
-          detail: `${String(itemKey).replace(/_/g, " ")} (Slot #${slot.slot_number})`,
+          detail: `${formatItemKey(String(itemKey))} (Slot #${slot.slot_number})`,
           running,
           statusLabel: toTitleLabel(String(slot.status)),
           progressPercent: getProgressPercent(slot.last_extracted_at, 60, running),

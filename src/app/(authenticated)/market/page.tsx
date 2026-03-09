@@ -5,6 +5,7 @@ import type { BusinessWithBalance } from "@/domains/businesses";
 import type { MarketListing, MarketStorefrontSetting, MarketTransaction } from "@/domains/market";
 import { formatMarketTransactionLine } from "@/domains/market/feed";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
+import { formatItemKey } from "@/lib/items";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -65,9 +66,8 @@ export default function MarketPage() {
     const listingEvents = listings.map((listing) => ({
       id: `listing-${listing.id}`,
       createdAt: listing.created_at,
-      line: `[${toTime(listing.created_at)}] ${listing.business?.name ?? "A business"} posted ${listing.quantity} ${listing.item_key.replace(
-        /_/g,
-        " "
+      line: `[${toTime(listing.created_at)}] ${listing.business?.name ?? "A business"} posted ${listing.quantity} ${formatItemKey(
+        listing.item_key
       )} at $${listing.unit_price.toFixed(2)} each for $${(listing.quantity * listing.unit_price).toFixed(2)}`,
     }));
 
@@ -347,7 +347,7 @@ export default function MarketPage() {
               <select value={itemKey} onChange={(event) => setItemKey(event.target.value)}>
                 {Object.keys(NPC_PRICE_CEILINGS).map((key) => (
                   <option key={key} value={key}>
-                    {key}
+                    {formatItemKey(key)}
                   </option>
                 ))}
               </select>
@@ -412,7 +412,7 @@ export default function MarketPage() {
                 style={{ border: "1px solid #334155", borderRadius: 8, padding: 12, display: "grid", gap: 4 }}
               >
                 <strong>
-                  {listing.item_key} (Q{listing.quality})
+                  {formatItemKey(listing.item_key)} (Q{listing.quality})
                 </strong>
                 <span>
                   Listed by:{" "}

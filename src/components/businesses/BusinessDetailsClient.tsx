@@ -11,6 +11,7 @@ import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import type { UpgradeDefinition } from "@/domains/upgrades";
 import { calculateUpgradePreview } from "@/domains/upgrades";
 import { BASE_WAGE_PER_HOUR } from "@/config/employees";
+import { formatItemKey } from "@/lib/items";
 
 type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades";
 
@@ -569,7 +570,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                                 <span className={`status-badge ${slot.status === 'active' ? 'status-producing' : ''}`}>{slot.status}</span>
                                 {slot.tool && (
                                   <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
-                                    Tool: {slot.tool.item_type} ({slot.tool.uses_remaining} uses)
+                                    Tool: {formatItemKey(slot.tool.item_type)} ({slot.tool.uses_remaining} uses)
                                   </div>
                                 )}
                               </div>
@@ -698,7 +699,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                     return (
                       <Fragment key={item.id}>
                         <tr style={{ borderBottom: isActionRow ? "none" : "1px solid var(--border-subtle)" }}>
-                          <td style={{ padding: "12px 8px" }}>{item.item_key}</td>
+                          <td style={{ padding: "12px 8px" }}>{formatItemKey(item.item_key)}</td>
                           <td style={{ padding: "12px 8px" }}>{item.quality}</td>
                           <td style={{ padding: "12px 8px", textAlign: "right", fontWeight: 600 }}>{available}</td>
                           <td style={{ padding: "12px 8px", textAlign: "right", color: "var(--text-muted)" }}>{item.reserved_quantity}</td>

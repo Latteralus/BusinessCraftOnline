@@ -1,4 +1,5 @@
 import type { MarketTransaction } from "./types";
+import { formatItemKey } from "@/lib/items";
 
 type FormatMarketTransactionLineInput = {
   transaction: MarketTransaction;
@@ -21,7 +22,7 @@ export function formatMarketTransactionLine(input: FormatMarketTransactionLineIn
         (tx.buyer_business_id ? businessNameById?.get(tx.buyer_business_id) : null) ??
         (tx.buyer_business_id ? `Business ${tx.buyer_business_id.slice(0, 8)}` : "A player");
 
-  const itemName = tx.item_key.replace(/_/g, " ");
+  const itemName = formatItemKey(tx.item_key);
   const isBusinessToBusiness = tx.buyer_type === "player" && Boolean(tx.buyer_business_id);
   const tradeValue = Number.isFinite(tx.gross_total) ? tx.gross_total : tx.quantity * tx.unit_price;
   const tradeSuffix = isBusinessToBusiness ? ` at $${tradeValue.toFixed(2)}` : "";

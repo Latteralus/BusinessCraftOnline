@@ -9,6 +9,7 @@ import type {
 import type { BankAccountWithBalance } from "@/domains/banking";
 import type { BusinessWithBalance } from "@/domains/businesses";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
+import { formatItemKey } from "@/lib/items";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -321,7 +322,7 @@ export default function InventoryPage() {
                 <select value={itemKey} onChange={(event) => setItemKey(event.target.value)}>
                   {availableItemKeys.map((key) => (
                     <option key={key} value={key}>
-                      {key}
+                      {formatItemKey(key)}
                     </option>
                   ))}
                 </select>
@@ -386,7 +387,7 @@ export default function InventoryPage() {
               <div style={{ display: "grid", gap: 8 }}>
                 {personalInventory.map((row) => (
                   <div key={row.id} style={{ border: "1px solid #334155", borderRadius: 6, padding: 8 }}>
-                    <strong>{row.item_key}</strong> · Qty {row.quantity} · Q{row.quality}
+                    <strong>{formatItemKey(row.item_key)}</strong> · Qty {row.quantity} · Q{row.quality}
                   </div>
                 ))}
               </div>
@@ -401,7 +402,7 @@ export default function InventoryPage() {
               <div style={{ display: "grid", gap: 8 }}>
                 {businessInventory.map((row) => (
                   <div key={row.id} style={{ border: "1px solid #334155", borderRadius: 6, padding: 8 }}>
-                    <strong>{row.item_key}</strong> · Qty {row.quantity} · Reserved {row.reserved_quantity} · Q
+                    <strong>{formatItemKey(row.item_key)}</strong> · Qty {row.quantity} · Reserved {row.reserved_quantity} · Q
                     {row.quality}
                     <div style={{ color: "#94a3b8", fontSize: 13 }}>
                       Business {businessNamesById[row.business_id] ?? row.business_id} · City{" "}
@@ -421,7 +422,7 @@ export default function InventoryPage() {
               <div style={{ display: "grid", gap: 8 }}>
                 {shippingQueue.map((row) => (
                   <div key={row.id} style={{ border: "1px solid #334155", borderRadius: 6, padding: 8 }}>
-                    <strong>{row.item_key}</strong> · Qty {row.quantity} · {formatCurrency(row.cost)} · {row.status}
+                    <strong>{formatItemKey(row.item_key)}</strong> · Qty {row.quantity} · {formatCurrency(row.cost)} · {row.status}
                     <div style={{ color: "#94a3b8", fontSize: 13 }}>
                       {cityNamesById[row.from_city_id] ?? row.from_city_id} →{" "}
                       {cityNamesById[row.to_city_id] ?? row.to_city_id} · arrives{" "}

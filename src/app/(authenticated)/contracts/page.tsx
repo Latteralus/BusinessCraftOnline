@@ -4,6 +4,7 @@ import { NPC_PRICE_CEILINGS } from "@/config/items";
 import type { BusinessWithBalance } from "@/domains/businesses";
 import type { Contract, ContractStatus } from "@/domains/contracts";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
+import { formatItemKey } from "@/lib/items";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -165,7 +166,7 @@ export default function ContractsPage() {
               <select value={itemKey} onChange={(event) => setItemKey(event.target.value)}>
                 {Object.keys(NPC_PRICE_CEILINGS).map((key) => (
                   <option key={key} value={key}>
-                    {key}
+                    {formatItemKey(key)}
                   </option>
                 ))}
               </select>
@@ -215,7 +216,7 @@ export default function ContractsPage() {
                 >
                   <strong>{contract.title}</strong>
                   <span>
-                    {contract.item_key} — {contract.delivered_quantity}/{contract.required_quantity}
+                    {formatItemKey(contract.item_key)} — {contract.delivered_quantity}/{contract.required_quantity}
                   </span>
                   <span>
                     Status: {contract.status} | Unit Price: ${contract.unit_price.toFixed(2)} | Remaining: {remaining}
