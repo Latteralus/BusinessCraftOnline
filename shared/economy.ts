@@ -1,7 +1,8 @@
 export const MARKET_TRANSACTION_FEE = 0.03;
+export const NPC_STOREFRONT_FEE = 0.05;
 export const NPC_SUBTICK_SECONDS = 30;
 export const NPC_SUBTICKS_PER_TICK = 20;
-export const NPC_SHOPPERS_PER_SUBTICK_BASE = 18;
+export const NPC_SHOPPERS_PER_SUBTICK_BASE = 8;
 export const NPC_SUBTICK_VARIANCE = 0.3;
 export const NPC_PRICE_BAND_PERCENT = 0.05;
 
@@ -77,33 +78,33 @@ export const NPC_CATEGORY_INTEREST_WEIGHTS = [
 ] as const;
 
 export const NPC_PRICE_CEILINGS = {
-  iron_ore: 10.0,
-  coal: 15.0,
-  copper_ore: 20.0,
-  gravel: 6.0,
-  crude_oil: 10.6,
-  raw_wood: 6.8,
-  water: 2.5,
-  wheat: 6.0,
-  potato: 4.2,
-  corn: 4.0,
-  red_grape: 4.5,
-  seeds: 1.8,
-  wood_plank: 5.2,
-  wood_handle: 10.5,
-  iron_bar: 20.0,
-  steel_bar: 40.0,
-  steel_beam: 50.0,
-  pickaxe: 28.0,
-  axe: 24.0,
-  drill_bit: 45.0,
-  chair: 45.0,
-  table: 120.0,
-  flour: 8.8,
-  chips: 0.7,
-  red_wine: 8.0,
-  whiskey: 10.0,
-  corn_whiskey: 9.0,
+  iron_ore: 5.0,
+  coal: 4.0,
+  copper_ore: 7.0,
+  gravel: 3.0,
+  crude_oil: 8.0,
+  raw_wood: 3.5,
+  water: 2.0,
+  wheat: 3.5,
+  potato: 3.0,
+  corn: 2.8,
+  red_grape: 3.5,
+  seeds: 1.5,
+  wood_plank: 8.0,
+  wood_handle: 14.0,
+  iron_bar: 18.0,
+  steel_bar: 45.0,
+  steel_beam: 60.0,
+  pickaxe: 35.0,
+  axe: 30.0,
+  drill_bit: 55.0,
+  chair: 50.0,
+  table: 140.0,
+  flour: 10.0,
+  chips: 4.5,
+  red_wine: 16.0,
+  whiskey: 20.0,
+  corn_whiskey: 18.0,
 } as const;
 
 export function getDemandCurveMultiplierForHour(hour: number): number {

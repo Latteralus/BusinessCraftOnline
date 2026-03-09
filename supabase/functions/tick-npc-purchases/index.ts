@@ -7,6 +7,7 @@ import {
   isStoreBusinessType,
 } from "../../../shared/businesses/store.ts";
 import {
+  NPC_STOREFRONT_FEE,
   NPC_CATEGORY_INTEREST_WEIGHTS,
   NPC_DEMAND_CURVE,
   NPC_PRICE_BAND_PERCENT,
@@ -264,8 +265,8 @@ async function settleStoreInventorySale(
   }
 
   const gross = Number((listingPrice * soldQty).toFixed(2));
-  const fee = 0;
-  const net = gross;
+  const fee = round2(gross * NPC_STOREFRONT_FEE);
+  const net = round2(gross - fee);
 
   const nextQty = inventoryQty - soldQty;
   const nextReserved = Math.max(0, Math.min(nextQty, inventoryReserved - soldQty));
@@ -301,14 +302,24 @@ async function settleStoreInventorySale(
     if (updateShelfError) throw updateShelfError;
   }
 
-  const { error: ledgerError } = await supabase.from("business_accounts").insert({
-    business_id: shelfRow.business_id,
-    amount: gross,
-    entry_type: "credit",
-    category: "npc_sale",
-    description: `NPC storefront purchase: ${soldQty}x ${shelfRow.item_key}`,
-    reference_id: shelfRow.id,
-  });
+  const { error: ledgerError } = await supabase.from("business_accounts").insert([
+    {
+      business_id: shelfRow.business_id,
+      amount: gross,
+      entry_type: "credit",
+      category: "npc_sale",
+      description: `NPC storefront purchase: ${soldQty}x ${shelfRow.item_key}`,
+      reference_id: shelfRow.id,
+    },
+    {
+      business_id: shelfRow.business_id,
+      amount: fee,
+      entry_type: "debit",
+      category: "market_fee",
+      description: `NPC storefront fee: ${soldQty}x ${shelfRow.item_key}`,
+      reference_id: shelfRow.id,
+    },
+  ]);
   if (ledgerError) throw ledgerError;
 
   const { error: txError } = await supabase.from("market_transactions").insert({

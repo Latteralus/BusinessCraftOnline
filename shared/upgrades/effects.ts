@@ -34,7 +34,7 @@ export const DEFAULT_BUSINESS_UPGRADE_EFFECTS: BusinessUpgradeEffects = {
   workerCapacitySlots: 0,
   extractionOutputMultiplier: 1,
   extractionQualityBonus: 0,
-  farmWaterUseMultiplier: 1,
+  farmWaterUseMultiplier: 0.6,
   toolDurabilityMultiplier: 1,
   manufacturingOutputMultiplier: 1,
   manufacturingInputUseMultiplier: 1,
@@ -121,7 +121,7 @@ export function resolveBusinessUpgradeEffects(
         effects.extractionQualityBonus = value;
         break;
       case "water_efficiency":
-        effects.farmWaterUseMultiplier = value;
+        effects.farmWaterUseMultiplier = round4(effects.farmWaterUseMultiplier * value);
         break;
       case "production_efficiency":
         effects.manufacturingOutputMultiplier = value;

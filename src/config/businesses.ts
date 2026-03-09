@@ -39,13 +39,13 @@ export const BUSINESS_ENTITY_TYPES = [
 export type BusinessEntityType = (typeof BUSINESS_ENTITY_TYPES)[number];
 
 export const STARTUP_COSTS: Record<BusinessType, number> = {
-  mine: 3500,
-  farm: 2500,
-  water_company: 2000,
+  mine: 3000,
+  farm: 2200,
+  water_company: 1800,
   logging_camp: 3000,
   oil_well: 4500,
-  sawmill: 4000,
-  metalworking_factory: 5500,
+  sawmill: 3500,
+  metalworking_factory: 5000,
   food_processing_plant: 3500,
   winery_distillery: 5000,
   carpentry_workshop: 4500,
@@ -66,4 +66,4 @@ export { BUSINESS_UPGRADE_KEYS };
 export type { BusinessUpgradeKey };
 
 export const EXTRACTION_BASE_RATE_PER_MINUTE = 1;
-export const MANUFACTURING_TICK_MINUTES = 10;
+export const MANUFACTURING_TICK_MINUTES = 5;

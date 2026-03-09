@@ -32,7 +32,7 @@ const DEFAULT_EFFECTS: BusinessUpgradeEffects = {
   workerCapacitySlots: 0,
   extractionOutputMultiplier: 1,
   extractionQualityBonus: 0,
-  farmWaterUseMultiplier: 1,
+  farmWaterUseMultiplier: 0.6,
   toolDurabilityMultiplier: 1,
   manufacturingOutputMultiplier: 1,
   manufacturingInputUseMultiplier: 1,
@@ -83,23 +83,22 @@ function resolveEffectsFromLevels(
   const workerCapacityLevel = Math.max(0, levels.worker_capacity ?? 0);
   effects.workerCapacitySlots = workerCapacityLevel;
   effects.extractionOutputMultiplier = resolveMultiplier(
-    1.08,
+    1.12,
     1.05,
     Math.max(0, levels.extraction_efficiency ?? levels.crop_yield ?? 0)
   );
   effects.extractionQualityBonus = Math.max(0, 4 * (levels.ore_quality ?? 0));
-  effects.farmWaterUseMultiplier = resolveReductionMultiplier(
-    0.92,
-    1.08,
-    Math.max(0, levels.water_efficiency ?? 0)
+  effects.farmWaterUseMultiplier = round4(
+    effects.farmWaterUseMultiplier *
+      resolveReductionMultiplier(0.92, 1.08, Math.max(0, levels.water_efficiency ?? 0))
   );
   effects.toolDurabilityMultiplier = resolveMultiplier(
-    1.1,
+    1.15,
     1.04,
     Math.max(0, levels.tool_durability ?? 0)
   );
   effects.manufacturingOutputMultiplier = resolveMultiplier(
-    1.08,
+    1.15,
     1.05,
     Math.max(0, levels.production_efficiency ?? 0)
   );
