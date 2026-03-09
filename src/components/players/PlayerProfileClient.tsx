@@ -118,7 +118,6 @@ export default function PlayerProfileClient({
             >
               <StatCard label="Net Worth" value={formatCurrency(profile.net_worth)} tone="good" />
               <StatCard label="Location" value={profile.current_city_name ?? "Unknown"} />
-              <StatCard label="Business Level" value={`Lv. ${profile.business_level}`} />
               <StatCard label="Owned Businesses" value={String(profile.total_businesses)} />
             </div>
 
@@ -214,7 +213,6 @@ export default function PlayerProfileClient({
             <h3 style={{ marginTop: 0, marginBottom: 4 }}>Public Details</h3>
             {[
               { label: "Estimated Net Worth", value: formatCurrency(profile.net_worth) },
-              { label: "Business Level", value: `Lv. ${profile.business_level}` },
               { label: "Owned Businesses", value: String(profile.total_businesses) },
               { label: "Current Location", value: profile.current_city_name ?? "Unknown" },
               { label: "Joined", value: formatDateTime(profile.joined_at) },

@@ -1,5 +1,6 @@
 import { isStoreBusinessType } from "@/config/businesses";
 import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
+import { reconcileBusinessInventoryReservations } from "@/domains/inventory";
 import type { QueryClient } from "@/lib/db/query-client";
 import type {
   RemoveStoreShelfItemInput,
@@ -68,6 +69,7 @@ export async function upsertStoreShelfItem(
     isStoreBusinessType,
     () => "Only store businesses can stock shelf items."
   );
+  await reconcileBusinessInventoryReservations(client, playerId, business.id);
 
   const { data: inventoryRow, error: inventoryError } = await client
     .from("business_inventory")

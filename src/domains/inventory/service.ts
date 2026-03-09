@@ -139,6 +139,100 @@ function normalizeShippingRow(row: ShippingQueueItem): ShippingQueueItem {
   };
 }
 
+export async function reconcileBusinessInventoryReservations(
+  client: QueryClient,
+  playerId: string,
+  businessId?: string
+): Promise<void> {
+  let inventoryQuery = client
+    .from("business_inventory")
+    .select("id, business_id, item_key, quality, quantity, reserved_quantity")
+    .eq("owner_player_id", playerId);
+
+  let listingsQuery = client
+    .from("market_listings")
+    .select("source_business_id, item_key, quality, quantity, reserved_quantity")
+    .eq("owner_player_id", playerId)
+    .eq("status", "active");
+
+  let shelvesQuery = client
+    .from("store_shelf_items")
+    .select("business_id, item_key, quality, quantity")
+    .eq("owner_player_id", playerId);
+
+  if (businessId) {
+    inventoryQuery = inventoryQuery.eq("business_id", businessId);
+    listingsQuery = listingsQuery.eq("source_business_id", businessId);
+    shelvesQuery = shelvesQuery.eq("business_id", businessId);
+  }
+
+  const [inventoryResult, listingsResult, shelvesResult] = await Promise.all([
+    inventoryQuery,
+    listingsQuery,
+    shelvesQuery,
+  ]);
+
+  if (inventoryResult.error) throw inventoryResult.error;
+  if (listingsResult.error) throw listingsResult.error;
+  if (shelvesResult.error) throw shelvesResult.error;
+
+  const reservedByKey = new Map<string, number>();
+  const makeKey = (row: { business_id: string; item_key: string; quality: number | string }) =>
+    `${row.business_id}:${row.item_key}:${toNumber(row.quality)}`;
+
+  for (const row of (shelvesResult.data as Array<{
+    business_id: string;
+    item_key: string;
+    quality: number | string;
+    quantity: number | string;
+  }>) ?? []) {
+    const key = makeKey(row);
+    reservedByKey.set(key, (reservedByKey.get(key) ?? 0) + Math.max(0, toNumber(row.quantity)));
+  }
+
+  for (const row of (listingsResult.data as Array<{
+    source_business_id: string;
+    item_key: string;
+    quality: number | string;
+    quantity: number | string;
+    reserved_quantity: number | string;
+  }>) ?? []) {
+    const key = `${row.source_business_id}:${row.item_key}:${toNumber(row.quality)}`;
+    const committed = Math.max(0, Math.min(toNumber(row.quantity), toNumber(row.reserved_quantity)));
+    reservedByKey.set(key, (reservedByKey.get(key) ?? 0) + committed);
+  }
+
+  const updates = ((inventoryResult.data as Array<{
+    id: string;
+    business_id: string;
+    item_key: string;
+    quality: number | string;
+    quantity: number | string;
+    reserved_quantity: number | string;
+  }>) ?? [])
+    .map((row) => {
+      const quantity = Math.max(0, toNumber(row.quantity));
+      const expectedReserved = Math.max(0, Math.min(quantity, reservedByKey.get(makeKey(row)) ?? 0));
+      const currentReserved = Math.max(0, toNumber(row.reserved_quantity));
+      if (currentReserved === expectedReserved) return null;
+      return client
+        .from("business_inventory")
+        .update({
+          reserved_quantity: expectedReserved,
+          updated_at: nowIso(),
+        })
+        .eq("id", row.id);
+    })
+    .filter((operation): operation is Promise<{ error: unknown }> => Boolean(operation));
+
+  if (updates.length === 0) return;
+
+  const results = await Promise.all(updates);
+  for (const result of results) {
+    if (result.error) throw result.error;
+  }
+}
+
 export async function getPersonalInventory(
   client: QueryClient,
   playerId: string
@@ -159,6 +253,8 @@ export async function getBusinessInventory(
   playerId: string,
   businessId?: string
 ): Promise<BusinessInventoryItem[]> {
+  await reconcileBusinessInventoryReservations(client, playerId, businessId);
+
   let query = client
     .from("business_inventory")
     .select("*")
@@ -228,6 +324,10 @@ export async function transferItems(
   playerId: string,
   input: TransferItemsInput
 ): Promise<TransferOutcome> {
+  if (input.sourceType === "business" && input.sourceBusinessId) {
+    await reconcileBusinessInventoryReservations(client, playerId, input.sourceBusinessId);
+  }
+
   const shippingPlan = await resolveShippingPlan(client, input);
   const isBusinessToBusiness =
     input.sourceType === "business" &&

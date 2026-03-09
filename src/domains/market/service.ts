@@ -6,6 +6,7 @@ import {
   consumeInventoryCostByRowId,
   insertBusinessFinancialEvents,
 } from "@/domains/businesses/financial-events";
+import { reconcileBusinessInventoryReservations } from "@/domains/inventory";
 import { round2, round4, toNumber } from "@/lib/core/number";
 import { addHoursToNowIso, nowIso, toIso } from "@/lib/core/time";
 import type { QueryClient } from "@/lib/db/query-client";
@@ -353,6 +354,7 @@ export async function createMarketListing(
   input: CreateMarketListingInput
 ): Promise<MarketListing> {
   const business = await ensureOwnedBusiness(client, playerId, input.sourceBusinessId);
+  await reconcileBusinessInventoryReservations(client, playerId, business.id);
 
   const { data: inventoryRow, error: inventoryError } = await client
     .from("business_inventory")

@@ -1,6 +1,7 @@
 export {
   getBusinessInventory,
   getPersonalInventory,
+  reconcileBusinessInventoryReservations,
   getShippingQueue,
   transferItems,
 } from "./service";
