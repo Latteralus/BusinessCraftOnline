@@ -19,6 +19,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { DashboardClock } from "@/components/dashboard/DashboardClock";
 import { DashboardGreeting } from "@/components/dashboard/DashboardGreeting";
+import { ActiveOperationsCard } from "@/components/dashboard/ActiveOperationsCard";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatItemKey } from "@/lib/items";
 import { requireAuthedPageContext } from "../server-data";
@@ -50,13 +51,6 @@ function toTitleLabel(value: string): string {
     .split("_")
     .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
     .join(" ");
-}
-
-function getProgressPercent(lastTickAt: string | null | undefined, intervalSeconds: number, running: boolean): number {
-  if (!running || !lastTickAt || intervalSeconds <= 0) return 0;
-  const elapsedMs = Date.now() - new Date(lastTickAt).getTime();
-  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return 0;
-  return Math.max(0, Math.min(100, (elapsedMs / (intervalSeconds * 1000)) * 100));
 }
 
 function getBusinessIcon(type: string): string {
@@ -101,7 +95,7 @@ export default async function DashboardPage() {
     getBankingSnapshot(supabase, user.id).catch(() => null),
     getBusinessesWithBalances(supabase, user.id).catch(() => []),
     getEmployeeSummary(supabase, user.id).catch(() => null),
-    getMarketTransactions(supabase, user.id, 20).catch(() => []),
+    getMarketTransactions(supabase, user.id, 20, { buyerType: "player" }).catch(() => []),
     getMarketStorefrontSettings(supabase, user.id).catch(() => []),
     getTickHealthSummary(supabase, 24).catch(() => null),
     getStorefrontPerformanceSummary(supabase, user.id, 24).catch(() => null),
@@ -164,7 +158,8 @@ export default async function DashboardPage() {
           detail: recipe ? recipe.displayName : "Manufacturing",
           running,
           statusLabel: toTitleLabel(String(job.status)),
-          progressPercent: getProgressPercent(job.last_tick_at, 10 * 60, running),
+          intervalSeconds: 10 * 60,
+          lastProgressAt: job.last_tick_at ? String(job.last_tick_at) : null,
           createdAt: String(job.updated_at ?? job.last_tick_at ?? new Date(0).toISOString()),
         };
       }),
@@ -196,7 +191,8 @@ export default async function DashboardPage() {
           detail: `${formatItemKey(String(itemKey))} (Slot #${slot.slot_number})`,
           running,
           statusLabel: toTitleLabel(String(slot.status)),
-          progressPercent: getProgressPercent(slot.last_extracted_at, 60, running),
+          intervalSeconds: 60,
+          lastProgressAt: slot.last_extracted_at ? String(slot.last_extracted_at) : null,
           createdAt: String(slot.updated_at ?? slot.last_extracted_at ?? new Date(0).toISOString()),
         };
       }),
@@ -384,72 +380,7 @@ export default async function DashboardPage() {
             </div>
           </div>
 
-          <div className="card anim anim-d4">
-            <div className="card-header">
-              <div className="card-title">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 20h20M5 20V8l5 4V4l5 8h5v8"/></svg>
-                Active Operations
-              </div>
-              <Link href="/businesses" prefetch={false} className="card-action">Manage →</Link>
-            </div>
-            <div className="card-body card-body-scroll">
-              {activeOperations.length > 0 ? (
-                activeOperations.map((op) => (
-                  <Link
-                    href={`/businesses/${op.businessId}?tab=operations`}
-                    prefetch={false}
-                    key={op.id}
-                    style={{ textDecoration: "none", color: "inherit", display: "block" }}
-                  >
-                    <div className="mfg-item" style={{ cursor: "pointer", transition: "transform 0.2s" }}>
-                      <div className="mfg-top">
-                        <div className="mfg-name">{op.name}</div>
-                        <div className="mfg-recipe" style={{ textTransform: "capitalize" }}>{op.detail}</div>
-                      </div>
-                      <div className="mfg-bar-track">
-                        <div
-                          className={`mfg-bar-fill ${op.running ? "anim-pulse" : ""}`}
-                          style={{
-                            width: `${op.progressPercent.toFixed(0)}%`,
-                            background: op.running ? "var(--accent-green)" : "var(--accent-red)",
-                          }}
-                        ></div>
-                      </div>
-                      <div className="mfg-bottom">
-                        <div className="mfg-inputs">
-                          <span className={`input-chip ${op.running ? "input-filled" : "input-empty"}`}>
-                            Status: {op.statusLabel}
-                          </span>
-                        </div>
-                        <div
-                          className="mfg-countdown"
-                          style={{ color: op.running ? "var(--accent-green)" : "var(--accent-red)" }}
-                        >
-                          {op.running ? "Running" : "Not Producing"}
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-                ))
-              ) : (
-                <div className="mfg-item" style={{ opacity: 0.5 }}>
-                  <div className="mfg-top">
-                    <div className="mfg-name">No active production</div>
-                    <div className="mfg-recipe">Assign workers to start</div>
-                  </div>
-                  <div className="mfg-bar-track">
-                    <div className="mfg-bar-fill" style={{ width: "0%", background: "var(--accent-red)" }}></div>
-                  </div>
-                  <div className="mfg-bottom">
-                    <div className="mfg-inputs">
-                      <span className="input-chip input-empty">Worker: Resting/None</span>
-                    </div>
-                    <div className="mfg-countdown" style={{ color: "var(--accent-red)" }}>Halted</div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+          <ActiveOperationsCard operations={activeOperations} />
 
           <div className="sidebar-col">
             <div className="travel-widget anim anim-d5">
