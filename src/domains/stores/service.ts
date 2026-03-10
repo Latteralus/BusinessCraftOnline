@@ -24,6 +24,22 @@ function normalizeStoreShelfItem(row: StoreShelfItem): StoreShelfItem {
   };
 }
 
+async function updateInventoryReservation(
+  client: QueryClient,
+  inventoryRowId: string,
+  reservedQuantity: number
+) {
+  const { error } = await client
+    .from("business_inventory")
+    .update({
+      reserved_quantity: reservedQuantity,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", inventoryRowId);
+
+  if (error) throw error;
+}
+
 async function getOwnedShelfItem(client: QueryClient, playerId: string, shelfItemId: string): Promise<StoreShelfItem> {
   const { data, error } = await client
     .from("store_shelf_items")
@@ -104,47 +120,45 @@ export async function upsertStoreShelfItem(
     throw new Error("Not enough available inventory to stock that many items on the shelf.");
   }
 
-  const { error: reserveError } = await client
-    .from("business_inventory")
-    .update({
-      reserved_quantity: Math.max(0, Math.min(inventoryQuantity, inventoryReserved + delta)),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", inventoryRow.id);
+  const nextReservedQuantity = Math.max(0, Math.min(inventoryQuantity, inventoryReserved + delta));
+  await updateInventoryReservation(client, inventoryRow.id, nextReservedQuantity);
 
-  if (reserveError) throw reserveError;
+  try {
+    if (existingShelfRow) {
+      const { data, error } = await client
+        .from("store_shelf_items")
+        .update({
+          quantity: input.quantity,
+          unit_price: input.unitPrice,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingShelfRow.id)
+        .select("*")
+        .single();
 
-  if (existingShelfRow) {
+      if (error) throw error;
+      return normalizeStoreShelfItem(data as StoreShelfItem);
+    }
+
     const { data, error } = await client
       .from("store_shelf_items")
-      .update({
+      .insert({
+        owner_player_id: playerId,
+        business_id: business.id,
+        item_key: input.itemKey,
+        quality: input.quality,
         quantity: input.quantity,
         unit_price: input.unitPrice,
-        updated_at: new Date().toISOString(),
       })
-      .eq("id", existingShelfRow.id)
       .select("*")
       .single();
 
     if (error) throw error;
     return normalizeStoreShelfItem(data as StoreShelfItem);
+  } catch (error) {
+    await updateInventoryReservation(client, inventoryRow.id, inventoryReserved).catch(() => null);
+    throw error;
   }
-
-  const { data, error } = await client
-    .from("store_shelf_items")
-    .insert({
-      owner_player_id: playerId,
-      business_id: business.id,
-      item_key: input.itemKey,
-      quality: input.quality,
-      quantity: input.quantity,
-      unit_price: input.unitPrice,
-    })
-    .select("*")
-    .single();
-
-  if (error) throw error;
-  return normalizeStoreShelfItem(data as StoreShelfItem);
 }
 
 export async function removeStoreShelfItem(
