@@ -1,6 +1,9 @@
 // @ts-nocheck
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { startTickRequest, writeTickRunLog } from "../_shared/tick-runtime.ts";
+import {
+  startTickRequest,
+  writeTickRunLog,
+  type EdgeSupabaseClient,
+} from "../_shared/tick-runtime.ts";
 import { isWorkerOperational } from "../_shared/employee-status.ts";
 import {
   getManufacturingInputQuantityPerTick,
@@ -20,7 +23,7 @@ function toNumber(value: number | string | null | undefined): number {
 }
 
 async function getInventoryRows(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   businessId: string,
   playerId: string,
   itemKey: string
@@ -111,7 +114,7 @@ function resolveManufacturingQuality(
 }
 
 async function syncLegacyManufacturingJobForBusiness(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   businessId: string
 ) {
   const { data: lineRows, error: lineError } = await supabase
@@ -165,7 +168,7 @@ async function syncLegacyManufacturingJobForBusiness(
 }
 
 async function consumeInventoryForContract(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   playerId: string,
   businessId: string,
   itemKey: string,

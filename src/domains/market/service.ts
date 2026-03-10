@@ -1,5 +1,8 @@
 import { STORE_BUSINESS_TYPES, isStoreBusinessType } from "@/config/businesses";
-import { MARKET_TRANSACTION_FEE } from "@/config/market";
+import {
+  MARKET_TRANSACTION_FEE,
+  STOREFRONT_DEFAULT_SETTINGS,
+} from "@/config/market";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
 import {
   computeWeightedAverageCost,
@@ -672,9 +675,9 @@ export async function getMarketStorefrontSettings(
       id: `default-${store.id}`,
       owner_player_id: playerId,
       business_id: store.id,
-      ad_budget_per_tick: 0,
-      traffic_multiplier: 1,
-      is_ad_enabled: true,
+      ad_budget_per_tick: STOREFRONT_DEFAULT_SETTINGS.ad_budget_per_tick,
+      traffic_multiplier: STOREFRONT_DEFAULT_SETTINGS.traffic_multiplier,
+      is_ad_enabled: STOREFRONT_DEFAULT_SETTINGS.is_ad_enabled,
       created_at: toIso(0),
       updated_at: toIso(0),
     }));

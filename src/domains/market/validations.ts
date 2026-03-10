@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { getStorefrontTrafficMultiplierBounds } from "@/config/market";
 import { MARKET_LISTING_STATUSES } from "./types";
 
 const marketListingStatusSchema = z.enum(MARKET_LISTING_STATUSES);
+const storefrontTrafficBounds = getStorefrontTrafficMultiplierBounds();
 
 export const marketListingFilterSchema = z.object({
   cityId: z.uuid("City id is invalid.").optional(),
@@ -63,8 +65,14 @@ export const updateMarketStorefrontSettingsSchema = z.object({
     .min(0, "Ad budget per minute cannot be negative."),
   trafficMultiplier: z
     .number({ error: "Traffic multiplier must be a number." })
-    .min(0.5, "Traffic multiplier must be at least 0.5.")
-    .max(3, "Traffic multiplier must be at most 3."),
+    .min(
+      storefrontTrafficBounds.min,
+      `Traffic multiplier must be at least ${storefrontTrafficBounds.min}.`
+    )
+    .max(
+      storefrontTrafficBounds.max,
+      `Traffic multiplier must be at most ${storefrontTrafficBounds.max}.`
+    ),
   isAdEnabled: z.boolean({ error: "Ad enabled flag must be true or false." }),
 });
 

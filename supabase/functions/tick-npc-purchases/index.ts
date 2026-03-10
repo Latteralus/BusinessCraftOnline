@@ -1,19 +1,25 @@
 // @ts-nocheck
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { startTickRequest } from "../_shared/tick-runtime.ts";
+import {
+  startTickRequest,
+  type EdgeSupabaseClient,
+} from "../_shared/tick-runtime.ts";
 import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
 import {
   STORE_BUSINESS_TYPES,
   isStoreBusinessType,
 } from "../../../shared/businesses/store.ts";
 import {
-  getNpcBuyerPriceRange,
+  STOREFRONT_CONTINUE_SHOPPING_CHANCE,
+  STOREFRONT_DEFAULT_ITEM_INTEREST_WEIGHT,
+  STOREFRONT_ITEM_INTEREST_WEIGHT_BY_ITEM,
+  clampStorefrontTrafficMultiplier,
+  getStorefrontMaxUnitsPerPurchaseAttempt,
+  getStorefrontShelfPurchaseScore,
+} from "../_shared/store-config.ts";
+import {
   NPC_STOREFRONT_FEE,
-  NPC_CATEGORY_INTEREST_WEIGHTS,
   NPC_DEMAND_CURVE,
   NPC_PRICE_BAND_PERCENT,
-  NPC_PRICE_CEILINGS,
-  NPC_PRICE_RESPONSE_CURVE,
   NPC_PRICE_SENSITIVITY_MAX,
   NPC_PRICE_SENSITIVITY_MIN,
   NPC_QUALITY_PREFERENCE_MAX,
@@ -25,23 +31,13 @@ import {
   NPC_SUBTICK_VARIANCE,
   STOREFRONT_AD_BUDGET_FOR_MAX_EFFECT,
   STOREFRONT_AD_MAX_TRAFFIC_BOOST,
-  STOREFRONT_TRAFFIC_MULTIPLIER_MAX,
-  STOREFRONT_TRAFFIC_MULTIPLIER_MIN,
 } from "../../../shared/economy.ts";
 import { makeNpcShopperName } from "../../../shared/core/npc-shopper-names.ts";
-
-const NPC_CATEGORY_INTEREST_WEIGHT_BY_ITEM = Object.fromEntries(
-  NPC_CATEGORY_INTEREST_WEIGHTS.map((entry) => [entry.itemKey, entry.weight])
-) as Record<string, number>;
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
   if (typeof value === "string") return Number(value);
   return 0;
-}
-
-function ceilForItem(itemKey: string): number {
-  return getNpcBuyerPriceRange(itemKey).max;
 }
 
 function randBetweenWithRng(rng: () => number, min: number, max: number): number {
@@ -58,10 +54,6 @@ function clamp(value: number, min: number, max: number): number {
 
 function round2(value: number): number {
   return Number(value.toFixed(2));
-}
-
-function lerp(start: number, end: number, t: number): number {
-  return start + (end - start) * t;
 }
 
 function hashString(input: string): number {
@@ -103,65 +95,7 @@ function pickWeighted<T>(rows: T[], getWeight: (row: T) => number, rng: () => nu
   return rows[rows.length - 1];
 }
 
-function getPriceCurveMultiplier(priceRatio: number): number {
-  if (!Number.isFinite(priceRatio)) return 0;
-
-  const first = NPC_PRICE_RESPONSE_CURVE[0];
-  if (priceRatio <= first.ratio) return first.multiplier;
-
-  for (let index = 1; index < NPC_PRICE_RESPONSE_CURVE.length; index += 1) {
-    const previous = NPC_PRICE_RESPONSE_CURVE[index - 1];
-    const current = NPC_PRICE_RESPONSE_CURVE[index];
-    if (priceRatio <= current.ratio) {
-      const span = current.ratio - previous.ratio;
-      const t = span <= 0 ? 0 : (priceRatio - previous.ratio) / span;
-      return lerp(previous.multiplier, current.multiplier, clamp(t, 0, 1));
-    }
-  }
-
-  return NPC_PRICE_RESPONSE_CURVE[NPC_PRICE_RESPONSE_CURVE.length - 1]?.multiplier ?? 0;
-}
-
-function getShelfPurchaseScore(
-  row: {
-    item_key: string;
-    unit_price: number | string;
-    quality: number | string;
-  },
-  shopper: {
-    priceSensitivity: number;
-    qualityPreference: number;
-  },
-  priceToleranceMultiplier: number
-): number {
-  const baseWorth = Math.max(0.01, ceilForItem(String(row.item_key)));
-  const rawPrice = Math.max(0.01, toNumber(row.unit_price));
-  const baseRatio = rawPrice / baseWorth;
-  if (baseRatio >= 2) return 0;
-
-  const sensitivityRange = Math.max(0.0001, NPC_PRICE_SENSITIVITY_MAX - NPC_PRICE_SENSITIVITY_MIN);
-  const qualityRange = Math.max(0.0001, NPC_QUALITY_PREFERENCE_MAX - NPC_QUALITY_PREFERENCE_MIN);
-  const priceTolerance = clamp(priceToleranceMultiplier, 1, 1.5);
-  const normalizedSensitivity = clamp(
-    (shopper.priceSensitivity - NPC_PRICE_SENSITIVITY_MIN) / sensitivityRange,
-    0,
-    1
-  );
-  const normalizedQualityPreference = clamp(
-    (shopper.qualityPreference - NPC_QUALITY_PREFERENCE_MIN) / qualityRange,
-    0,
-    1
-  );
-  const perceivedRatio = baseRatio / lerp(0.92, priceTolerance, normalizedSensitivity);
-  const priceScore = getPriceCurveMultiplier(perceivedRatio);
-  if (priceScore <= 0) return 0;
-
-  const normalizedQuality = clamp(toNumber(row.quality) / 100, 0, 1);
-  const qualityScore = lerp(0.85 + normalizedQuality * 0.3, 0.7 + normalizedQuality * 0.8, normalizedQualityPreference);
-  return priceScore * qualityScore;
-}
-
-async function getOrCreateSubtickState(supabase: ReturnType<typeof createClient>) {
+async function getOrCreateSubtickState(supabase: EdgeSupabaseClient) {
   const { data, error } = await supabase
     .from("npc_market_subtick_state")
     .select("state_key, tick_window_started_at, sub_tick_index")
@@ -198,7 +132,7 @@ async function getOrCreateSubtickState(supabase: ReturnType<typeof createClient>
 }
 
 async function persistSubtickState(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   input: { tickWindowStartedAt: string; subTickIndex: number }
 ) {
   const { error } = await supabase
@@ -214,7 +148,7 @@ async function persistSubtickState(
 }
 
 async function settleStoreInventorySale(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   shelfRow: {
     id: string;
     owner_player_id: string;
@@ -344,7 +278,7 @@ async function settleStoreInventorySale(
 }
 
 async function writeTickRunLog(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   input: {
     status: "ok" | "error";
     startedAtIso: string;
@@ -368,7 +302,7 @@ async function writeTickRunLog(
 }
 
 async function writeStorefrontSnapshot(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   input: {
     ownerPlayerId: string;
     businessId: string;
@@ -477,11 +411,7 @@ Deno.serve(async (request) => {
         : { data: null };
 
       const configuredTrafficMultiplier = storefront
-        ? clamp(
-            toNumber(storefront.traffic_multiplier),
-            STOREFRONT_TRAFFIC_MULTIPLIER_MIN,
-            STOREFRONT_TRAFFIC_MULTIPLIER_MAX
-          )
+        ? clampStorefrontTrafficMultiplier(toNumber(storefront.traffic_multiplier))
         : 1;
 
     let adBudgetApplied = 0;
@@ -623,7 +553,7 @@ Deno.serve(async (request) => {
         const itemKeys = Array.from(new Set(activeRows.map((row) => String(row.item_key))));
         const targetItemKey = pickWeighted(
           itemKeys,
-          (key) => NPC_CATEGORY_INTEREST_WEIGHT_BY_ITEM[key] ?? 0.5,
+          (key) => STOREFRONT_ITEM_INTEREST_WEIGHT_BY_ITEM[key] ?? STOREFRONT_DEFAULT_ITEM_INTEREST_WEIGHT,
           seededRng
         );
 
@@ -640,11 +570,14 @@ Deno.serve(async (request) => {
         const weightedCandidates = withinBand
           .map((row) => ({
             row,
-            score: getShelfPurchaseScore(
-              row,
-              { priceSensitivity, qualityPreference },
-              priceToleranceMultiplier
-            ),
+            score: getStorefrontShelfPurchaseScore({
+              itemKey: String(row.item_key),
+              unitPrice: toNumber(row.unit_price),
+              quality: toNumber(row.quality),
+              shopperPriceSensitivity: priceSensitivity,
+              shopperQualityPreference: qualityPreference,
+              priceToleranceMultiplier,
+            }),
           }))
           .filter((entry) => entry.score > 0);
         if (weightedCandidates.length === 0) continue;
@@ -664,7 +597,7 @@ Deno.serve(async (request) => {
 
         const available = Math.max(0, toNumber(chosen.backed_quantity));
         const affordable = Math.floor(remainingBudget / chosenPrice);
-        const maxByAttempt = Math.max(1, Math.min(6, 1 + Math.floor(Number(listingCapacityBonus) / 2)));
+        const maxByAttempt = getStorefrontMaxUnitsPerPurchaseAttempt(Number(listingCapacityBonus));
         const soldQty = Math.max(
           1,
           Math.min(
@@ -710,7 +643,7 @@ Deno.serve(async (request) => {
         feeTotal += settled.fee;
         storeFeeTotal += settled.fee;
 
-        const continueShoppingChance = remainingItems > 0 ? 0.45 : 0;
+        const continueShoppingChance = remainingItems > 0 ? STOREFRONT_CONTINUE_SHOPPING_CHANCE : 0;
         if (seededRng() > continueShoppingChance) break;
       }
     }

@@ -1,5 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { isRecord, readNumber, readString, startTickRequest, writeTickRunLog } from "../_shared/tick-runtime.ts";
+import {
+  isRecord,
+  readNumber,
+  readString,
+  startTickRequest,
+  writeTickRunLog,
+  type EdgeSupabaseClient,
+} from "../_shared/tick-runtime.ts";
 import { isWorkerOperational } from "../_shared/employee-status.ts";
 import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
 import {
@@ -40,7 +47,7 @@ type InventoryRow = {
 
 type EmployeeRow = {
   id: string;
-  status: string;
+  status: "available" | "assigned" | "resting" | "unpaid" | "fired";
   shift_ends_at: string | null;
 };
 
@@ -140,7 +147,8 @@ function parseEmployeeRow(value: unknown): EmployeeRow | null {
   const status = readString(value.status);
   const shiftEndsAt = value.shift_ends_at === null ? null : readString(value.shift_ends_at);
   if (!id || !status || shiftEndsAt === undefined) return null;
-  return { id, status, shift_ends_at: shiftEndsAt };
+  if (!["available", "assigned", "resting", "unpaid", "fired"].includes(status)) return null;
+  return { id, status: status as EmployeeRow["status"], shift_ends_at: shiftEndsAt };
 }
 
 function parseAssignmentRow(value: unknown): AssignmentRow | null {
@@ -182,7 +190,7 @@ function parseSkillRow(value: unknown): SkillRow | null {
 }
 
 async function failSlot(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   slotId: string,
   status: "idle" | "resting" | "tool_broken"
 ) {
@@ -194,7 +202,7 @@ async function failSlot(
 }
 
 async function consumeFarmInputs(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   slot: ExtractionSlotRow,
   businessId: string,
   ownerPlayerId: string,
@@ -247,7 +255,7 @@ async function consumeFarmInputs(
 }
 
 async function hasAvailableBusinessTool(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   businessId: string,
   ownerPlayerId: string,
   itemKey: "pickaxe" | "axe" | "drill_bit"
@@ -416,7 +424,7 @@ Deno.serve(async (request) => {
             }
           }
         } else {
-          const operationalTool = parsedTool;
+          const operationalTool = parsedTool!;
           outputMultiplier += Math.max(0, toolOutputBonus);
           const nextUses = operationalTool.uses_remaining - 1;
           const { error: toolUpdateError } = await supabase

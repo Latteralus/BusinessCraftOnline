@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { EdgeSupabaseClient } from "./tick-runtime.ts";
 
 type UpgradeDowntimePolicy = "none" | "partial" | "full";
 
@@ -148,7 +148,7 @@ function resolveEffectsFromLevels(
 }
 
 async function applyCompletedProjects(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   businessId: string
 ) {
   const currentIso = new Date().toISOString();
@@ -219,7 +219,7 @@ async function applyCompletedProjects(
 }
 
 export async function getResolvedBusinessUpgradeEffects(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   businessId: string,
   businessType: string
 ) {

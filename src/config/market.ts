@@ -17,3 +17,16 @@ export {
   STOREFRONT_AD_MAX_TRAFFIC_BOOST,
   getDemandCurveMultiplierForHour,
 } from "../../shared/economy";
+
+export {
+  STOREFRONT_CONTINUE_SHOPPING_CHANCE,
+  STOREFRONT_DEFAULT_AD_BUDGET_PER_TICK,
+  STOREFRONT_DEFAULT_AD_ENABLED,
+  STOREFRONT_DEFAULT_SETTINGS,
+  STOREFRONT_DEFAULT_TRAFFIC_MULTIPLIER,
+  clampStorefrontTrafficMultiplier,
+  getStorefrontMaxUnitsPerPurchaseAttempt,
+  getStorefrontPriceCurveMultiplier,
+  getStorefrontShelfPurchaseScore,
+  getStorefrontTrafficMultiplierBounds,
+} from "../../shared/storefront";

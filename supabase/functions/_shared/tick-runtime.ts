@@ -1,5 +1,7 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 export { toNumber } from "../../../shared/core/number.ts";
+
+export type EdgeSupabaseClient = SupabaseClient<any, "public", "public", any, any>;
 
 export type TickLogInput = {
   tickName: string;
@@ -20,7 +22,7 @@ export function createServiceClientFromEnv() {
     throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
   }
 
-  return createClient(supabaseUrl, serviceRoleKey);
+  return createClient(supabaseUrl, serviceRoleKey) as EdgeSupabaseClient;
 }
 
 function jsonErrorResponse(status: number, error: string): Response {
@@ -35,7 +37,7 @@ type TickRequestStartResult =
       response: Response;
     }
   | {
-      supabase: ReturnType<typeof createClient>;
+      supabase: EdgeSupabaseClient;
       release: () => Promise<void>;
     };
 
@@ -58,7 +60,7 @@ export async function startTickRequest(
     return { response: jsonErrorResponse(401, "Unauthorized") };
   }
 
-  let supabase: ReturnType<typeof createClient>;
+  let supabase: EdgeSupabaseClient;
   try {
     supabase = createServiceClientFromEnv();
   } catch (error) {
@@ -100,7 +102,7 @@ export async function startTickRequest(
 }
 
 export async function writeTickRunLog(
-  supabase: ReturnType<typeof createClient>,
+  supabase: EdgeSupabaseClient,
   input: TickLogInput
 ) {
   await supabase.from("tick_run_logs").insert({
