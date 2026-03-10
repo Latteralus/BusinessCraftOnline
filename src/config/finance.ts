@@ -1,7 +1,7 @@
 import type { BusinessType } from "@/config/businesses";
 import { NPC_PRICE_CEILINGS } from "@/config/items";
 
-export const FINANCE_PERIODS = ["24h", "7d", "30d", "all"] as const;
+export const FINANCE_PERIODS = ["1h", "24h", "7d", "30d"] as const;
 export type FinancePeriod = (typeof FINANCE_PERIODS)[number];
 
 export const BUSINESS_LEDGER_CATEGORY_CLASSIFICATION = {

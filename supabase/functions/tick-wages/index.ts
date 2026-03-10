@@ -87,6 +87,12 @@ Deno.serve(async (request) => {
         skippedByInterval += 1;
         continue;
       }
+      const chargeAnchorIso = getNextChargeAnchorIso(
+        employee.last_wage_charged_at,
+        employee.created_at,
+        chargeWindowCount,
+        nowIso
+      );
 
       if (!employee || employee.status === "fired" || employee.status === "unpaid") {
         skippedByStatus += 1;
@@ -109,12 +115,6 @@ Deno.serve(async (request) => {
 
       const wagePerHour = Number(toNumber(employee.wage_per_hour).toFixed(2));
       const wageAmount = Number((wagePerHour * chargeWindowCount * WAGE_CHARGE_INTERVAL_HOURS).toFixed(2));
-      const chargeAnchorIso = getNextChargeAnchorIso(
-        employee.last_wage_charged_at,
-        employee.created_at,
-        chargeWindowCount,
-        nowIso
-      );
 
       if (wagePerHour <= 0 || wageAmount <= 0) {
         await supabase

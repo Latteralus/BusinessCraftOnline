@@ -197,10 +197,10 @@ function normalizeFinancialEventRow(row: FinancialEventRow): DerivedFinancialEve
 
 function getPeriodRanges(): PeriodRange[] {
   return [
+    { key: "1h", since: addHoursToNowIso(-1), label: "Last Hour", days: 1 / 24 },
     { key: "24h", since: addHoursToNowIso(-24), label: "Last 24 Hours", days: 1 },
     { key: "7d", since: addHoursToNowIso(-24 * 7), label: "Last 7 Days", days: 7 },
     { key: "30d", since: addHoursToNowIso(-24 * 30), label: "Last 30 Days", days: 30 },
-    { key: "all", since: null, label: "All Time", days: null },
   ];
 }
 
@@ -416,6 +416,12 @@ function buildSeries(
     ledgerEvents.filter((row) => row.accountCode === "revenue"),
     (row) => row.amount
   );
+  const transferRevenueByDay = groupAmountByDay(
+    financialEvents.filter(
+      (row) => row.accountCode === "revenue" && row.referenceType === "inventory_transfer"
+    ),
+    (row) => row.amount
+  );
   const opexByDay = groupAmountByDay(
     ledgerEvents.filter((row) => row.accountCode === "operating_expense"),
     (row) => row.amount
@@ -443,7 +449,7 @@ function buildSeries(
   while (cursor.getTime() <= end.getTime()) {
     const key = cursor.toISOString().slice(0, 10);
     runningCash = round2(runningCash + (cashDeltaByDay.get(key) ?? 0));
-    const revenue = round2(revenueByDay.get(key) ?? 0);
+    const revenue = round2((revenueByDay.get(key) ?? 0) + (transferRevenueByDay.get(key) ?? 0));
     const cogs = round2(cogsByDay.get(key) ?? 0);
     const operatingExpense = round2(opexByDay.get(key) ?? 0);
     points.push({
@@ -472,6 +478,7 @@ function annualize(amount: number, days: number | null): number {
 function buildValuation(
   business: Business,
   periods: Record<FinancePeriod, BusinessFinancePeriodSnapshot>,
+  cashBalance: number,
   inventoryAssetValue: number,
   liabilities: number
 ): BusinessValuationBreakdown {
@@ -481,7 +488,7 @@ function buildValuation(
       ? { snapshot: periods["7d"], days: 7 }
       : periods["24h"].kpis.revenue > 0 || periods["24h"].kpis.operatingProfit !== 0
         ? { snapshot: periods["24h"], days: 1 }
-        : { snapshot: periods["all"], days: null };
+        : { snapshot: periods["1h"], days: 1 / 24 };
   const multipliers = BUSINESS_VALUATION_MULTIPLIERS[business.type];
   const annualizedRevenue = annualize(basis.snapshot.kpis.revenue, basis.days);
   const annualizedOperatingProfit = annualize(basis.snapshot.kpis.operatingProfit, basis.days);
@@ -492,7 +499,7 @@ function buildValuation(
   const currentValue = round2(
     Math.max(
       multipliers.floor,
-      baseValue + periods["all"].kpis.cash + inventoryAssetValue - liabilities
+      baseValue + cashBalance + inventoryAssetValue - liabilities
     )
   );
 
@@ -506,7 +513,7 @@ function buildValuation(
     annualizedRevenue,
     annualizedOperatingProfit,
     inventoryAssetValue,
-    cash: periods["all"].kpis.cash,
+    cash: cashBalance,
     liabilities,
     confidence: "estimated",
   };
@@ -516,7 +523,7 @@ export async function getBusinessFinanceDashboard(
   client: QueryClient,
   playerId: string,
   business: Business,
-  currentPeriod: FinancePeriod = "30d"
+  currentPeriod: FinancePeriod = "1h"
 ): Promise<BusinessFinanceDashboard> {
   const ranges = getPeriodRanges();
 
@@ -557,7 +564,17 @@ export async function getBusinessFinanceDashboard(
     ranges.map((range) => {
       const ledgerInRange = ledgerEvents.filter((event) => !range.since || event.effectiveAt >= range.since);
       const financialInRange = financialEvents.filter((event) => !range.since || event.effectiveAt >= range.since);
-      const revenue = sumAmounts(ledgerInRange, (row) => row.accountCode === "revenue", (row) => row.amount);
+      const revenueFromLedger = sumAmounts(
+        ledgerInRange,
+        (row) => row.accountCode === "revenue",
+        (row) => row.amount
+      );
+      const revenueFromTransfers = sumAmounts(
+        financialInRange,
+        (row) => row.accountCode === "revenue" && row.referenceType === "inventory_transfer",
+        (row) => row.amount
+      );
+      const revenue = round2(revenueFromLedger + revenueFromTransfers);
       const operatingExpense = sumAmounts(
         ledgerInRange,
         (row) => row.accountCode === "operating_expense",
@@ -577,7 +594,25 @@ export async function getBusinessFinanceDashboard(
         (row) => row.amount
       );
       const ownerEquity = round2(cashBalance + inventoryAssetValue - liabilities);
-      const recentEvents = [...ledgerInRange, ...financialInRange]
+      const transferRevenueReferenceIds = new Set(
+        financialInRange
+          .filter(
+            (row) =>
+              row.accountCode === "revenue" &&
+              row.referenceType === "inventory_transfer" &&
+              Boolean(row.referenceId)
+          )
+          .map((row) => row.referenceId as string)
+      );
+      const recentLedger = ledgerInRange.filter(
+        (row) =>
+          !(
+            row.accountCode === "intercompany" &&
+            row.referenceId &&
+            transferRevenueReferenceIds.has(row.referenceId)
+          )
+      );
+      const recentEvents = [...recentLedger, ...financialInRange]
         .sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt))
         .slice(0, 10)
         .map(toRecentEvent);
@@ -618,7 +653,7 @@ export async function getBusinessFinanceDashboard(
     })
   ) as Record<FinancePeriod, BusinessFinancePeriodSnapshot>;
 
-  const valuation = buildValuation(business, periods, inventoryAssetValue, liabilities);
+  const valuation = buildValuation(business, periods, cashBalance, inventoryAssetValue, liabilities);
   for (const period of FINANCE_PERIODS) {
     periods[period].kpis.valuation = valuation.currentValue;
   }

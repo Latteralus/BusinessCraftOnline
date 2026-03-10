@@ -30,9 +30,9 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
     redirect("/businesses"); // Redirect if it doesn't exist or isn't theirs
   }
 
-  const requestedPeriod = (["24h", "7d", "30d", "all"].includes(searchParams.period ?? "")
+  const requestedPeriod = (["1h", "24h", "7d", "30d"].includes(searchParams.period ?? "")
     ? searchParams.period
-    : "30d") as FinancePeriod;
+    : "1h") as FinancePeriod;
 
   // Handle differences between extraction and manufacturing businesses
   const isExtraction = [

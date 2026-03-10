@@ -471,7 +471,7 @@ export async function getBusinessFinanceDashboard(
   client: QueryClient,
   playerId: string,
   businessId: string,
-  period: FinancePeriod = "30d"
+  period: FinancePeriod = "1h"
 ) {
   const business = await getBusinessById(client, playerId, businessId);
   if (!business) throw new Error("Business not found.");

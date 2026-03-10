@@ -157,7 +157,7 @@ export default function BusinessFinanceDashboardPanel({ financeDashboard, initia
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [selectedPeriod, setSelectedPeriod] = useState<FinancePeriod>(
-    initialPeriod ?? financeDashboard?.currentPeriod ?? "30d"
+    initialPeriod ?? financeDashboard?.currentPeriod ?? "1h"
   );
 
   const snapshot = financeDashboard?.periods[selectedPeriod];
