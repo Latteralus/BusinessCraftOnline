@@ -10,7 +10,7 @@ import {
   EXTRACTION_TOOL_OUTPUT_BONUS_BY_BUSINESS,
   EXTRACTION_XP_PER_LEVEL,
   EXTRACTION_XP_PER_TICK,
-} from "../../../shared/production/extraction.ts";
+} from "../_shared/extraction-config.ts";
 
 type ExtractionSlotRow = {
   id: string;

@@ -2,9 +2,12 @@ import type { BusinessType, BusinessUpgradeKey } from "@/config/businesses";
 import type { EmployeeSkillKey } from "@/config/employees";
 import {
   EXTRACTION_BUSINESS_TYPES as SHARED_EXTRACTION_BUSINESS_TYPES,
+  EXTRACTION_LINE_LABEL_BY_BUSINESS as SHARED_EXTRACTION_LINE_LABEL_BY_BUSINESS,
   EXTRACTION_OUTPUT_ITEM_BY_BUSINESS as SHARED_EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
+  EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS as SHARED_EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS,
   EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS as SHARED_EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
   EXTRACTION_REQUIRED_TOOL_BY_BUSINESS as SHARED_EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
+  EXTRACTION_RETOOL_COST_BY_BUSINESS as SHARED_EXTRACTION_RETOOL_COST_BY_BUSINESS,
   EXTRACTION_SKILL_KEY_BY_BUSINESS as SHARED_EXTRACTION_SKILL_KEY_BY_BUSINESS,
   EXTRACTION_SLOT_STATUSES as SHARED_EXTRACTION_SLOT_STATUSES,
   EXTRACTION_UPGRADE_KEY_BY_BUSINESS as SHARED_EXTRACTION_UPGRADE_KEY_BY_BUSINESS,
@@ -14,6 +17,9 @@ import {
   FARM_WATER_PER_TICK,
   TOOL_BASE_DURABILITY as SHARED_TOOL_BASE_DURABILITY,
   TOOL_ITEM_TYPES as SHARED_TOOL_ITEM_TYPES,
+  getExtractionProductOption as getSharedExtractionProductOption,
+  getExtractionProductOptionsForBusinessType as getSharedExtractionProductOptionsForBusinessType,
+  type SharedExtractionProductOption,
 } from "../../shared/production/extraction";
 import {
   MANUFACTURING_BUSINESS_TYPES as SHARED_MANUFACTURING_BUSINESS_TYPES,
@@ -64,41 +70,18 @@ export const TOOL_BASE_DURABILITY: Record<ToolItemType, number> = SHARED_TOOL_BA
 
 export const PRODUCTION_RETOOL_DURATION_MINUTES = 10;
 
-export type ExtractionProductOption = {
-  itemKey: string;
-  displayName: string;
-};
+export type ExtractionProductOption = SharedExtractionProductOption;
 
 export const EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS: Record<ExtractionBusinessType, readonly ExtractionProductOption[]> = {
-  mine: [
-    { itemKey: "iron_ore", displayName: "Iron Ore" },
-    { itemKey: "copper_ore", displayName: "Copper Ore" },
-    { itemKey: "coal", displayName: "Coal" },
-  ],
-  farm: [
-    { itemKey: "wheat", displayName: "Wheat" },
-    { itemKey: "potato", displayName: "Potatoes" },
-    { itemKey: "red_grape", displayName: "Red Grapes" },
-  ],
-  water_company: [{ itemKey: "water", displayName: "Water" }],
-  logging_camp: [{ itemKey: "raw_wood", displayName: "Raw Wood" }],
-  oil_well: [{ itemKey: "crude_oil", displayName: "Crude Oil" }],
+  ...SHARED_EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS,
 };
 
 export const EXTRACTION_LINE_LABEL_BY_BUSINESS: Record<ExtractionBusinessType, string> = {
-  mine: "Shaft",
-  farm: "Field",
-  water_company: "Slot",
-  logging_camp: "Camp",
-  oil_well: "Well",
+  ...SHARED_EXTRACTION_LINE_LABEL_BY_BUSINESS,
 };
 
 export const EXTRACTION_RETOOL_COST_BY_BUSINESS: Record<ExtractionBusinessType, number> = {
-  mine: 450,
-  farm: 180,
-  water_company: 0,
-  logging_camp: 0,
-  oil_well: 0,
+  ...SHARED_EXTRACTION_RETOOL_COST_BY_BUSINESS,
 };
 
 export const MANUFACTURING_STATUSES = SHARED_MANUFACTURING_STATUSES;
@@ -142,14 +125,14 @@ export function getExtractionProductOptionsForBusinessType(
   businessType: BusinessType
 ): ExtractionProductOption[] {
   if (!isExtractionBusinessType(businessType)) return [];
-  return [...EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS[businessType]];
+  return getSharedExtractionProductOptionsForBusinessType(businessType);
 }
 
 export function getExtractionProductOption(
   businessType: BusinessType,
   itemKey: string
 ): ExtractionProductOption | null {
-  return getExtractionProductOptionsForBusinessType(businessType).find((option) => option.itemKey === itemKey) ?? null;
+  return getSharedExtractionProductOption(businessType, itemKey);
 }
 
 export function isManufacturingBusinessType(type: BusinessType): type is ManufacturingBusinessType {

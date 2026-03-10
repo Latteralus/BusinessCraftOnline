@@ -1,6 +1,7 @@
 "use client";
 
 import { isStoreBusinessType } from "@/config/businesses";
+import { getExtractionProductOptionsForBusinessType } from "@/config/production";
 import { useState, useEffect, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import type {
@@ -1027,19 +1028,7 @@ export default function BusinessDetailsClient({
                       <div style={{ display: "grid", gap: 8 }}>
                         {production.slots.map((slot) => {
                           const assignedEmp = employees.find((employee) => employee.id === slot.employee_id);
-                          const outputOptions = production.businessType === "farm"
-                            ? [
-                                { itemKey: "wheat", displayName: "Wheat" },
-                                { itemKey: "potato", displayName: "Potatoes" },
-                                { itemKey: "red_grape", displayName: "Red Grapes" },
-                              ]
-                            : production.businessType === "mine"
-                              ? [
-                                  { itemKey: "iron_ore", displayName: "Iron Ore" },
-                                  { itemKey: "copper_ore", displayName: "Copper Ore" },
-                                  { itemKey: "coal", displayName: "Coal" },
-                                ]
-                              : [];
+                          const outputOptions = getExtractionProductOptionsForBusinessType(production.businessType);
 
                           return (
                             <div key={slot.id} style={{ display: "flex", justifyContent: "space-between", padding: 12, background: "var(--bg-elevated)", borderRadius: 8, flexWrap: "wrap", gap: 12 }}>

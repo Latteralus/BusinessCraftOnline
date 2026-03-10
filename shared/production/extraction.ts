@@ -22,6 +22,11 @@ export const EXTRACTION_BUSINESS_TYPES = [
 
 export type SharedExtractionBusinessType = (typeof EXTRACTION_BUSINESS_TYPES)[number];
 
+export type SharedExtractionProductOption = {
+  itemKey: string;
+  displayName: string;
+};
+
 export const EXTRACTION_OUTPUT_ITEM_BY_BUSINESS = {
   mine: "iron_ore",
   farm: "wheat",
@@ -44,6 +49,41 @@ export const EXTRACTION_TOOL_OUTPUT_BONUS_BY_BUSINESS = {
   mine: 2,
 } as const satisfies Partial<Record<SharedExtractionBusinessType, number>>;
 
+export const EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS = {
+  mine: [
+    { itemKey: "iron_ore", displayName: "Iron Ore" },
+    { itemKey: "copper_ore", displayName: "Copper Ore" },
+    { itemKey: "coal", displayName: "Coal" },
+  ],
+  farm: [
+    { itemKey: "wheat", displayName: "Wheat" },
+    { itemKey: "potato", displayName: "Potatoes" },
+    { itemKey: "red_grape", displayName: "Red Grapes" },
+  ],
+  water_company: [{ itemKey: "water", displayName: "Water" }],
+  logging_camp: [{ itemKey: "raw_wood", displayName: "Raw Wood" }],
+  oil_well: [{ itemKey: "crude_oil", displayName: "Crude Oil" }],
+} as const satisfies Record<
+  SharedExtractionBusinessType,
+  readonly SharedExtractionProductOption[]
+>;
+
+export const EXTRACTION_LINE_LABEL_BY_BUSINESS = {
+  mine: "Shaft",
+  farm: "Field",
+  water_company: "Slot",
+  logging_camp: "Camp",
+  oil_well: "Well",
+} as const satisfies Record<SharedExtractionBusinessType, string>;
+
+export const EXTRACTION_RETOOL_COST_BY_BUSINESS = {
+  mine: 450,
+  farm: 180,
+  water_company: 0,
+  logging_camp: 0,
+  oil_well: 0,
+} as const satisfies Record<SharedExtractionBusinessType, number>;
+
 export const EXTRACTION_UPGRADE_KEY_BY_BUSINESS = {
   mine: "extraction_efficiency",
   farm: "crop_yield",
@@ -65,3 +105,23 @@ export const EXTRACTION_XP_PER_LEVEL = 100;
 
 export const FARM_WATER_ITEM_KEY = "water";
 export const FARM_WATER_PER_TICK = 1;
+
+export function getExtractionProductOptionsForBusinessType(
+  businessType: string
+): SharedExtractionProductOption[] {
+  return EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS[
+    businessType as SharedExtractionBusinessType
+  ]
+    ? [...EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS[businessType as SharedExtractionBusinessType]]
+    : [];
+}
+
+export function getExtractionProductOption(
+  businessType: string,
+  itemKey: string
+): SharedExtractionProductOption | null {
+  return (
+    getExtractionProductOptionsForBusinessType(businessType).find((option) => option.itemKey === itemKey) ??
+    null
+  );
+}

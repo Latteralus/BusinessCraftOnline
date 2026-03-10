@@ -5,6 +5,7 @@ import {
   EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
   EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS,
   EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
+  EXTRACTION_RETOOL_COST_BY_BUSINESS,
   EXTRACTION_SLOT_STATUSES,
   MANUFACTURING_RETOOL_COST_BY_BUSINESS,
   PRODUCTION_RETOOL_DURATION_MINUTES,
@@ -767,13 +768,7 @@ export async function retoolExtractionSlot(
   }
 
   const retoolCost = EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS[business.type].length > 1
-    ? ({
-        mine: 450,
-        farm: 180,
-        water_company: 0,
-        logging_camp: 0,
-        oil_well: 0,
-      }[business.type])
+    ? EXTRACTION_RETOOL_COST_BY_BUSINESS[business.type]
     : 0;
 
   if (retoolCost > 0) {
