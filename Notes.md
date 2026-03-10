@@ -1,7 +1,0 @@
-Market
-
-The /market page needs to be disassociated with NPC buyers and Storefront sales. The Marketplace is for business' and players to exchange goods. The NPC buyers do not interact here.
-In the Recent Market Activity we should only be showing Market transactions, not storefront transactions. We should also ensure this is player focused, right now the wording across the page seems like a mixed message, ex "Trade Floor
-Inventory exchange built for business supply and live storefront demand
-Publish outbound stock, source inputs for other businesses, and keep your consumer-facing storefronts visible without leaving the business operating stack." This is not very immersive. Same with this "Use the buyer selector as your active B2B routing target while browsing the floor. Storefront demand settings below control NPC traffic pressure for retail-style sell-through." We're breaking immersion by talking about NPC buyers and NPC buyers have been moved to storefront business' anyways. 
-
