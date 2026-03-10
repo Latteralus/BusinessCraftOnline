@@ -1,4 +1,4 @@
-import { MANUFACTURING_TICK_MINUTES, type BusinessType, type BusinessUpgradeKey } from "@/config/businesses";
+import type { BusinessType, BusinessUpgradeKey } from "@/config/businesses";
 import type { EmployeeSkillKey } from "@/config/employees";
 import {
   EXTRACTION_BUSINESS_TYPES as SHARED_EXTRACTION_BUSINESS_TYPES,
@@ -15,6 +15,18 @@ import {
   TOOL_BASE_DURABILITY as SHARED_TOOL_BASE_DURABILITY,
   TOOL_ITEM_TYPES as SHARED_TOOL_ITEM_TYPES,
 } from "../../shared/production/extraction";
+import {
+  MANUFACTURING_BUSINESS_TYPES as SHARED_MANUFACTURING_BUSINESS_TYPES,
+  MANUFACTURING_RECIPE_KEYS as SHARED_MANUFACTURING_RECIPE_KEYS,
+  MANUFACTURING_RECIPES as SHARED_MANUFACTURING_RECIPES,
+  MANUFACTURING_STATUSES as SHARED_MANUFACTURING_STATUSES,
+  getManufacturingInputQuantityPerTick,
+  getManufacturingOutputQuantityPerTick,
+  getManufacturingRecipeByKey as getSharedManufacturingRecipeByKey,
+  getManufacturingRecipesForBusinessType as getSharedManufacturingRecipesForBusinessType,
+  type SharedManufacturingBusinessType,
+  type SharedManufacturingRecipe,
+} from "../../shared/production/manufacturing";
 
 export {
   EXTRACTION_XP_PER_LEVEL,
@@ -89,27 +101,16 @@ export const EXTRACTION_RETOOL_COST_BY_BUSINESS: Record<ExtractionBusinessType, 
   oil_well: 0,
 };
 
-export const MANUFACTURING_STATUSES = ["active", "idle", "resting", "retooling"] as const;
+export const MANUFACTURING_STATUSES = SHARED_MANUFACTURING_STATUSES;
 export type ManufacturingStatus = (typeof MANUFACTURING_STATUSES)[number];
 
-export const MANUFACTURING_BUSINESS_TYPES = [
-  "sawmill",
-  "metalworking_factory",
-  "food_processing_plant",
-  "winery_distillery",
-  "carpentry_workshop",
-] as const;
+export const MANUFACTURING_BUSINESS_TYPES = SHARED_MANUFACTURING_BUSINESS_TYPES;
 
 export type ManufacturingBusinessType = (typeof MANUFACTURING_BUSINESS_TYPES)[number];
 
-export type ManufacturingRecipe = {
-  key: string;
+export type ManufacturingRecipe = Omit<SharedManufacturingRecipe, "businessType" | "skillKey"> & {
   businessType: ManufacturingBusinessType;
-  displayName: string;
   skillKey: EmployeeSkillKey;
-  inputs: Array<{ itemKey: string; quantity: number }>;
-  outputItemKey: string;
-  baseOutputQuantity: number;
 };
 
 export const MANUFACTURING_RETOOL_COST_BY_BUSINESS: Record<ManufacturingBusinessType, number> = {
@@ -120,156 +121,21 @@ export const MANUFACTURING_RETOOL_COST_BY_BUSINESS: Record<ManufacturingBusiness
   carpentry_workshop: 500,
 };
 
-export const MANUFACTURING_RECIPES: readonly ManufacturingRecipe[] = [
-  {
-    key: "sawmill_planks",
-    businessType: "sawmill",
-    displayName: "Wood Planks",
-    skillKey: "carpentry",
-    inputs: [{ itemKey: "raw_wood", quantity: 2 }],
-    outputItemKey: "wood_plank",
-    baseOutputQuantity: 1,
-  },
-  {
-    key: "sawmill_wood_handles",
-    businessType: "sawmill",
-    displayName: "Wood Handles",
-    skillKey: "carpentry",
-    inputs: [{ itemKey: "raw_wood", quantity: 1 }],
-    outputItemKey: "wood_handle",
-    baseOutputQuantity: 1,
-  },
-  {
-    key: "carpentry_wood_handles",
-    businessType: "carpentry_workshop",
-    displayName: "Wood Handles",
-    skillKey: "carpentry",
-    inputs: [{ itemKey: "raw_wood", quantity: 1 }],
-    outputItemKey: "wood_handle",
-    baseOutputQuantity: 1,
-  },
-  {
-    key: "metal_iron_bars",
-    businessType: "metalworking_factory",
-    displayName: "Iron Bars",
-    skillKey: "metalworking",
-    inputs: [
-      { itemKey: "iron_ore", quantity: 2 },
-      { itemKey: "coal", quantity: 1 },
-    ],
-    outputItemKey: "iron_bar",
-    baseOutputQuantity: 1,
-  },
-  {
-    key: "metal_steel_bars",
-    businessType: "metalworking_factory",
-    displayName: "Steel Bars",
-    skillKey: "metalworking",
-    inputs: [
-      { itemKey: "iron_bar", quantity: 2 },
-      { itemKey: "coal", quantity: 1 },
-    ],
-    outputItemKey: "steel_bar",
-    baseOutputQuantity: 1,
-  },
-  {
-    key: "metal_pickaxes",
-    businessType: "metalworking_factory",
-    displayName: "Pickaxes",
-    skillKey: "metalworking",
-    inputs: [
-      { itemKey: "iron_bar", quantity: 1 },
-      { itemKey: "wood_handle", quantity: 1 },
-    ],
-    outputItemKey: "pickaxe",
-    baseOutputQuantity: 1,
-  },
-  {
-    key: "metal_axes",
-    businessType: "metalworking_factory",
-    displayName: "Axes",
-    skillKey: "metalworking",
-    inputs: [
-      { itemKey: "iron_bar", quantity: 1 },
-      { itemKey: "wood_handle", quantity: 1 },
-    ],
-    outputItemKey: "axe",
-    baseOutputQuantity: 1,
-  },
-  {
-    key: "metal_drill_bits",
-    businessType: "metalworking_factory",
-    displayName: "Drill Bits",
-    skillKey: "metalworking",
-    inputs: [
-      { itemKey: "steel_bar", quantity: 1 },
-      { itemKey: "iron_bar", quantity: 1 },
-    ],
-    outputItemKey: "drill_bit",
-    baseOutputQuantity: 1,
-  },
-  {
-    key: "food_flour",
-    businessType: "food_processing_plant",
-    displayName: "Flour",
-    skillKey: "food_production",
-    inputs: [{ itemKey: "wheat", quantity: 2 }],
-    outputItemKey: "flour",
-    baseOutputQuantity: 1,
-  },
-  {
-    key: "food_chips",
-    businessType: "food_processing_plant",
-    displayName: "Chips",
-    skillKey: "food_production",
-    inputs: [{ itemKey: "potato", quantity: 2 }],
-    outputItemKey: "chips",
-    baseOutputQuantity: 5,
-  },
-  {
-    key: "winery_red_wine",
-    businessType: "winery_distillery",
-    displayName: "Red Wine",
-    skillKey: "brewing",
-    inputs: [{ itemKey: "red_grape", quantity: 3 }],
-    outputItemKey: "red_wine",
-    baseOutputQuantity: 1,
-  },
-  {
-    key: "carpentry_chair",
-    businessType: "carpentry_workshop",
-    displayName: "Chair",
-    skillKey: "carpentry",
-    inputs: [
-      { itemKey: "wood_plank", quantity: 2 },
-      { itemKey: "wood_handle", quantity: 1 },
-    ],
-    outputItemKey: "chair",
-    baseOutputQuantity: 1,
-  },
-];
+export const MANUFACTURING_RECIPES: readonly ManufacturingRecipe[] =
+  SHARED_MANUFACTURING_RECIPES as readonly ManufacturingRecipe[];
 
-export const MANUFACTURING_RECIPE_KEYS = MANUFACTURING_RECIPES.map((recipe) => recipe.key) as [
-  string,
-  ...string[]
-];
+export const MANUFACTURING_RECIPE_KEYS = SHARED_MANUFACTURING_RECIPE_KEYS;
 
 export function getManufacturingRecipeByKey(recipeKey: string): ManufacturingRecipe | null {
-  return MANUFACTURING_RECIPES.find((recipe) => recipe.key === recipeKey) ?? null;
+  return getSharedManufacturingRecipeByKey(recipeKey) as ManufacturingRecipe | null;
 }
 
 export function getManufacturingRecipesForBusinessType(
   businessType: BusinessType
 ): ManufacturingRecipe[] {
-  return MANUFACTURING_RECIPES.filter((recipe) => recipe.businessType === businessType);
-}
-
-export function getManufacturingInputQuantityPerTick(quantityPerMinute: number): number {
-  return quantityPerMinute * MANUFACTURING_TICK_MINUTES;
-}
-
-export function getManufacturingOutputQuantityPerTick(quantityPerMinute: number): number {
-  return quantityPerMinute * MANUFACTURING_TICK_MINUTES;
+  return getSharedManufacturingRecipesForBusinessType(
+    businessType as SharedManufacturingBusinessType
+  ) as ManufacturingRecipe[];
 }
 
 export function getExtractionProductOptionsForBusinessType(

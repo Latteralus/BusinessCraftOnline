@@ -10,6 +10,7 @@ import type {
   BusinessUpgradeProject,
 } from "@/domains/businesses";
 import type { ProductionStatus, ManufacturingStatusView } from "@/domains/production";
+import { summarizeManufacturingLines } from "@/domains/production/view";
 import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { StoreShelfItem } from "@/domains/stores";
 import type { EmployeeAssignment, Employee } from "@/domains/employees";
@@ -53,17 +54,6 @@ type LocalEmployee = Employee & {
 };
 
 type ManufacturingLineView = NonNullable<ManufacturingStatusView["lines"]>[number];
-
-function summarizeManufacturingLines(lines: ManufacturingLineView[]): ManufacturingStatusView["summary"] {
-  return {
-    total: lines.length,
-    active: lines.filter((line) => line.status === "active").length,
-    idle: lines.filter((line) => line.status === "idle").length,
-    resting: lines.filter((line) => line.status === "resting").length,
-    retooling: lines.filter((line) => line.status === "retooling").length,
-    occupied: lines.filter((line) => Boolean(line.employee_id)).length,
-  };
-}
 
 function normalizeManufacturingLine(
   line: ManufacturingLineView,

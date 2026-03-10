@@ -10,6 +10,7 @@ import type { Business } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { ManufacturingStatusView, ProductionStatus } from "@/domains/production";
+import { buildManufacturingOperationsView } from "@/domains/production/view";
 import type { StoreShelfItem } from "@/domains/stores";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatLabel } from "@/lib/formatters";
@@ -206,36 +207,14 @@ export default function BusinessOperationsDashboard(props: Props) {
   }
 
   if (props.manufacturing) {
-    const leadLine =
-      props.manufacturing.lines.find((line) => line.status === "active") ??
-      props.manufacturing.lines.find((line) => line.configured_recipe) ??
-      props.manufacturing.lines[0] ??
-      null;
-    const recipe = leadLine?.configured_recipe ?? null;
-    const finishedOutputKeys = new Set(
-      props.manufacturing.lines
-        .map((line) => line.configured_recipe?.outputItemKey ?? null)
-        .filter((itemKey): itemKey is string => Boolean(itemKey))
-    );
-    const finishedInventoryUnits = props.inventory
-      .filter((row) => finishedOutputKeys.has(row.item_key))
-      .reduce((sum, row) => sum + Math.max(0, row.quantity - row.reserved_quantity), 0);
-    const perMinute = leadLine?.status === "active" && recipe ? recipe.baseOutputQuantity : 0;
-    const inputCoverage = recipe
-      ? recipe.inputs.map((input: { itemKey: string; quantity: number }) => {
-          const available = props.inventory
-            .filter((row) => row.item_key === input.itemKey)
-            .reduce((sum, row) => sum + Math.max(0, row.quantity - row.reserved_quantity), 0);
-          return {
-            itemKey: input.itemKey,
-            available,
-            required: input.quantity,
-            coverageMinutes: input.quantity > 0 ? Math.floor(available / input.quantity) : 0,
-          };
-        })
-      : [];
-    const bottleneck = inputCoverage.slice().sort((a: { coverageMinutes: number }, b: { coverageMinutes: number }) => a.coverageMinutes - b.coverageMinutes)[0] ?? null;
-    const workerReady = props.manufacturing.summary.occupied > 0;
+    const {
+      leadLine,
+      recipe,
+      finishedInventoryUnits,
+      perMinute,
+      bottleneck,
+      workerReady,
+    } = buildManufacturingOperationsView(props.manufacturing, props.inventory);
 
     return (
       <div style={{ display: "grid", gap: 18, marginBottom: 18 }}>
