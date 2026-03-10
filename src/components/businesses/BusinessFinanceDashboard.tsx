@@ -1,9 +1,11 @@
 "use client";
 
 import { FINANCE_PERIODS, type FinancePeriod } from "@/config/finance";
+import { TooltipLabel } from "@/components/ui/tooltip";
 import type { BusinessFinanceDashboard } from "@/domains/businesses";
 import { formatCurrency } from "@/lib/formatters";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 
 type Props = {
@@ -25,7 +27,7 @@ function formatLedgerTimestamp(value: string) {
   }).format(new Date(value));
 }
 
-function MiniStat(props: { label: string; value: string; sub?: string; tone?: "neutral" | "positive" | "negative" }) {
+function MiniStat(props: { label: ReactNode; value: string; sub?: string; tone?: "neutral" | "positive" | "negative" }) {
   const toneColor =
     props.tone === "positive" ? "#86efac" : props.tone === "negative" ? "#fca5a5" : "var(--text-primary)";
 
@@ -233,11 +235,11 @@ export default function BusinessFinanceDashboardPanel({ financeDashboard, initia
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-          <MiniStat label="Cash" value={formatCurrency(snapshot.kpis.cash)} />
-          <MiniStat label="Revenue" value={formatCurrency(snapshot.kpis.revenue)} tone="positive" />
-          <MiniStat label="Gross Margin" value={snapshot.kpis.grossMargin === null ? "N/A" : `${snapshot.kpis.grossMargin.toFixed(1)}%`} sub={formatCurrency(snapshot.kpis.grossProfit)} tone={snapshot.kpis.grossProfit >= 0 ? "positive" : "negative"} />
-          <MiniStat label="Owner Equity" value={formatCurrency(snapshot.kpis.ownerEquity)} />
-          <MiniStat label="Inventory Asset" value={formatCurrency(snapshot.kpis.inventoryAssetValue)} />
+          <MiniStat label={<TooltipLabel label="Cash" content="Liquid business cash available in this reporting period." />} value={formatCurrency(snapshot.kpis.cash)} />
+          <MiniStat label={<TooltipLabel label="Revenue" content="Top-line sales recognized during the selected finance period." />} value={formatCurrency(snapshot.kpis.revenue)} tone="positive" />
+          <MiniStat label={<TooltipLabel label="Gross Margin" content="Gross profit as a percentage of revenue after cost of goods sold." />} value={snapshot.kpis.grossMargin === null ? "N/A" : `${snapshot.kpis.grossMargin.toFixed(1)}%`} sub={formatCurrency(snapshot.kpis.grossProfit)} tone={snapshot.kpis.grossProfit >= 0 ? "positive" : "negative"} />
+          <MiniStat label={<TooltipLabel label="Owner Equity" content="Net value attributable to the owner after liabilities are considered." />} value={formatCurrency(snapshot.kpis.ownerEquity)} />
+          <MiniStat label={<TooltipLabel label="Inventory Asset" content="Estimated accounting value of the inventory the business currently holds." />} value={formatCurrency(snapshot.kpis.inventoryAssetValue)} />
         </div>
       </div>
 

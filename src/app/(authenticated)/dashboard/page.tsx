@@ -20,6 +20,7 @@ import { cookies } from "next/headers";
 import { DashboardClock } from "@/components/dashboard/DashboardClock";
 import { DashboardGreeting } from "@/components/dashboard/DashboardGreeting";
 import { ActiveOperationsCard } from "@/components/dashboard/ActiveOperationsCard";
+import { TooltipLabel } from "@/components/ui/tooltip";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatItemKey } from "@/lib/items";
 import { requireAuthedPageContext } from "../server-data";
@@ -274,7 +275,7 @@ export default async function DashboardPage() {
           <div className="finance-card" style={{ "--card-accent": "var(--accent-green)" } as any}>
             <div className="finance-label">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8M9 14h6"/></svg>
-              Pocket Cash
+              <TooltipLabel label="Pocket Cash" content="Cash carried by your character for immediate personal use." />
             </div>
             <div className="finance-value">${pocketBalance.toFixed(2)}</div>
             <div className="finance-sub"><span className="up">Available</span></div>
@@ -283,7 +284,7 @@ export default async function DashboardPage() {
           <div className="finance-card" style={{ "--card-accent": "var(--accent-blue)" } as any}>
             <div className="finance-label">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
-              Checking Account
+              <TooltipLabel label="Checking Account" content="Your main bank account for liquid funds, transfers, and loan payments." />
             </div>
             <div className="finance-value">${checkBalance.toFixed(2)}</div>
             <div className="finance-sub"><span className="up">Available</span></div>
@@ -292,7 +293,7 @@ export default async function DashboardPage() {
           <div className="finance-card" style={{ "--card-accent": "var(--gold)" } as any}>
             <div className="finance-label">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3h18v18H3z"/><path d="M7 14l3-3 2 2 5-5"/></svg>
-              Business Accounts
+              <TooltipLabel label="Business Accounts" content="Combined treasury balances across all of your owned businesses." />
             </div>
             <div className="finance-value">${bizBalance.toFixed(2)}</div>
             <div className="finance-sub">Across {businessSummary?.totalBusinesses ?? 0} businesses</div>
@@ -301,7 +302,7 @@ export default async function DashboardPage() {
           <div className="finance-card" style={{ "--card-accent": "var(--accent-purple)" } as any}>
             <div className="finance-label">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-              Investment Account
+              <TooltipLabel label="Investment Account" content="Optional personal capital account for parked funds outside checking and pocket cash." />
             </div>
             <div className="finance-value">
               {investmentBalance === null ? "N/A" : `$${investmentBalance.toFixed(2)}`}
@@ -314,7 +315,7 @@ export default async function DashboardPage() {
           <div className="finance-card" style={{ "--card-accent": "var(--accent-red)" } as any}>
             <div className="finance-label">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 0110 10 10 10 0 01-10 10A10 10 0 012 12 10 10 0 0112 2z"/><path d="M12 8v4l3 3"/></svg>
-              Loan Balance
+              <TooltipLabel label="Loan Balance" content="Outstanding principal still owed on your active loan." />
             </div>
             <div className="finance-value" style={{ color: "var(--accent-red)" }}>-${loanBalance.toFixed(2)}</div>
             <div className="finance-sub">{loanBalance > 0 ? "Active Loan" : "No active loan"}</div>
@@ -454,7 +455,7 @@ export default async function DashboardPage() {
               <div className="tx-item">
                 <div className="tx-icon" style={{ background: "var(--accent-blue-dim)", color: "var(--accent-blue)" }}>⚙️</div>
                 <div className="tx-info">
-                  <div className="tx-desc">Tick Success Rate</div>
+                  <div className="tx-desc"><TooltipLabel label="Tick Success Rate" content="Percentage of economy ticks that completed successfully in the last 24 hours." /></div>
                   <div className="tx-time">Last 24 hours</div>
                 </div>
                 <div className="tx-amount">{tickHealth ? `${(tickHealth.success_rate * 100).toFixed(1)}%` : "N/A"}</div>
@@ -462,7 +463,7 @@ export default async function DashboardPage() {
               <div className="tx-item">
                 <div className="tx-icon" style={{ background: "var(--accent-green-dim)", color: "var(--accent-green)" }}>↓</div>
                 <div className="tx-info">
-                  <div className="tx-desc">In-Transit Shipping</div>
+                  <div className="tx-desc"><TooltipLabel label="In-Transit Shipping" content="Shipments that are currently on the road and not yet delivered." /></div>
                   <div className="tx-time">Currently moving</div>
                 </div>
                 <div className="tx-amount">{inTransitShippingCount} items</div>
@@ -480,13 +481,13 @@ export default async function DashboardPage() {
             <div className="card-body">
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
                 <div style={{ background: "var(--bg-primary)", borderRadius: "var(--radius-sm)", padding: "10px 12px" }}>
-                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Storefront Net</div>
+                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}><TooltipLabel label="Storefront Net" content="Storefront revenue remaining after storefront-specific costs are deducted." /></div>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "1rem", fontWeight: 600, color: "var(--accent-green)", marginTop: 4 }}>
                     ${storefrontPerformance?.net_revenue.toFixed(2) ?? "0.00"}
                   </div>
                 </div>
                 <div style={{ background: "var(--bg-primary)", borderRadius: "var(--radius-sm)", padding: "10px 12px" }}>
-                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Ad Spend</div>
+                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}><TooltipLabel label="Ad Spend" content="Advertising budget consumed by your storefront settings in the reporting window." /></div>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "1rem", fontWeight: 600, color: "var(--accent-red)", marginTop: 4 }}>
                     ${storefrontPerformance?.ad_spend.toFixed(2) ?? "0.00"}
                   </div>

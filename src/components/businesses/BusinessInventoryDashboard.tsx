@@ -1,17 +1,19 @@
 "use client";
 
 import { DEFAULT_INVENTORY_UNIT_COST, INVENTORY_BASELINE_UNIT_COSTS } from "@/config/finance";
+import { TooltipLabel } from "@/components/ui/tooltip";
 import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { StoreShelfItem } from "@/domains/stores";
 import { formatCurrency } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
+import type { ReactNode } from "react";
 
 type Props = {
   inventory: BusinessInventoryItem[];
   shelfItems: StoreShelfItem[];
 };
 
-function InventoryCard(props: { label: string; value: string; sub?: string; tone?: "neutral" | "positive" | "negative" }) {
+function InventoryCard(props: { label: ReactNode; value: string; sub?: string; tone?: "neutral" | "positive" | "negative" }) {
   const color =
     props.tone === "positive" ? "#86efac" : props.tone === "negative" ? "#fca5a5" : "#f8fafc";
 
@@ -120,11 +122,11 @@ export default function BusinessInventoryDashboard({ inventory, shelfItems }: Pr
           Inventory Control Room
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-          <InventoryCard label="Available Stock" value={`${availableUnits} units`} sub={`${inventory.length} inventory lines`} tone="positive" />
-          <InventoryCard label="Reserved Stock" value={`${reservedUnits} units`} sub="Committed to shelves or listings" tone={reservedUnits > 0 ? "negative" : "neutral"} />
-          <InventoryCard label="Shelf Staging" value={`${shelfUnits} units`} sub={`${shelfItems.length} shelf rows live`} />
-          <InventoryCard label="Asset Estimate" value={formatCurrency(estimatedAssetValue)} sub="Based on observed or baseline cost" />
-          <InventoryCard label="Total Footprint" value={`${totalUnits} units`} sub="Across all item grades" />
+          <InventoryCard label={<TooltipLabel label="Available Stock" content="Units currently free to move, sell, or feed into operations." />} value={`${availableUnits} units`} sub={`${inventory.length} inventory lines`} tone="positive" />
+          <InventoryCard label={<TooltipLabel label="Reserved Stock" content="Units already committed to shelves, listings, or other downstream obligations." />} value={`${reservedUnits} units`} sub="Committed to shelves or listings" tone={reservedUnits > 0 ? "negative" : "neutral"} />
+          <InventoryCard label={<TooltipLabel label="Shelf Staging" content="Units currently placed onto live shelves for retail sale." />} value={`${shelfUnits} units`} sub={`${shelfItems.length} shelf rows live`} />
+          <InventoryCard label={<TooltipLabel label="Asset Estimate" content="Approximate inventory value using observed unit cost or fallback baseline costs." />} value={formatCurrency(estimatedAssetValue)} sub="Based on observed or baseline cost" />
+          <InventoryCard label={<TooltipLabel label="Total Footprint" content="All units held by the business, regardless of whether they are free or reserved." />} value={`${totalUnits} units`} sub="Across all item grades" />
         </div>
       </div>
 

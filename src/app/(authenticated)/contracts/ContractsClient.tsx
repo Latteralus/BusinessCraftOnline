@@ -8,6 +8,7 @@ import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import { fetchContractsPageData, queryKeys, type ContractsPageData } from "@/lib/client/queries";
 import { formatItemKey } from "@/lib/items";
+import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
@@ -269,7 +270,7 @@ export default function ContractsClient({ initialData }: Props) {
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(260px, 0.85fr)", gap: 18 }}>
               <div style={{ display: "grid", gap: 12 }}>
                 <label>
-                  <FieldLabel>Issuing Business</FieldLabel>
+                  <FieldLabel><TooltipLabel label="Issuing Business" content="The business posting the contract and committing to pay for fulfillment." /></FieldLabel>
                   <select value={businessId} onChange={(event) => setBusinessId(event.target.value)} title="Business">
                     <option value="">Select business</option>
                     {businesses.map((business) => (
@@ -278,12 +279,12 @@ export default function ContractsClient({ initialData }: Props) {
                   </select>
                 </label>
                 <label>
-                  <FieldLabel>Agreement Title</FieldLabel>
+                  <FieldLabel><TooltipLabel label="Agreement Title" content="A descriptive name for the deal shown throughout the contract board." /></FieldLabel>
                   <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Regional grain supply agreement" />
                 </label>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
                   <label>
-                    <FieldLabel>Item</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Item" content="The product that must be delivered to satisfy this contract." /></FieldLabel>
                     <select value={itemKey} onChange={(event) => setItemKey(event.target.value)}>
                       {Object.keys(NPC_PRICE_CEILINGS).map((key) => (
                         <option key={key} value={key}>{formatItemKey(key)}</option>
@@ -291,11 +292,11 @@ export default function ContractsClient({ initialData }: Props) {
                     </select>
                   </label>
                   <label>
-                    <FieldLabel>Required Quantity</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Required Quantity" content="Total number of units that must be delivered before the contract is fully fulfilled." /></FieldLabel>
                     <input type="number" min={1} value={requiredQuantity} onChange={(event) => setRequiredQuantity(Number(event.target.value) || 1)} />
                   </label>
                   <label>
-                    <FieldLabel>Unit Price</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Unit Price" content="Payment rate per delivered unit. Face value is quantity multiplied by this price." /></FieldLabel>
                     <input type="number" min={0.01} step={0.01} value={unitPrice} onChange={(event) => setUnitPrice(Number(event.target.value) || 0.01)} />
                   </label>
                 </div>
@@ -322,10 +323,10 @@ export default function ContractsClient({ initialData }: Props) {
                   </div>
                 </div>
                 <div style={{ display: "grid", gap: 8 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "var(--text-secondary)" }}>Commodity</span><strong>{formatItemKey(itemKey)}</strong></div>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "var(--text-secondary)" }}>Required volume</span><strong>{requiredQuantity} units</strong></div>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "var(--text-secondary)" }}>Rate</span><strong>{formatCurrency(unitPrice)}</strong></div>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "var(--text-secondary)" }}>Contract value</span><strong>{formatCurrency(requiredQuantity * unitPrice)}</strong></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Commodity" content="The item this agreement is requesting from a supplier." /></span><strong>{formatItemKey(itemKey)}</strong></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Required volume" content="How many units must still be sourced across the full life of the agreement." /></span><strong>{requiredQuantity} units</strong></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Rate" content="Per-unit payment promised by the contract issuer." /></span><strong>{formatCurrency(unitPrice)}</strong></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Contract value" content="Total notional payout if the full required quantity is delivered." /></span><strong>{formatCurrency(requiredQuantity * unitPrice)}</strong></div>
                 </div>
                 <div style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6 }}>
                   Use this desk to create B2B sourcing agreements that complement the market page: contracts establish a committed obligation, while market listings remain opportunistic inventory flow.

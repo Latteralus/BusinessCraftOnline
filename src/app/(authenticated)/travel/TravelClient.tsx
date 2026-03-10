@@ -2,6 +2,7 @@
 
 import type { City, TravelQuote, TravelState } from "@/domains/cities-travel";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
+import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -131,7 +132,7 @@ export default function TravelClient({ cities, travelState }: Props) {
           <strong>City:</strong> {travelState.currentCity?.name ?? "Unknown"}
         </p>
         <p>
-          <strong>Business Purchase Status:</strong>{" "}
+          <strong><TooltipLabel label="Business Purchase Status" content="You cannot buy a new business while your character is actively traveling between cities." /></strong>{" "}
           {travelState.canPurchaseBusiness ? "Allowed" : "Blocked while traveling"}
         </p>
       </section>
@@ -167,7 +168,7 @@ export default function TravelClient({ cities, travelState }: Props) {
       <section>
         <h2 style={{ marginTop: 0 }}>Start Travel</h2>
         <div style={{ display: "grid", gap: 10, maxWidth: 420 }}>
-          <label htmlFor="destinationCity">Destination city</label>
+          <label htmlFor="destinationCity"><TooltipLabel label="Destination city" content="Choose where you want to travel next. The quote updates with time and cost." /></label>
           <select
             id="destinationCity"
             title="Destination city"
@@ -200,13 +201,13 @@ export default function TravelClient({ cities, travelState }: Props) {
           {quote ? (
             <div style={{ fontSize: 14, color: "#cbd5e1" }}>
               <p style={{ margin: "4px 0" }}>
-                <strong>Tier:</strong> {quote.tier}
+                <strong><TooltipLabel label="Tier" content="Distance band used to determine travel time and cost between the two cities." /></strong> {quote.tier}
               </p>
               <p style={{ margin: "4px 0" }}>
-                <strong>Duration:</strong> {quote.minutes} minutes
+                <strong><TooltipLabel label="Duration" content="How long the trip will take in real time once travel starts." /></strong> {quote.minutes} minutes
               </p>
               <p style={{ margin: "4px 0" }}>
-                <strong>Cost:</strong> ${quote.cost.toFixed(2)}
+                <strong><TooltipLabel label="Cost" content="Travel fee charged when the trip begins." /></strong> ${quote.cost.toFixed(2)}
               </p>
             </div>
           ) : null}

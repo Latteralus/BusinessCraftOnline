@@ -1,6 +1,7 @@
 "use client";
 
 import { EXTRACTION_OUTPUT_ITEM_BY_BUSINESS } from "@/config/production";
+import { TooltipLabel } from "@/components/ui/tooltip";
 import {
   EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
   EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
@@ -13,6 +14,7 @@ import type { StoreShelfItem } from "@/domains/stores";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
+import type { ReactNode } from "react";
 
 type Props = {
   business: Business;
@@ -44,7 +46,7 @@ function calculateExtractionThroughput(production: ProductionStatus) {
   }, 0);
 }
 
-function MiniOpStat(props: { label: string; value: string; sub?: string; tone?: "neutral" | "positive" | "negative" }) {
+function MiniOpStat(props: { label: ReactNode; value: string; sub?: string; tone?: "neutral" | "positive" | "negative" }) {
   const color =
     props.tone === "positive" ? "#86efac" : props.tone === "negative" ? "#fca5a5" : "#f8fafc";
 
@@ -170,11 +172,11 @@ export default function BusinessOperationsDashboard(props: Props) {
             Extraction Control Room
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-            <MiniOpStat label="Throughput" value={`${throughputPerMinute} ${formatItemKey(outputItem)}/min`} sub={degradedSlots > 0 ? `${production.summary.active} active lanes · ${degradedSlots} degraded` : `${production.summary.active} active lanes`} tone="positive" />
-            <MiniOpStat label="Slot Utilization" value={formatPercent(utilization)} sub={`${production.summary.active}/${production.maxSlots} slots running`} />
-            <MiniOpStat label="Crew Coverage" value={formatPercent(occupancy)} sub={`${production.summary.occupied} staffed`} />
-            <MiniOpStat label="Tool Health" value={averageToolHealth > 0 ? `${Math.round(averageToolHealth)} uses avg` : "No tools"} sub={degradedSlots > 0 ? `${degradedSlots} lane${degradedSlots === 1 ? "" : "s"} on fallback output` : "All lanes serviceable"} tone={degradedSlots > 0 ? "negative" : "neutral"} />
-            <MiniOpStat label="Output Buffer" value={`${availableInventoryUnits} units`} sub={`Ready stock in yard`} />
+            <MiniOpStat label={<TooltipLabel label="Throughput" content="Expected per-minute extraction output from all active slots, including degraded fallback output when tools are missing." />} value={`${throughputPerMinute} ${formatItemKey(outputItem)}/min`} sub={degradedSlots > 0 ? `${production.summary.active} active lanes · ${degradedSlots} degraded` : `${production.summary.active} active lanes`} tone="positive" />
+            <MiniOpStat label={<TooltipLabel label="Slot Utilization" content="Share of total extraction slots that are actively running." />} value={formatPercent(utilization)} sub={`${production.summary.active}/${production.maxSlots} slots running`} />
+            <MiniOpStat label={<TooltipLabel label="Crew Coverage" content="Share of slots that currently have a worker assigned." />} value={formatPercent(occupancy)} sub={`${production.summary.occupied} staffed`} />
+            <MiniOpStat label={<TooltipLabel label="Tool Health" content="Average remaining tool uses across equipped slots. Missing or depleted tools can degrade output." />} value={averageToolHealth > 0 ? `${Math.round(averageToolHealth)} uses avg` : "No tools"} sub={degradedSlots > 0 ? `${degradedSlots} lane${degradedSlots === 1 ? "" : "s"} on fallback output` : "All lanes serviceable"} tone={degradedSlots > 0 ? "negative" : "neutral"} />
+            <MiniOpStat label={<TooltipLabel label="Output Buffer" content="Ready units already sitting in business inventory waiting for use or sale." />} value={`${availableInventoryUnits} units`} sub={`Ready stock in yard`} />
           </div>
         </div>
 
@@ -249,11 +251,11 @@ export default function BusinessOperationsDashboard(props: Props) {
             Manufacturing Control Room
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-            <MiniOpStat label="Run Rate" value={recipe ? `${perMinute} ${formatItemKey(recipe.outputItemKey)}/min` : "No recipe"} sub={recipe ? recipe.displayName : "Retool a line to begin"} tone={leadLine?.status === "active" ? "positive" : "neutral"} />
-            <MiniOpStat label="Cell Status" value={leadLine ? formatLabel(leadLine.status) : "Idle"} sub={workerReady ? "Worker on station" : "Worker missing"} tone={workerReady ? "positive" : "negative"} />
-            <MiniOpStat label="Input Coverage" value={bottleneck ? `${bottleneck.coverageMinutes} min` : "N/A"} sub={bottleneck ? `${formatItemKey(bottleneck.itemKey)} is limiting` : "No recipe active"} tone={bottleneck && bottleneck.coverageMinutes === 0 ? "negative" : "neutral"} />
-            <MiniOpStat label="Output Buffer" value={`${finishedInventoryUnits} units`} sub="Produced stock on hand" />
-            <MiniOpStat label="Crew" value={`${props.manufacturing.summary.occupied}/${props.manufacturing.maxLines}`} sub="Workers on production lines" />
+            <MiniOpStat label={<TooltipLabel label="Run Rate" content="Expected output per minute from the lead active manufacturing line." />} value={recipe ? `${perMinute} ${formatItemKey(recipe.outputItemKey)}/min` : "No recipe"} sub={recipe ? recipe.displayName : "Retool a line to begin"} tone={leadLine?.status === "active" ? "positive" : "neutral"} />
+            <MiniOpStat label={<TooltipLabel label="Cell Status" content="Current state of the lead line, including whether it is idle, active, resting, or retooling." />} value={leadLine ? formatLabel(leadLine.status) : "Idle"} sub={workerReady ? "Worker on station" : "Worker missing"} tone={workerReady ? "positive" : "negative"} />
+            <MiniOpStat label={<TooltipLabel label="Input Coverage" content="Estimated minutes of production remaining before the most constrained input runs out." />} value={bottleneck ? `${bottleneck.coverageMinutes} min` : "N/A"} sub={bottleneck ? `${formatItemKey(bottleneck.itemKey)} is limiting` : "No recipe active"} tone={bottleneck && bottleneck.coverageMinutes === 0 ? "negative" : "neutral"} />
+            <MiniOpStat label={<TooltipLabel label="Output Buffer" content="Finished goods already produced and waiting in inventory." />} value={`${finishedInventoryUnits} units`} sub="Produced stock on hand" />
+            <MiniOpStat label={<TooltipLabel label="Crew" content="Workers currently assigned to manufacturing lines compared with total line capacity." />} value={`${props.manufacturing.summary.occupied}/${props.manufacturing.maxLines}`} sub="Workers on production lines" />
           </div>
         </div>
 
@@ -304,11 +306,11 @@ export default function BusinessOperationsDashboard(props: Props) {
           Storefloor Control Room
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-          <MiniOpStat label="Shelf Throughput" value={`${shelfUnits} units live`} sub={`${props.shelfItems.length} active facings`} tone="positive" />
-          <MiniOpStat label="Shelf Fill" value={formatPercent(shelfFill)} sub={`${shelfUnits} shelf / ${availableInventoryUnits} backroom`} />
-          <MiniOpStat label="Assortment Depth" value={`${props.shelfItems.length} SKUs`} sub={`${props.inventory.length} inventory lines`} />
-          <MiniOpStat label="Average Ticket" value={props.shelfItems.length > 0 ? formatCurrency(averageShelfPrice) : "$0.00"} sub="Average shelf price" />
-          <MiniOpStat label="Crew Attached" value={`${assignedEmployees.length}`} sub="Workers attached to this site" />
+          <MiniOpStat label={<TooltipLabel label="Shelf Throughput" content="Units currently displayed for retail sale on the store floor." />} value={`${shelfUnits} units live`} sub={`${props.shelfItems.length} active facings`} tone="positive" />
+          <MiniOpStat label={<TooltipLabel label="Shelf Fill" content="How much of the combined shelf-plus-backroom stock is currently staged on shelves." />} value={formatPercent(shelfFill)} sub={`${shelfUnits} shelf / ${availableInventoryUnits} backroom`} />
+          <MiniOpStat label={<TooltipLabel label="Assortment Depth" content="How many distinct shelf rows or SKUs are actively merchandised." />} value={`${props.shelfItems.length} SKUs`} sub={`${props.inventory.length} inventory lines`} />
+          <MiniOpStat label={<TooltipLabel label="Average Ticket" content="Average price per shelf row, useful as a quick signal of store positioning." />} value={props.shelfItems.length > 0 ? formatCurrency(averageShelfPrice) : "$0.00"} sub="Average shelf price" />
+          <MiniOpStat label={<TooltipLabel label="Crew Attached" content="Workers currently attached to this store location." />} value={`${assignedEmployees.length}`} sub="Workers attached to this site" />
         </div>
       </div>
 

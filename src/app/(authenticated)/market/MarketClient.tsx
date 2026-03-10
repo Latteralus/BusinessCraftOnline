@@ -8,6 +8,7 @@ import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import { fetchMarketPageData, queryKeys, type MarketPageData } from "@/lib/client/queries";
 import { formatItemKey } from "@/lib/items";
+import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
@@ -372,7 +373,7 @@ export default function MarketClient({ initialData }: Props) {
               <div style={{ display: "grid", gap: 14 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
                   <label>
-                    <FieldLabel>Source Business</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Source Business" content="The business posting inventory onto the market as a public listing." /></FieldLabel>
                     <select value={sourceBusinessId} onChange={(event) => setSourceBusinessId(event.target.value)} title="Source business">
                       <option value="">Select business</option>
                       {businesses.map((business) => (
@@ -383,7 +384,7 @@ export default function MarketClient({ initialData }: Props) {
                     </select>
                   </label>
                   <label>
-                    <FieldLabel>Buyer Business</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Buyer Business" content="The business that will receive inventory when you buy a listing." /></FieldLabel>
                     <select value={buyerBusinessId} onChange={(event) => setBuyerBusinessId(event.target.value)} title="Buyer business">
                       <option value="">Select business</option>
                       {businesses.map((business) => (
@@ -397,7 +398,7 @@ export default function MarketClient({ initialData }: Props) {
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
                   <label>
-                    <FieldLabel>Item</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Item" content="The commodity or product being listed for sale." /></FieldLabel>
                     <select value={itemKey} onChange={(event) => setItemKey(event.target.value)} title="Item key">
                       {Object.keys(NPC_PRICE_CEILINGS).map((key) => (
                         <option key={key} value={key}>
@@ -407,15 +408,15 @@ export default function MarketClient({ initialData }: Props) {
                     </select>
                   </label>
                   <label>
-                    <FieldLabel>Quality</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Quality" content="Higher quality goods are tracked separately and can justify stronger pricing." /></FieldLabel>
                     <input type="number" min={1} max={100} value={quality} onChange={(event) => setQuality(Number(event.target.value) || 1)} />
                   </label>
                   <label>
-                    <FieldLabel>Quantity</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Quantity" content="How many units will be placed into the listing." /></FieldLabel>
                     <input type="number" min={1} value={quantity} onChange={(event) => setQuantity(Number(event.target.value) || 1)} />
                   </label>
                   <label>
-                    <FieldLabel>Unit Price</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Unit Price" content="The asking price per unit before any market fees are applied." /></FieldLabel>
                     <input type="number" min={0.01} step={0.01} value={unitPrice} onChange={(event) => setUnitPrice(Number(event.target.value) || 0.01)} />
                   </label>
                 </div>
@@ -454,15 +455,15 @@ export default function MarketClient({ initialData }: Props) {
 
                 <div style={{ display: "grid", gap: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: "var(--text-secondary)" }}>Current ask</span>
+                    <span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Current ask" content="The per-unit price you are about to post for the new listing." /></span>
                     <strong>{formatCurrency(unitPrice)}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: "var(--text-secondary)" }}>Weighted floor avg</span>
+                    <span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Weighted floor avg" content="Average ask price across active listings, weighted by the listed volume." /></span>
                     <strong>{formatCurrency(listingSummary.avgAsk)}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: "var(--text-secondary)" }}>Destination routing</span>
+                    <span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Destination routing" content="The buyer business selected to receive purchased inventory from the order book." /></span>
                     <strong>{buyerBusiness?.name ?? "No buyer selected"}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
@@ -536,7 +537,7 @@ export default function MarketClient({ initialData }: Props) {
 
                       <div style={{ display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
                         <label style={{ minWidth: 110 }}>
-                          <FieldLabel>Buy Qty</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Buy Qty" content="How many units to purchase from this listing. The total updates with your selected quantity." /></FieldLabel>
                           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                             <input
                               type="number"

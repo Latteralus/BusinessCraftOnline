@@ -6,6 +6,7 @@ import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import { fetchBankingPageData, queryKeys, type BankingPageData } from "@/lib/client/queries";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
+import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
@@ -436,7 +437,7 @@ export default function BankingClient({ initialData }: Props) {
         <div style={{ display: "grid", gap: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
             <label>
-              <FieldLabel>From Account</FieldLabel>
+              <FieldLabel><TooltipLabel label="From Account" content="The personal account that will be debited for this transfer." /></FieldLabel>
               <select value={fromAccountId} onChange={(event) => setFromAccountId(event.target.value)} title="From account">
                 <option value="">Select account</option>
                 {accounts.map((account) => (
@@ -447,7 +448,7 @@ export default function BankingClient({ initialData }: Props) {
               </select>
             </label>
             <label>
-              <FieldLabel>To Account</FieldLabel>
+              <FieldLabel><TooltipLabel label="To Account" content="The personal account that will receive the funds." /></FieldLabel>
               <select value={toAccountId} onChange={(event) => setToAccountId(event.target.value)} title="To account">
                 <option value="">Select account</option>
                 {accounts.map((account) => (
@@ -458,7 +459,7 @@ export default function BankingClient({ initialData }: Props) {
               </select>
             </label>
             <label>
-              <FieldLabel>Amount</FieldLabel>
+              <FieldLabel><TooltipLabel label="Amount" content="Enter the dollar amount to move between the selected accounts." /></FieldLabel>
               <input type="number" min="0" step="0.01" value={transferAmount} onChange={(event) => setTransferAmount(event.target.value)} placeholder="0.00" />
             </label>
           </div>
@@ -479,14 +480,14 @@ export default function BankingClient({ initialData }: Props) {
         <div style={{ display: "grid", gap: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
             <label>
-              <FieldLabel>Direction</FieldLabel>
+              <FieldLabel><TooltipLabel label="Direction" content="Choose whether money is being injected into the business or pulled back into personal banking." /></FieldLabel>
               <select value={personalBusinessDirection} onChange={(event) => setPersonalBusinessDirection(event.target.value as "to_business" | "from_business")} title="Transfer direction">
                 <option value="to_business">Personal to Business</option>
                 <option value="from_business">Business to Personal</option>
               </select>
             </label>
             <label>
-              <FieldLabel>Personal Account</FieldLabel>
+              <FieldLabel><TooltipLabel label="Personal Account" content="This personal account funds the move or receives the withdrawal." /></FieldLabel>
               <select value={personalBusinessAccountId} onChange={(event) => setPersonalBusinessAccountId(event.target.value)} title="Personal account">
                 <option value="">Select account</option>
                 {accounts.map((account) => (
@@ -497,7 +498,7 @@ export default function BankingClient({ initialData }: Props) {
               </select>
             </label>
             <label>
-              <FieldLabel>Business</FieldLabel>
+              <FieldLabel><TooltipLabel label="Business" content="The operating business treasury participating in this transfer." /></FieldLabel>
               <select value={personalBusinessId} onChange={(event) => setPersonalBusinessId(event.target.value)} title="Business">
                 <option value="">Select business</option>
                 {businesses.map((business) => (
@@ -508,7 +509,7 @@ export default function BankingClient({ initialData }: Props) {
               </select>
             </label>
             <label>
-              <FieldLabel>Amount</FieldLabel>
+              <FieldLabel><TooltipLabel label="Amount" content="The number of dollars to move between personal funds and the selected business." /></FieldLabel>
               <input type="number" min="0" step="0.01" value={personalBusinessAmount} onChange={(event) => setPersonalBusinessAmount(event.target.value)} placeholder="0.00" />
             </label>
           </div>
@@ -529,7 +530,7 @@ export default function BankingClient({ initialData }: Props) {
         <div style={{ display: "grid", gap: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
             <label>
-              <FieldLabel>From Business</FieldLabel>
+              <FieldLabel><TooltipLabel label="From Business" content="This business treasury will send the funds." /></FieldLabel>
               <select value={fromOwnedBusinessId} onChange={(event) => setFromOwnedBusinessId(event.target.value)} title="From business">
                 <option value="">Select business</option>
                 {businesses.map((business) => (
@@ -540,7 +541,7 @@ export default function BankingClient({ initialData }: Props) {
               </select>
             </label>
             <label>
-              <FieldLabel>To Business</FieldLabel>
+              <FieldLabel><TooltipLabel label="To Business" content="This business treasury will receive the reallocated cash." /></FieldLabel>
               <select value={toOwnedBusinessId} onChange={(event) => setToOwnedBusinessId(event.target.value)} title="To business">
                 <option value="">Select business</option>
                 {businesses.map((business) => (
@@ -551,7 +552,7 @@ export default function BankingClient({ initialData }: Props) {
               </select>
             </label>
             <label>
-              <FieldLabel>Amount</FieldLabel>
+              <FieldLabel><TooltipLabel label="Amount" content="The dollar amount to shift between your owned businesses." /></FieldLabel>
               <input type="number" min="0" step="0.01" value={ownedBusinessAmount} onChange={(event) => setOwnedBusinessAmount(event.target.value)} placeholder="0.00" />
             </label>
           </div>
@@ -583,15 +584,15 @@ export default function BankingClient({ initialData }: Props) {
           >
             <div style={{ display: "grid", gap: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <span style={{ color: "var(--text-secondary)" }}>Max available</span>
+                <span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Max available" content="The largest new loan principal the bank will currently approve." /></span>
                 <strong>{formatCurrency(loanData.maxLoanAvailable)}</strong>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <span style={{ color: "var(--text-secondary)" }}>Checking balance</span>
+                <span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Checking balance" content="Current funds in your primary account. Loan payments are pulled from here." /></span>
                 <strong>{formatCurrency(checkingAccount?.balance ?? 0)}</strong>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <span style={{ color: "var(--text-secondary)" }}>Status</span>
+                <span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Status" content="The current state of your loan, such as active, overdue, or unavailable." /></span>
                 <strong>{loanSummary ? loanSummary.loan.status : "No active loan"}</strong>
               </div>
             </div>
@@ -607,7 +608,7 @@ export default function BankingClient({ initialData }: Props) {
                 {loanSummary.isPaymentOverdue ? "Payment overdue" : "Loan in good standing"}
               </StatusBadge>
               <label>
-                <FieldLabel>Payment Amount</FieldLabel>
+                <FieldLabel><TooltipLabel label="Payment Amount" content="How much of the loan you want to pay down right now from checking." /></FieldLabel>
                 <input type="number" min="0" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder="0.00" />
               </label>
               <button onClick={submitLoanPayment} disabled={Number(paymentAmount) <= 0 || paymentSubmitting}>
@@ -617,7 +618,7 @@ export default function BankingClient({ initialData }: Props) {
           ) : (
             <div style={{ display: "grid", gap: 12, maxWidth: 420 }}>
               <label>
-                <FieldLabel>Loan Principal</FieldLabel>
+                <FieldLabel><TooltipLabel label="Loan Principal" content="The amount you want to borrow. Approved principal is deposited into checking." /></FieldLabel>
                 <input type="number" min="0" step="0.01" value={loanPrincipal} onChange={(event) => setLoanPrincipal(event.target.value)} placeholder="1000.00" />
               </label>
               <button onClick={submitLoanApplication} disabled={Number(loanPrincipal) <= 0 || loanSubmitting}>

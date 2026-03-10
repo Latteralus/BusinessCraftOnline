@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ManufacturingStatusView } from "@/domains/production";
 import { apiGet } from "@/lib/client/api";
 import { fetchProductionPageData, queryKeys, type ProductionPageData } from "@/lib/client/queries";
+import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -102,7 +103,7 @@ export default function ProductionClient({ initialData }: Props) {
       <section>
         <h2 style={{ marginTop: 0 }}>Manufacturing Job</h2>
         <label>
-          Business
+          <TooltipLabel label="Business" content="Select the manufacturing business whose lines you want to inspect and control." />
           <select
             value={selectedBusinessId}
             onChange={(event) => {
@@ -138,7 +139,7 @@ export default function ProductionClient({ initialData }: Props) {
                 <p style={{ margin: 0 }}><strong>Worker assigned:</strong> {line.worker_assigned ? "Yes" : "No"}</p>
                 <p style={{ margin: 0 }}><strong>Last Tick:</strong> {line.last_tick_at ?? "Never"}</p>
                 <label>
-                  Tooling
+                  <TooltipLabel label="Tooling" content="Choose the recipe configured on this line. Retooling prevents immediate production changes." />
                   <select value={line.configured_recipe_key ?? ""} onChange={(event) => void setRecipe(line.id, event.target.value)} title="Recipe" disabled={busy || line.status === "retooling"}>
                     <option value="">Select recipe</option>
                     {line.available_recipes.map((recipe) => (

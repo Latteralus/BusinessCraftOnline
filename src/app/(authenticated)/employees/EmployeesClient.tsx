@@ -7,6 +7,7 @@ import { apiDelete, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import { fetchEmployeesPageData, queryKeys, type EmployeesPageData } from "@/lib/client/queries";
 import { formatNullableDateTime } from "@/lib/formatters";
+import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -192,21 +193,21 @@ export default function EmployeesClient({ initialData }: Props) {
         <h2 style={{ marginTop: 0 }}>Hire Employee</h2>
         <div style={{ display: "grid", gap: 8, maxWidth: 560 }}>
           <label>
-            Hiring Business
+            <TooltipLabel label="Hiring Business" content="The business that will employ and pay this worker." />
             <select value={hireBusinessId} onChange={(event) => setHireBusinessId(event.target.value)}>
               <option value="">Select business</option>
               {businesses.map((business) => <option key={business.id} value={business.id}>{business.name}</option>)}
             </select>
           </label>
           <label>
-            Employee Type
+            <TooltipLabel label="Employee Type" content="Temps are cheaper and shorter-term, while specialists require a skill key and are hired for focused work." />
             <select value={employeeType} onChange={(event) => setEmployeeType(event.target.value as EmployeeType)}>
               {EMPLOYEE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
             </select>
           </label>
           {employeeType === "specialist" ? (
             <label>
-              Specialty Skill Key
+              <TooltipLabel label="Specialty Skill Key" content="The specialist's domain skill, such as `metalworking`, used by systems that check expertise." />
               <input value={specialtySkillKey} onChange={(event) => setSpecialtySkillKey(event.target.value)} placeholder="metalworking" />
             </label>
           ) : null}
@@ -220,7 +221,7 @@ export default function EmployeesClient({ initialData }: Props) {
         <h2 style={{ marginTop: 0 }}>Assign Employee</h2>
         <div style={{ display: "grid", gap: 8, maxWidth: 560 }}>
           <label>
-            Employee
+            <TooltipLabel label="Employee" content="Choose the worker you want to place into an assignment." />
             <select value={assignEmployeeId} onChange={(event) => setAssignEmployeeId(event.target.value)}>
               <option value="">Select employee</option>
               {manageableEmployees.map((employee) => (
@@ -231,7 +232,7 @@ export default function EmployeesClient({ initialData }: Props) {
             </select>
           </label>
           <label>
-            Business
+            <TooltipLabel label="Business" content="Workers can only be assigned to businesses they are allowed to work for." />
             <select value={assignBusinessId} onChange={(event) => setAssignBusinessId(event.target.value)}>
               <option value="">Select business</option>
               {assignableBusinesses.map((business) => <option key={business.id} value={business.id}>{business.name}</option>)}
@@ -243,7 +244,7 @@ export default function EmployeesClient({ initialData }: Props) {
             </p>
           ) : null}
           <label>
-            Role
+            <TooltipLabel label="Role" content="Production workers operate lines and slots. Supply workers handle logistics-oriented assignments." />
             <select value={assignRole} onChange={(event) => setAssignRole(event.target.value as EmployeeRole)}>
               <option value="production">production</option>
               <option value="supply">supply</option>

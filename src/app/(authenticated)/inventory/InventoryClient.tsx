@@ -8,6 +8,7 @@ import { fetchInventoryPageData, queryKeys, type InventoryPageData } from "@/lib
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
+import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
@@ -495,14 +496,14 @@ export default function InventoryClient({ initialData }: Props) {
               <div style={{ display: "grid", gap: 14 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
                   <label>
-                    <FieldLabel>Source Type</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Source Type" content="Choose whether the goods are leaving your personal inventory or one of your businesses." /></FieldLabel>
                     <select value={sourceType} onChange={(event) => setSourceType(event.target.value as "personal" | "business")}>
                       <option value="personal">Personal</option>
                       <option value="business">Business</option>
                     </select>
                   </label>
                   <label>
-                    <FieldLabel>Destination Type</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Destination Type" content="Choose whether the goods should land in personal inventory or a business inventory." /></FieldLabel>
                     <select
                       value={destinationType}
                       onChange={(event) => setDestinationType(event.target.value as "personal" | "business")}
@@ -515,7 +516,7 @@ export default function InventoryClient({ initialData }: Props) {
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
                   <label>
-                    <FieldLabel>Source Business</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Source Business" content="Required when the source type is business. This is the business shipping or releasing the stock." /></FieldLabel>
                     <select
                       value={sourceBusinessId}
                       onChange={(event) => setSourceBusinessId(event.target.value)}
@@ -530,7 +531,7 @@ export default function InventoryClient({ initialData }: Props) {
                     </select>
                   </label>
                   <label>
-                    <FieldLabel>Destination Business</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Destination Business" content="Required when the destination type is business. This business receives the stock." /></FieldLabel>
                     <select
                       value={destinationBusinessId}
                       onChange={(event) => setDestinationBusinessId(event.target.value)}
@@ -548,7 +549,7 @@ export default function InventoryClient({ initialData }: Props) {
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
                   <label>
-                    <FieldLabel>Item</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Item" content="The specific item key to transfer. Quality and quantity are matched separately." /></FieldLabel>
                     <select value={itemKey} onChange={(event) => setItemKey(event.target.value)}>
                       {availableItemKeys.map((key) => (
                         <option key={key} value={key}>
@@ -558,11 +559,11 @@ export default function InventoryClient({ initialData }: Props) {
                     </select>
                   </label>
                   <label>
-                    <FieldLabel>Quality</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Quality" content="Transfers only pull from inventory rows with this quality score." /></FieldLabel>
                     <input type="number" min="1" max="100" value={quality} onChange={(event) => setQuality(event.target.value)} />
                   </label>
                   <label>
-                    <FieldLabel>Quantity</FieldLabel>
+                    <FieldLabel><TooltipLabel label="Quantity" content="Number of units to transfer from the selected source inventory." /></FieldLabel>
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
                       <button
@@ -580,7 +581,7 @@ export default function InventoryClient({ initialData }: Props) {
                     </div>
                   </label>
                   <label>
-                    <FieldLabel>{isB2B ? "Unit Price" : "Funding Account"}</FieldLabel>
+                    <FieldLabel><TooltipLabel label={isB2B ? "Unit Price" : "Funding Account"} content={isB2B ? "Business-to-business transfers require a declared per-unit transfer price for the receiving business." : "Personal routes use this account to pay any shipping cost that applies."} /></FieldLabel>
                     {isB2B ? (
                       <input type="number" min="1" step="0.01" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} />
                     ) : (
@@ -634,19 +635,19 @@ export default function InventoryClient({ initialData }: Props) {
 
                 <div style={{ display: "grid", gap: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: "var(--text-secondary)" }}>Route mode</span>
+                    <span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Route mode" content="Local transfers settle instantly. Intercity business routes enter the shipping queue first." /></span>
                     <strong>{routeMode}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: "var(--text-secondary)" }}>Destination city</span>
+                    <span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Destination city" content="The city where the receiving inventory will end up after transfer or shipping." /></span>
                     <strong>{destinationCityName}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: "var(--text-secondary)" }}>{isB2B ? "Declared unit price" : "Funding source"}</span>
+                    <span style={{ color: "var(--text-secondary)" }}><TooltipLabel label={isB2B ? "Declared unit price" : "Funding source"} content={isB2B ? "The accounting value recorded per unit on a business-to-business inventory move." : "The personal account that will cover route costs when needed."} /></span>
                     <strong>{isB2B ? formatCurrency(transferUnitPrice || 0) : selectedFundingAccount?.account_type ?? "Select account"}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: "var(--text-secondary)" }}>Source capacity</span>
+                    <span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Source capacity" content="The maximum matching quantity currently available at the chosen source." /></span>
                     <strong>{maxTransferQuantity} units</strong>
                   </div>
                 </div>
