@@ -107,6 +107,22 @@ function getMaxLines(workerCapacitySlots: number): number {
   return 1 + Math.max(0, Math.trunc(workerCapacitySlots));
 }
 
+async function getHydratedManufacturingLine(
+  client: QueryClient,
+  playerId: string,
+  businessId: string,
+  lineId: string
+): Promise<ManufacturingLineWithDetails> {
+  const status = await getManufacturingStatus(client, playerId, businessId);
+  const line = status.lines.find((entry) => entry.id === lineId);
+
+  if (!line) {
+    throw new Error("Manufacturing line not found after update.");
+  }
+
+  return line;
+}
+
 async function syncLegacyManufacturingJobForBusiness(
   client: QueryClient,
   businessId: string
@@ -831,7 +847,7 @@ export async function assignManufacturingLine(
   client: QueryClient,
   playerId: string,
   input: AssignManufacturingLineInput
-): Promise<ManufacturingLine> {
+): Promise<ManufacturingLineWithDetails> {
   const line = await getManufacturingLineByIdForPlayer(client, playerId, input.lineId);
   const employee = await getEmployeeById(client, playerId, input.employeeId);
   if (!employee) throw new Error("Employee not found.");
@@ -882,14 +898,15 @@ export async function assignManufacturingLine(
     .single();
   if (error) throw error;
   await syncLegacyManufacturingJobForBusiness(client, line.business_id);
-  return normalizeManufacturingLine(data as ManufacturingLine);
+  const normalized = normalizeManufacturingLine(data as ManufacturingLine);
+  return getHydratedManufacturingLine(client, playerId, line.business_id, normalized.id);
 }
 
 export async function unassignManufacturingLine(
   client: QueryClient,
   playerId: string,
   input: UnassignManufacturingLineInput
-): Promise<ManufacturingLine> {
+): Promise<ManufacturingLineWithDetails> {
   const line = await getManufacturingLineByIdForPlayer(client, playerId, input.lineId);
   if (line.employee_id) {
     const assignment = await getEmployeeAssignment(client, playerId, line.employee_id);
@@ -918,7 +935,8 @@ export async function unassignManufacturingLine(
     .single();
   if (error) throw error;
   await syncLegacyManufacturingJobForBusiness(client, line.business_id);
-  return normalizeManufacturingLine(data as ManufacturingLine);
+  const normalized = normalizeManufacturingLine(data as ManufacturingLine);
+  return getHydratedManufacturingLine(client, playerId, line.business_id, normalized.id);
 }
 
 export async function setManufacturingRecipe(
@@ -935,7 +953,7 @@ export async function retoolManufacturingLine(
   client: QueryClient,
   playerId: string,
   input: RetoolManufacturingLineInput
-): Promise<ManufacturingLine> {
+): Promise<ManufacturingLineWithDetails> {
   const line = await getManufacturingLineByIdForPlayer(client, playerId, input.lineId);
   const recipe = getManufacturingRecipeByKey(input.recipeKey);
   if (!recipe || recipe.businessType !== line.business_type) {
@@ -978,7 +996,8 @@ export async function retoolManufacturingLine(
     .single();
   if (error) throw error;
   await syncLegacyManufacturingJobForBusiness(client, line.business_id);
-  return normalizeManufacturingLine(data as ManufacturingLine);
+  const normalized = normalizeManufacturingLine(data as ManufacturingLine);
+  return getHydratedManufacturingLine(client, playerId, line.business_id, normalized.id);
 }
 
 export async function startManufacturing(
@@ -1037,7 +1056,7 @@ export async function setManufacturingLineStatus(
   client: QueryClient,
   playerId: string,
   input: SetManufacturingLineStatusInput
-): Promise<ManufacturingLine> {
+): Promise<ManufacturingLineWithDetails> {
   const line = await getManufacturingLineByIdForPlayer(client, playerId, input.lineId);
   if (line.status === "retooling") {
     throw new Error("This line is still retooling.");
@@ -1059,5 +1078,6 @@ export async function setManufacturingLineStatus(
     .single();
   if (error) throw error;
   await syncLegacyManufacturingJobForBusiness(client, line.business_id);
-  return normalizeManufacturingLine(data as ManufacturingLine);
+  const normalized = normalizeManufacturingLine(data as ManufacturingLine);
+  return getHydratedManufacturingLine(client, playerId, line.business_id, normalized.id);
 }

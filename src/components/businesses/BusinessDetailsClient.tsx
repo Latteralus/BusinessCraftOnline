@@ -23,6 +23,7 @@ import { getNpcBuyerPriceRange, getNpcSuggestedBasePrice } from "@/config/items"
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import { useGameStore } from "@/stores/game-store";
+import { makeNpcShopperName } from "../../../shared/core/npc-shopper-names";
 import BusinessEmployeesDashboard from "./BusinessEmployeesDashboard";
 import BusinessFinanceDashboardPanel from "./BusinessFinanceDashboard";
 import BusinessInventoryDashboard from "./BusinessInventoryDashboard";
@@ -51,19 +52,70 @@ type LocalEmployee = Employee & {
   employee_assignments?: (EmployeeAssignment & { business: Business })[] | null;
 };
 
-const FIRST_NAMES = [
-  "James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph",
-  "Thomas", "Charles", "Mary", "Patricia", "Jennifer", "Linda", "Elizabeth",
-  "Barbara", "Susan", "Jessica", "Sarah", "Karen", "Oliver", "Noah", "Elijah",
-  "Lucas", "Mason", "Harper", "Evelyn", "Abigail", "Emily", "Ella",
-];
+type ManufacturingLineView = NonNullable<ManufacturingStatusView["lines"]>[number];
 
-const LAST_NAMES = [
-  "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis",
-  "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson",
-  "Thomas", "Taylor", "Moore", "Jackson", "Martin", "Lee", "Perez", "Thompson",
-  "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
-];
+function normalizeManufacturingLine(
+  line: ManufacturingLineView,
+  existing?: ManufacturingLineView
+): ManufacturingLineView {
+  return {
+    ...existing,
+    ...line,
+    available_recipes: Array.isArray(line.available_recipes)
+      ? line.available_recipes
+      : existing?.available_recipes ?? [],
+    configured_recipe: line.configured_recipe
+      ? {
+          ...line.configured_recipe,
+          inputs: Array.isArray(line.configured_recipe.inputs) ? line.configured_recipe.inputs : [],
+        }
+      : line.configured_recipe === null
+        ? null
+        : existing?.configured_recipe ?? null,
+    pending_recipe: line.pending_recipe
+      ? {
+          ...line.pending_recipe,
+          inputs: Array.isArray(line.pending_recipe.inputs) ? line.pending_recipe.inputs : [],
+        }
+      : line.pending_recipe === null
+        ? null
+        : existing?.pending_recipe ?? null,
+  };
+}
+
+function normalizeManufacturingStatus(
+  manufacturing: ManufacturingStatusView | null | undefined
+): ManufacturingStatusView | null {
+  if (!manufacturing) return null;
+
+  return {
+    ...manufacturing,
+    lines: Array.isArray(manufacturing.lines)
+      ? manufacturing.lines.map((line) => normalizeManufacturingLine(line))
+      : [],
+  };
+}
+
+function normalizeProductionStatus(
+  production: ProductionStatus | null | undefined
+): ProductionStatus | null {
+  if (!production) return null;
+
+  return {
+    ...production,
+    slots: Array.isArray(production.slots) ? production.slots : [],
+  };
+}
+
+function makeHireName() {
+  const fullName = makeNpcShopperName(Math.random);
+  const [firstName, ...rest] = fullName.split(" ");
+
+  return {
+    firstName: firstName ?? "Alex",
+    lastName: rest.join(" ") || "Smith",
+  };
+}
 
 export default function BusinessDetailsClient({
   business: initialBusiness,
@@ -104,14 +156,14 @@ export default function BusinessDetailsClient({
   const [shelfQuantity, setShelfQuantity] = useState(1);
   const [shelfPrice, setShelfPrice] = useState(1);
   const business = detail?.business ?? initialBusiness;
-  const production = detail?.production ?? initialProduction;
-  const manufacturing = detail?.manufacturing ?? initialManufacturing;
-  const inventory = detail?.inventory ?? initialInventory;
-  const shelfItems = detail?.shelfItems ?? initialShelfItems;
-  const upgrades = detail?.upgrades ?? initialUpgrades;
-  const upgradeProjects = detail?.upgradeProjects ?? initialUpgradeProjects;
-  const employees = (detail?.employees as LocalEmployee[] | undefined) ?? initialEmployees;
-  const ownedBusinessesState = detail?.ownedBusinesses ?? ownedBusinesses;
+  const production = normalizeProductionStatus(detail?.production ?? initialProduction);
+  const manufacturing = normalizeManufacturingStatus(detail?.manufacturing ?? initialManufacturing);
+  const inventory = Array.isArray(detail?.inventory) ? detail.inventory : initialInventory;
+  const shelfItems = Array.isArray(detail?.shelfItems) ? detail.shelfItems : initialShelfItems;
+  const upgrades = Array.isArray(detail?.upgrades) ? detail.upgrades : initialUpgrades;
+  const upgradeProjects = Array.isArray(detail?.upgradeProjects) ? detail.upgradeProjects : initialUpgradeProjects;
+  const employees = Array.isArray(detail?.employees) ? (detail.employees as LocalEmployee[]) : initialEmployees;
+  const ownedBusinessesState = Array.isArray(detail?.ownedBusinesses) ? detail.ownedBusinesses : ownedBusinesses;
   const financeDashboardState = detail?.financeDashboard ?? financeDashboard ?? null;
   const upgradeDefinitionsState = detail?.upgradeDefinitions ?? upgradeDefinitions;
 
@@ -269,7 +321,9 @@ export default function BusinessDetailsClient({
     patchDetail({
       manufacturing: {
         ...manufacturing,
-        lines: manufacturing.lines.map((entry) => (entry.id === line.id ? line : entry)),
+        lines: manufacturing.lines.map((entry) =>
+          entry.id === line.id ? normalizeManufacturingLine(line, entry) : entry
+        ),
       },
     });
   }
@@ -439,15 +493,14 @@ export default function BusinessDetailsClient({
 
   async function hireEmployee(employeeType: string) {
     if (busy) return;
-    const randomFirstName = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
-    const randomLastName = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
+    const { firstName, lastName } = makeHireName();
 
     await runBusyAction(async () => {
       const hireResponse = await apiPost<{ employee: Employee }>(
         apiRoutes.employees.root,
         {
-          firstName: randomFirstName,
-          lastName: randomLastName,
+          firstName,
+          lastName,
           businessId: business.id,
           employeeType,
           specialtySkillKey: employeeType === "specialist" ? "logistics" : undefined,

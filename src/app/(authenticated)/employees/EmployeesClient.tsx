@@ -7,6 +7,7 @@ import { apiRoutes } from "@/lib/client/routes";
 import type { EmployeesPageData } from "@/lib/client/queries";
 import { formatNullableDateTime } from "@/lib/formatters";
 import { TooltipLabel } from "@/components/ui/tooltip";
+import { makeNpcShopperName } from "../../../../shared/core/npc-shopper-names";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useEmployeesSlice } from "@/stores/game-store";
@@ -16,8 +17,15 @@ type Props = {
   initialData: EmployeesPageData;
 };
 
-const FIRST_NAMES = ["James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph", "Thomas", "Charles", "Mary", "Patricia", "Jennifer", "Linda", "Elizabeth", "Barbara", "Susan", "Jessica", "Sarah", "Karen", "Oliver", "Noah", "Elijah", "Lucas", "Mason", "Harper", "Evelyn", "Abigail", "Emily", "Ella"];
-const LAST_NAMES = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin", "Lee", "Perez", "Thompson", "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson"];
+function makeHireName() {
+  const fullName = makeNpcShopperName(Math.random);
+  const [firstName, ...rest] = fullName.split(" ");
+
+  return {
+    firstName: firstName ?? "Alex",
+    lastName: rest.join(" ") || "Smith",
+  };
+}
 
 export default function EmployeesClient({ initialData }: Props) {
   const employeesSlice = useEmployeesSlice();
@@ -71,14 +79,13 @@ export default function EmployeesClient({ initialData }: Props) {
     setHiring(true);
     setError(null);
     setSuccess(null);
-    const randomFirstName = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
-    const randomLastName = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
+    const { firstName, lastName } = makeHireName();
     try {
       await apiPost(
         apiRoutes.employees.root,
         {
-          firstName: randomFirstName,
-          lastName: randomLastName,
+          firstName,
+          lastName,
           businessId: hireBusinessId,
           employeeType,
           specialtySkillKey: employeeType === "specialist" ? specialtySkillKey || undefined : undefined,
