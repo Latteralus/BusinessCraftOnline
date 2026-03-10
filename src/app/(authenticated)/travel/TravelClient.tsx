@@ -1,10 +1,9 @@
 "use client";
 
 import type { City, TravelQuote, TravelState } from "@/domains/cities-travel";
-import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cancelTravelAction, getTravelQuoteAction, startTravelAction } from "./actions";
 
@@ -38,18 +37,41 @@ export default function TravelClient({ cities, travelState }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
   const [error, setError] = useState<string | null>(null);
+  const [travelRefreshLocked, setTravelRefreshLocked] = useState(false);
+  const activeTravelEta = travelState.activeTravel?.arrives_at ?? null;
+  const arrivalRefreshTriggeredRef = useRef(false);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
+    setNowMs(Date.now());
+    setTravelRefreshLocked(false);
+    arrivalRefreshTriggeredRef.current = false;
+  }, [activeTravelEta]);
 
-  useAutoRefresh(
-    () => {
-      router.refresh();
-    },
-    { intervalMs: 5000, enabled: Boolean(travelState.activeTravel) }
-  );
+  useEffect(() => {
+    if (!travelState.activeTravel || travelRefreshLocked) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [travelRefreshLocked, travelState.activeTravel]);
+
+  useEffect(() => {
+    if (!activeTravelEta || travelRefreshLocked || arrivalRefreshTriggeredRef.current) {
+      return;
+    }
+
+    if (new Date(activeTravelEta).getTime() - nowMs > 1000) {
+      return;
+    }
+
+    arrivalRefreshTriggeredRef.current = true;
+    setTravelRefreshLocked(true);
+    router.refresh();
+  }, [activeTravelEta, nowMs, router, travelRefreshLocked]);
 
   const selectedCity = useMemo(
     () => cities.find((city) => city.id === selectedCityId) ?? null,
@@ -109,6 +131,8 @@ export default function TravelClient({ cities, travelState }: Props) {
       return;
     }
 
+    setTravelRefreshLocked(true);
+    arrivalRefreshTriggeredRef.current = true;
     router.refresh();
   }
 

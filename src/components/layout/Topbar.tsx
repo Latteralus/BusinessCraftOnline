@@ -72,6 +72,7 @@ export function Topbar({
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(true);
   const [isSendingChat, setIsSendingChat] = useState(false);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const [isOnlineListOpen, setIsOnlineListOpen] = useState(false);
   const onlineListRef = useRef<HTMLDivElement | null>(null);
   const chatRef = useRef<HTMLDivElement | null>(null);
@@ -98,7 +99,7 @@ export function Topbar({
   const chatQuery = useQuery({
     queryKey: queryKeys.chatMessages,
     queryFn: fetchChatMessages,
-    refetchInterval: 5_000,
+    refetchInterval: isRealtimeConnected ? false : 60_000,
     staleTime: 10_000,
   });
 
@@ -204,63 +205,84 @@ export function Topbar({
     let removeChannel: (() => void) | null = null;
 
     async function connectChatRealtime() {
-      const response = await fetch("/api/realtime-auth");
-      const payload = (await response.json().catch(() => null)) as
-        | { token?: string; error?: string }
-        | null;
+      setIsRealtimeConnected(false);
 
-      if (!response.ok || !payload?.token || isCancelled) {
-        return;
-      }
+      try {
+        const response = await fetch("/api/realtime-auth");
+        const payload = (await response.json().catch(() => null)) as
+          | { token?: string; error?: string }
+          | null;
 
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
-        {
-          auth: {
-            persistSession: false,
-            autoRefreshToken: false,
-          },
-          global: {
-            headers: {
-              Authorization: `Bearer ${payload.token}`,
-            },
-          },
+        if (!response.ok || !payload?.token || isCancelled) {
+          return;
         }
-      );
 
-      supabase.realtime.setAuth(payload.token);
-
-      const channel = supabase
-        .channel(`global-chat-${Date.now()}`)
-        .on(
-          "postgres_changes",
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
           {
-            event: "INSERT",
-            schema: "public",
-            table: "chat_messages",
-          },
-          (change) => {
-            const message = change.new as ChatMessage;
-            queryClient.setQueryData(queryKeys.chatMessages, (current: { messages?: ChatMessage[] } | undefined) => ({
-              messages: mergeChatMessages(current?.messages ?? [], [message]),
-            }));
-            applyIncomingMessages([message]);
-            setChatError(null);
-            setIsChatLoading(false);
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+            },
+            global: {
+              headers: {
+                Authorization: `Bearer ${payload.token}`,
+              },
+            },
           }
-        )
-        .subscribe();
+        );
 
-      removeChannel = () => {
-        void supabase.removeChannel(channel);
-      };
+        supabase.realtime.setAuth(payload.token);
+
+        const channel = supabase
+          .channel(`global-chat-${Date.now()}`)
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "chat_messages",
+            },
+            (change) => {
+              const message = change.new as ChatMessage;
+              queryClient.setQueryData(queryKeys.chatMessages, (current: { messages?: ChatMessage[] } | undefined) => ({
+                messages: mergeChatMessages(current?.messages ?? [], [message]),
+              }));
+              applyIncomingMessages([message]);
+              setChatError(null);
+              setIsChatLoading(false);
+            }
+          )
+          .subscribe((status) => {
+            if (isCancelled) {
+              return;
+            }
+
+            const connected = status === "SUBSCRIBED";
+            setIsRealtimeConnected(connected);
+
+            if (connected) {
+              void queryClient.invalidateQueries({ queryKey: queryKeys.chatMessages });
+            }
+          });
+
+        removeChannel = () => {
+          setIsRealtimeConnected(false);
+          void supabase.removeChannel(channel);
+        };
+      } catch {
+        if (!isCancelled) {
+          setIsRealtimeConnected(false);
+        }
+      }
     }
 
     void connectChatRealtime();
 
     return () => {
       isCancelled = true;
+      setIsRealtimeConnected(false);
       removeChannel?.();
     };
   }, [queryClient]);

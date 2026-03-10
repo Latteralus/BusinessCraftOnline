@@ -832,7 +832,7 @@ th {
     padding: 16px 18px;
     transition: all 0.25s;
     position: relative;
-    overflow: hidden;
+    overflow: visible;
   }
   .finance-card::before {
     content: '';
@@ -842,7 +842,12 @@ th {
     background: var(--card-accent, var(--border-medium));
     opacity: 0.7;
   }
-  .finance-card:hover { border-color: var(--border-medium); transform: translateY(-1px); }
+  .finance-card:hover,
+  .finance-card:focus-within {
+    border-color: var(--border-medium);
+    transform: translateY(-1px);
+    z-index: 2;
+  }
   .finance-label {
     font-size: 0.72rem;
     text-transform: uppercase;
