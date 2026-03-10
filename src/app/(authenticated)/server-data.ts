@@ -68,6 +68,7 @@ const getStorefrontSettingsCached = cache(async (supabase: Awaited<ReturnType<ty
 
 export type AuthenticatedShellInitialData = {
   identity: {
+    playerId: string;
     initials: string;
     firstName: string;
     lastName: string;
@@ -88,6 +89,7 @@ export async function loadAuthenticatedShellInitialData(): Promise<Authenticated
 
   return {
     identity: {
+      playerId: user.id,
       initials: `${character.first_name[0] ?? ""}${character.last_name[0] ?? ""}` || "··",
       firstName: character.first_name,
       lastName: character.last_name,

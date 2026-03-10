@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import type { PlayerProfilePreview, PublicPlayerBusiness } from "@/domains/auth-character";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatDateTime, formatLabel } from "@/lib/formatters";
+import { usePlayerSlice } from "@/stores/game-store";
 
 type TabType = "overview" | "businesses" | "details";
 
@@ -64,13 +63,18 @@ export default function PlayerProfileClient({
   initialTab,
   isCurrentPlayer,
 }: Props) {
-  const router = useRouter();
+  const player = usePlayerSlice();
   const defaultTab = (initialTab as TabType) || "overview";
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
-
-  useAutoRefresh(() => {
-    router.refresh();
-  }, { intervalMs: 30_000, enabled: true });
+  const displayProfile = isCurrentPlayer
+    ? {
+        ...profile,
+        first_name: player.firstName || profile.first_name,
+        last_name: player.lastName || profile.last_name,
+        character_name:
+          player.firstName && player.lastName ? `${player.firstName} ${player.lastName}` : profile.character_name,
+      }
+    : profile;
 
   useEffect(() => {
     if (initialTab && ["overview", "businesses", "details"].includes(initialTab)) {
@@ -118,8 +122,8 @@ export default function PlayerProfileClient({
               }}
             >
               <StatCard label="Net Worth" value={formatCurrency(profile.net_worth)} tone="good" />
-              <StatCard label="Location" value={profile.current_city_name ?? "Unknown"} />
-              <StatCard label="Owned Businesses" value={String(profile.total_businesses)} />
+              <StatCard label="Location" value={displayProfile.current_city_name ?? "Unknown"} />
+              <StatCard label="Owned Businesses" value={String(displayProfile.total_businesses)} />
             </div>
 
             <div
@@ -132,12 +136,12 @@ export default function PlayerProfileClient({
               <div style={{ padding: 18, borderRadius: 12, background: "var(--bg-primary)" }}>
                 <h3 style={{ marginTop: 0, marginBottom: 14 }}>Character</h3>
                 <div style={{ display: "grid", gap: 10, color: "var(--text-secondary)" }}>
-                  <div><strong style={{ color: "var(--text-primary)" }}>Name:</strong> {profile.character_name}</div>
-                  <div><strong style={{ color: "var(--text-primary)" }}>Username:</strong> @{profile.username}</div>
-                  <div><strong style={{ color: "var(--text-primary)" }}>Joined:</strong> {formatDateTime(profile.joined_at)}</div>
+                  <div><strong style={{ color: "var(--text-primary)" }}>Name:</strong> {displayProfile.character_name}</div>
+                  <div><strong style={{ color: "var(--text-primary)" }}>Username:</strong> @{displayProfile.username}</div>
+                  <div><strong style={{ color: "var(--text-primary)" }}>Joined:</strong> {formatDateTime(displayProfile.joined_at)}</div>
                   <div>
                     <strong style={{ color: "var(--text-primary)" }}>Status:</strong>{" "}
-                    {profile.is_online ? "Online now" : profile.last_seen_at ? `Last seen ${formatDateTime(profile.last_seen_at)}` : "Offline"}
+                    {displayProfile.is_online ? "Online now" : displayProfile.last_seen_at ? `Last seen ${formatDateTime(displayProfile.last_seen_at)}` : "Offline"}
                   </div>
                 </div>
               </div>
@@ -145,9 +149,9 @@ export default function PlayerProfileClient({
               <div style={{ padding: 18, borderRadius: 12, background: "var(--bg-primary)" }}>
                 <h3 style={{ marginTop: 0, marginBottom: 14 }}>Public Snapshot</h3>
                 <div style={{ display: "grid", gap: 10, color: "var(--text-secondary)" }}>
-                  <div><strong style={{ color: "var(--text-primary)" }}>Estimated Net Worth:</strong> {formatCurrency(profile.net_worth)}</div>
-                  <div><strong style={{ color: "var(--text-primary)" }}>Known Business Holdings:</strong> {profile.total_businesses}</div>
-                  <div><strong style={{ color: "var(--text-primary)" }}>Current Base:</strong> {profile.current_city_name ?? "Unknown"}</div>
+                  <div><strong style={{ color: "var(--text-primary)" }}>Estimated Net Worth:</strong> {formatCurrency(displayProfile.net_worth)}</div>
+                  <div><strong style={{ color: "var(--text-primary)" }}>Known Business Holdings:</strong> {displayProfile.total_businesses}</div>
+                  <div><strong style={{ color: "var(--text-primary)" }}>Current Base:</strong> {displayProfile.current_city_name ?? "Unknown"}</div>
                   <div><strong style={{ color: "var(--text-primary)" }}>Profile Type:</strong> Public operator profile</div>
                 </div>
               </div>
@@ -212,11 +216,11 @@ export default function PlayerProfileClient({
         {activeTab === "details" ? (
           <div style={{ display: "grid", gap: 12 }}>
             <h3 style={{ marginTop: 0, marginBottom: 4 }}>Public Details</h3>
-            {[
-              { label: "Estimated Net Worth", value: formatCurrency(profile.net_worth) },
-              { label: "Owned Businesses", value: String(profile.total_businesses) },
-              { label: "Current Location", value: profile.current_city_name ?? "Unknown" },
-              { label: "Joined", value: formatDateTime(profile.joined_at) },
+              {[
+              { label: "Estimated Net Worth", value: formatCurrency(displayProfile.net_worth) },
+              { label: "Owned Businesses", value: String(displayProfile.total_businesses) },
+              { label: "Current Location", value: displayProfile.current_city_name ?? "Unknown" },
+              { label: "Joined", value: formatDateTime(displayProfile.joined_at) },
             ].map((item) => (
               <div
                 key={item.label}

@@ -3,7 +3,6 @@
 import { isStoreBusinessType } from "@/config/businesses";
 import { useState, useEffect, Fragment } from "react";
 import { useRouter } from "next/navigation";
-import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import type {
   Business,
   BusinessFinanceDashboard,
@@ -23,6 +22,7 @@ import { apiRoutes } from "@/lib/client/routes";
 import { getNpcBuyerPriceRange, getNpcSuggestedBasePrice } from "@/config/items";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
+import { useGameStore } from "@/stores/game-store";
 import BusinessEmployeesDashboard from "./BusinessEmployeesDashboard";
 import BusinessFinanceDashboardPanel from "./BusinessFinanceDashboard";
 import BusinessInventoryDashboard from "./BusinessInventoryDashboard";
@@ -47,6 +47,10 @@ type Props = {
   initialTab?: string;
 };
 
+type LocalEmployee = Employee & {
+  employee_assignments?: (EmployeeAssignment & { business: Business })[] | null;
+};
+
 const FIRST_NAMES = [
   "James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph",
   "Thomas", "Charles", "Mary", "Patricia", "Jennifer", "Linda", "Elizabeth",
@@ -61,8 +65,24 @@ const LAST_NAMES = [
   "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
 ];
 
-export default function BusinessDetailsClient({ business, production, manufacturing, inventory, shelfItems, upgrades, upgradeProjects, employees, upgradeDefinitions = [], financeDashboard, ownedBusinesses = [], initialTab }: Props) {
+export default function BusinessDetailsClient({
+  business: initialBusiness,
+  production: initialProduction,
+  manufacturing: initialManufacturing,
+  inventory: initialInventory,
+  shelfItems: initialShelfItems,
+  upgrades: initialUpgrades,
+  upgradeProjects: initialUpgradeProjects,
+  employees: initialEmployees,
+  upgradeDefinitions = [],
+  financeDashboard,
+  ownedBusinesses = [],
+  initialTab,
+}: Props) {
   const router = useRouter();
+  const businessId = initialBusiness.id;
+  const detail = useGameStore((state) => state.businessDetails.data[businessId]);
+  const upsertBusinessDetail = useGameStore((state) => state.upsertBusinessDetail);
   const tempPayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.temp / 4);
   const partTimePayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.part_time / 4);
   const fullTimePayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.full_time / 4);
@@ -83,10 +103,50 @@ export default function BusinessDetailsClient({ business, production, manufactur
   const [shelfActionItem, setShelfActionItem] = useState<{ itemKey: string; quality: number; maxQuantity: number } | null>(null);
   const [shelfQuantity, setShelfQuantity] = useState(1);
   const [shelfPrice, setShelfPrice] = useState(1);
+  const business = detail?.business ?? initialBusiness;
+  const production = detail?.production ?? initialProduction;
+  const manufacturing = detail?.manufacturing ?? initialManufacturing;
+  const inventory = detail?.inventory ?? initialInventory;
+  const shelfItems = detail?.shelfItems ?? initialShelfItems;
+  const upgrades = detail?.upgrades ?? initialUpgrades;
+  const upgradeProjects = detail?.upgradeProjects ?? initialUpgradeProjects;
+  const employees = (detail?.employees as LocalEmployee[] | undefined) ?? initialEmployees;
+  const ownedBusinessesState = detail?.ownedBusinesses ?? ownedBusinesses;
+  const financeDashboardState = detail?.financeDashboard ?? financeDashboard ?? null;
+  const upgradeDefinitionsState = detail?.upgradeDefinitions ?? upgradeDefinitions;
 
-  useAutoRefresh(() => {
-    router.refresh();
-  }, { intervalMs: 30_000, enabled: !busy && activeTab !== "employees" && activeTab !== "inventory" });
+  useEffect(() => {
+    if (!detail) {
+      upsertBusinessDetail(businessId, {
+        business: initialBusiness,
+        production: initialProduction,
+        manufacturing: initialManufacturing,
+        inventory: initialInventory,
+        shelfItems: initialShelfItems,
+        upgrades: initialUpgrades,
+        upgradeProjects: initialUpgradeProjects,
+        employees: initialEmployees,
+        financeDashboard: financeDashboard ?? null,
+        ownedBusinesses,
+        upgradeDefinitions,
+      });
+    }
+  }, [
+    businessId,
+    detail,
+    financeDashboard,
+    initialBusiness,
+    initialEmployees,
+    initialInventory,
+    initialManufacturing,
+    initialProduction,
+    initialShelfItems,
+    initialUpgradeProjects,
+    initialUpgrades,
+    ownedBusinesses,
+    upgradeDefinitions,
+    upsertBusinessDetail,
+  ]);
 
   useEffect(() => {
     if (initialTab && ["overview", "finance", "operations", "employees", "inventory", "upgrades", "options"].includes(initialTab)) {
@@ -121,7 +181,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
     return !getAssignmentForBusiness(employee) && effectiveStatus === "available";
   });
   const isStoreBusiness = isStoreBusinessType(business.type);
-  const transferBusinesses = ownedBusinesses.filter((row) => row.id !== business.id);
+  const transferBusinesses = ownedBusinessesState.filter((row) => row.id !== business.id);
   const shelfKey = (itemKey: string, quality: number) => `${itemKey}:${quality}`;
   const activeShelfItems = shelfItems.filter((item) => item.quantity > 0);
   const shelfByInventoryKey = Object.fromEntries(activeShelfItems.map((item) => [shelfKey(item.item_key, item.quality), item]));
@@ -149,6 +209,95 @@ export default function BusinessDetailsClient({ business, production, manufactur
 
     return effectiveStatus === "available" && !assignment;
   });
+  const employeesForView = employees.map((employee) => ({
+    ...employee,
+    employee_assignments: employee.employee_assignments ?? undefined,
+  }));
+
+  function patchDetail(value: Partial<{
+    business: Business;
+    production: ProductionStatus | null;
+    manufacturing: ManufacturingStatusView | null;
+    inventory: BusinessInventoryItem[];
+    shelfItems: StoreShelfItem[];
+    upgrades: BusinessUpgrade[];
+    upgradeProjects: BusinessUpgradeProject[];
+    employees: LocalEmployee[];
+  }>) {
+    upsertBusinessDetail(businessId, {
+      business,
+      production,
+      manufacturing,
+      inventory,
+      shelfItems,
+      upgrades,
+      upgradeProjects,
+      employees,
+      financeDashboard: financeDashboardState,
+      ownedBusinesses: ownedBusinessesState,
+      upgradeDefinitions: upgradeDefinitionsState,
+      ...value,
+    });
+  }
+
+  function updateEmployeeRecord(nextEmployee: LocalEmployee) {
+    const index = employees.findIndex((employee) => employee.id === nextEmployee.id);
+    if (index === -1) {
+      patchDetail({ employees: [nextEmployee, ...employees] });
+      return;
+    }
+    const next = employees.slice();
+    next[index] = {
+      ...next[index],
+      ...nextEmployee,
+    };
+    patchDetail({ employees: next });
+  }
+
+  function updateExtractionSlot(slot: ProductionStatus["slots"][number]) {
+    if (!production) return;
+    patchDetail({
+      production: {
+        ...production,
+        slots: production.slots.map((entry) => (entry.id === slot.id ? slot : entry)),
+      },
+    });
+  }
+
+  function updateManufacturingLine(line: ManufacturingStatusView["lines"][number]) {
+    if (!manufacturing) return;
+    patchDetail({
+      manufacturing: {
+        ...manufacturing,
+        lines: manufacturing.lines.map((entry) => (entry.id === line.id ? line : entry)),
+      },
+    });
+  }
+
+  function patchInventoryItem(itemId: string, patch: Partial<BusinessInventoryItem>) {
+    patchDetail({
+      inventory: inventory
+        .map((item) => (item.id === itemId ? { ...item, ...patch } : item))
+        .filter((item) => item.quantity > 0 || item.reserved_quantity > 0),
+    });
+  }
+
+  function adjustInventoryByKey(itemKey: string, quality: number, patch: (item: BusinessInventoryItem) => BusinessInventoryItem) {
+    patchDetail({
+      inventory: inventory.map((item) => (item.item_key === itemKey && item.quality === quality ? patch(item) : item)),
+    });
+  }
+
+  function upsertShelfItem(nextShelfItem: StoreShelfItem) {
+    const index = shelfItems.findIndex((item) => item.id === nextShelfItem.id);
+    if (index === -1) {
+      patchDetail({ shelfItems: [nextShelfItem, ...shelfItems] });
+      return;
+    }
+    const next = shelfItems.slice();
+    next[index] = nextShelfItem;
+    patchDetail({ shelfItems: next });
+  }
   async function runBusyAction(action: () => Promise<void>, fallbackMessage: string) {
     if (busy) return;
 
@@ -168,38 +317,62 @@ export default function BusinessDetailsClient({ business, production, manufactur
     if (!employeeId || busy) return;
 
     await runBusyAction(async () => {
-      await apiPost(apiRoutes.production.assignSlot, { slotId, employeeId }, { fallbackError: "Failed to assign employee to slot." });
+      const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
+        apiRoutes.production.assignSlot,
+        { slotId, employeeId },
+        { fallbackError: "Failed to assign employee to slot." }
+      );
+      if (payload.slot) {
+        updateExtractionSlot(payload.slot);
+      }
 
       setAssignSelections(prev => {
         const next = { ...prev };
         delete next[slotId];
         return next;
       });
-      router.refresh();
     }, "Error assigning slot");
   }
 
   async function unassignSlot(slotId: string) {
     if (busy) return;
     await runBusyAction(async () => {
-      await apiPost(apiRoutes.production.unassignSlot, { slotId }, { fallbackError: "Failed to unassign slot." });
-      router.refresh();
+      const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
+        apiRoutes.production.unassignSlot,
+        { slotId },
+        { fallbackError: "Failed to unassign slot." }
+      );
+      if (payload.slot) {
+        updateExtractionSlot(payload.slot);
+      }
     }, "Error unassigning slot");
   }
 
   async function setSlotStatus(slotId: string, status: "active" | "idle") {
     if (busy) return;
     await runBusyAction(async () => {
-      await apiPost(apiRoutes.production.slotStatus, { slotId, status }, { fallbackError: "Failed to set slot status." });
-      router.refresh();
+      const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
+        apiRoutes.production.slotStatus,
+        { slotId, status },
+        { fallbackError: "Failed to set slot status." }
+      );
+      if (payload.slot) {
+        updateExtractionSlot(payload.slot);
+      }
     }, "Error setting slot status");
   }
 
   async function purchaseUpgrade(upgradeKey: string) {
     if (busy) return;
     await runBusyAction(async () => {
-      await apiPost(apiRoutes.businesses.upgrade(business.id), { upgradeKey }, { fallbackError: "Failed to purchase upgrade." });
-      router.refresh();
+      const payload = await apiPost<{
+        businessId: string;
+        project: BusinessUpgradeProject;
+        resultingBalance: number;
+      }>(apiRoutes.businesses.upgrade(business.id), { upgradeKey }, { fallbackError: "Failed to purchase upgrade." });
+      patchDetail({
+        upgradeProjects: payload.project ? [payload.project, ...upgradeProjects] : upgradeProjects,
+      });
     }, "Error purchasing upgrade");
   }
 
@@ -207,8 +380,14 @@ export default function BusinessDetailsClient({ business, production, manufactur
     if (busy) return;
 
     await runBusyAction(async () => {
-      await apiPatch(apiRoutes.businesses.detail(business.id), { name: nextName }, { fallbackError: "Failed to rename business." });
-      router.refresh();
+      const payload = await apiPatch<{ business: Business }>(
+        apiRoutes.businesses.detail(business.id),
+        { name: nextName },
+        { fallbackError: "Failed to rename business." }
+      );
+      if (payload.business) {
+        patchDetail({ business: payload.business });
+      }
     }, "Error renaming business");
   }
 
@@ -218,12 +397,11 @@ export default function BusinessDetailsClient({ business, production, manufactur
     await runBusyAction(async () => {
       await apiDelete(apiRoutes.businesses.detail(business.id), undefined, { fallbackError: "Failed to delete business." });
       router.push("/businesses");
-      router.refresh();
     }, "Error deleting business");
   }
 
   async function assignEmployeeToBusinessAndMaybeSlot(employeeId: string) {
-    await apiPost(
+    const assignPayload = await apiPost<{ employee: Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] } }>(
       apiRoutes.employees.assign,
       {
         employeeId,
@@ -233,16 +411,22 @@ export default function BusinessDetailsClient({ business, production, manufactur
       },
       { fallbackError: "Failed to assign employee." }
     );
+    if (assignPayload.employee) {
+      updateEmployeeRecord(assignPayload.employee);
+    }
 
     if (production?.slots?.length) {
       const firstOpenSlot = production.slots.find((slot) => !slot.employee_id);
       if (firstOpenSlot) {
         try {
-          await apiPost(
+          const slotPayload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
             apiRoutes.production.assignSlot,
             { slotId: firstOpenSlot.id, employeeId },
             { fallbackError: "Employee assigned to business, but slot assignment failed." }
           );
+          if (slotPayload.slot) {
+            updateExtractionSlot(slotPayload.slot);
+          }
         } catch (err) {
           const slotMessage = err instanceof Error
             ? `Employee assigned to business, but slot assignment failed: ${err.message}`
@@ -270,32 +454,52 @@ export default function BusinessDetailsClient({ business, production, manufactur
         },
         { fallbackError: "Failed to hire employee." }
       );
+      if (hireResponse.employee) {
+        updateEmployeeRecord(hireResponse.employee);
+      }
       await assignEmployeeToBusinessAndMaybeSlot(hireResponse.employee.id);
-      router.refresh();
     }, "Error hiring employee");
   }
 
   async function fireEmployee(employeeId: string) {
     if (busy) return;
     await runBusyAction(async () => {
-      await apiDelete(apiRoutes.employees.detail(employeeId), undefined, { fallbackError: "Failed to fire employee." });
-      router.refresh();
+      const payload = await apiDelete<{ employee: Employee }>(
+        apiRoutes.employees.detail(employeeId),
+        undefined,
+        { fallbackError: "Failed to fire employee." }
+      );
+      if (payload.employee) {
+        updateEmployeeRecord(payload.employee);
+      }
     }, "Error firing employee");
   }
 
   async function unassignEmployeeGlobal(employeeId: string) {
     if (busy) return;
     await runBusyAction(async () => {
-      await apiPost(apiRoutes.employees.unassign, { employeeId }, { fallbackError: "Failed to unassign employee." });
-      router.refresh();
+      const payload = await apiPost<{ employee: Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] } }>(
+        apiRoutes.employees.unassign,
+        { employeeId },
+        { fallbackError: "Failed to unassign employee." }
+      );
+      if (payload.employee) {
+        updateEmployeeRecord(payload.employee);
+      }
     }, "Error unassigning employee");
   }
 
   async function settleEmployee(employeeId: string) {
     if (busy) return;
     await runBusyAction(async () => {
-      await apiPost(apiRoutes.employees.settle, { employeeId }, { fallbackError: "Failed to settle employee wages." });
-      router.refresh();
+      const payload = await apiPost<{ employee: Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] } }>(
+        apiRoutes.employees.settle,
+        { employeeId },
+        { fallbackError: "Failed to settle employee wages." }
+      );
+      if (payload.employee) {
+        updateEmployeeRecord(payload.employee);
+      }
     }, "Error settling employee wages");
   }
 
@@ -307,17 +511,26 @@ export default function BusinessDetailsClient({ business, production, manufactur
       const assignment = employee ? getAssignmentForBusiness(employee) : null;
 
       if (!assignment) {
-        await apiPost(apiRoutes.employees.assign, {
+        const assignPayload = await apiPost<{ employee: Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] } }>(apiRoutes.employees.assign, {
           employeeId,
           businessId: business.id,
           role: "production",
           roleSkillKey: "logistics",
         }, { fallbackError: "Failed to assign employee." });
+        if (assignPayload.employee) {
+          updateEmployeeRecord(assignPayload.employee);
+        }
       }
 
-      await apiPost(apiRoutes.production.assignManufacturingLine, { lineId, employeeId }, { fallbackError: "Failed to assign manufacturing line." });
+      const payload = await apiPost<{ line: ManufacturingStatusView["lines"][number] }>(
+        apiRoutes.production.assignManufacturingLine,
+        { lineId, employeeId },
+        { fallbackError: "Failed to assign manufacturing line." }
+      );
+      if (payload.line) {
+        updateManufacturingLine(payload.line);
+      }
       setManufacturingAssignSelections((prev) => ({ ...prev, [lineId]: "" }));
-      router.refresh();
     }, "Error assigning employee");
   }
 
@@ -325,9 +538,15 @@ export default function BusinessDetailsClient({ business, production, manufactur
     const itemKey = slotRetoolSelections[slotId];
     if (!itemKey || busy) return;
     await runBusyAction(async () => {
-      await apiPost(apiRoutes.production.retoolSlot, { slotId, itemKey }, { fallbackError: "Failed to retool production slot." });
+      const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
+        apiRoutes.production.retoolSlot,
+        { slotId, itemKey },
+        { fallbackError: "Failed to retool production slot." }
+      );
+      if (payload.slot) {
+        updateExtractionSlot(payload.slot);
+      }
       setSlotRetoolSelections((prev) => ({ ...prev, [slotId]: "" }));
-      router.refresh();
     }, "Error retooling slot");
   }
 
@@ -338,16 +557,28 @@ export default function BusinessDetailsClient({ business, production, manufactur
   async function unassignManufacturingWorker(lineId: string) {
     if (busy) return;
     await runBusyAction(async () => {
-      await apiPost(apiRoutes.production.unassignManufacturingLine, { lineId }, { fallbackError: "Failed to unassign manufacturing line." });
-      router.refresh();
+      const payload = await apiPost<{ line: ManufacturingStatusView["lines"][number] }>(
+        apiRoutes.production.unassignManufacturingLine,
+        { lineId },
+        { fallbackError: "Failed to unassign manufacturing line." }
+      );
+      if (payload.line) {
+        updateManufacturingLine(payload.line);
+      }
     }, "Error unassigning manufacturing line");
   }
 
   async function setManufacturingLineRunning(lineId: string, status: "active" | "idle") {
     if (busy) return;
     await runBusyAction(async () => {
-      await apiPost(apiRoutes.production.manufacturingLineStatus, { lineId, status }, { fallbackError: "Failed to update manufacturing line status." });
-      router.refresh();
+      const payload = await apiPost<{ line: ManufacturingStatusView["lines"][number] }>(
+        apiRoutes.production.manufacturingLineStatus,
+        { lineId, status },
+        { fallbackError: "Failed to update manufacturing line status." }
+      );
+      if (payload.line) {
+        updateManufacturingLine(payload.line);
+      }
     }, "Error updating manufacturing line status");
   }
 
@@ -355,9 +586,15 @@ export default function BusinessDetailsClient({ business, production, manufactur
     const recipeKey = manufacturingRetoolSelections[lineId];
     if (!recipeKey || busy) return;
     await runBusyAction(async () => {
-      await apiPost(apiRoutes.production.retoolManufacturingLine, { lineId, recipeKey }, { fallbackError: "Failed to retool manufacturing line." });
+      const payload = await apiPost<{ line: ManufacturingStatusView["lines"][number] }>(
+        apiRoutes.production.retoolManufacturingLine,
+        { lineId, recipeKey },
+        { fallbackError: "Failed to retool manufacturing line." }
+      );
+      if (payload.line) {
+        updateManufacturingLine(payload.line);
+      }
       setManufacturingRetoolSelections((prev) => ({ ...prev, [lineId]: "" }));
-      router.refresh();
     }, "Error retooling manufacturing line");
   }
 
@@ -376,6 +613,9 @@ export default function BusinessDetailsClient({ business, production, manufactur
           },
           { fallbackError: "Failed to create market listing." }
         );
+        patchInventoryItem(item.id, {
+          reserved_quantity: item.reserved_quantity + actionQuantity,
+        });
       } else if (marketActionItem.type === "personal_transfer") {
         await apiPost(
           apiRoutes.inventory.transfer,
@@ -389,6 +629,9 @@ export default function BusinessDetailsClient({ business, production, manufactur
           },
           { fallbackError: "Failed to transfer item." }
         );
+        patchInventoryItem(item.id, {
+          quantity: Math.max(0, item.quantity - actionQuantity),
+        });
       } else if (marketActionItem.type === "business_transfer") {
         const destinationBusiness = transferBusinesses.find((candidate) => candidate.id === transferBusinessId);
         await apiPost(
@@ -406,9 +649,11 @@ export default function BusinessDetailsClient({ business, production, manufactur
           },
           { fallbackError: "Failed to transfer item." }
         );
+        patchInventoryItem(item.id, {
+          quantity: Math.max(0, item.quantity - actionQuantity),
+        });
       }
       setMarketActionItem(null);
-      router.refresh();
     }, "Error performing action");
   }
 
@@ -416,7 +661,10 @@ export default function BusinessDetailsClient({ business, production, manufactur
     if (!shelfActionItem || busy) return;
 
     await runBusyAction(async () => {
-      await apiPost(
+      const previousShelfItem = shelfItems.find(
+        (entry) => entry.business_id === business.id && entry.item_key === item.item_key && entry.quality === item.quality
+      );
+      const payload = await apiPost<{ shelfItem: StoreShelfItem }>(
         apiRoutes.stores.shelves,
         {
           businessId: business.id,
@@ -427,8 +675,16 @@ export default function BusinessDetailsClient({ business, production, manufactur
         },
         { fallbackError: "Failed to save shelf item." }
       );
+      if (payload.shelfItem) {
+        upsertShelfItem(payload.shelfItem);
+        const previousQuantity = previousShelfItem?.quantity ?? 0;
+        const reservedDelta = shelfQuantity - previousQuantity;
+        adjustInventoryByKey(item.item_key, item.quality, (current) => ({
+          ...current,
+          reserved_quantity: Math.max(0, current.reserved_quantity + reservedDelta),
+        }));
+      }
       setShelfActionItem(null);
-      router.refresh();
     }, "Error saving shelf item");
   }
 
@@ -436,11 +692,18 @@ export default function BusinessDetailsClient({ business, production, manufactur
     if (busy) return;
 
     await runBusyAction(async () => {
+      const currentShelfItem = shelfItems.find((item) => item.id === shelfItemId) ?? null;
       await apiDelete(apiRoutes.stores.shelves, { shelfItemId }, { fallbackError: "Failed to remove shelf item." });
+      patchDetail({ shelfItems: shelfItems.filter((item) => item.id !== shelfItemId) });
+      if (currentShelfItem) {
+        adjustInventoryByKey(currentShelfItem.item_key, currentShelfItem.quality, (current) => ({
+          ...current,
+          reserved_quantity: Math.max(0, current.reserved_quantity - currentShelfItem.quantity),
+        }));
+      }
       if (shelfActionItem) {
         setShelfActionItem(null);
       }
-      router.refresh();
     }, "Error removing shelf item");
   }
 
@@ -486,20 +749,20 @@ export default function BusinessDetailsClient({ business, production, manufactur
           <div>
             <BusinessOverviewDashboard
               business={business}
-              financeDashboard={financeDashboard ?? null}
+              financeDashboard={financeDashboardState}
               production={production}
               manufacturing={manufacturing}
               inventory={inventory}
               shelfItems={shelfItems}
               upgrades={upgrades}
-              employees={employees}
+              employees={employeesForView}
             />
           </div>
         )}
 
         {activeTab === "finance" && (
           <div>
-            <BusinessFinanceDashboardPanel financeDashboard={financeDashboard ?? null} />
+            <BusinessFinanceDashboardPanel financeDashboard={financeDashboardState} />
           </div>
         )}
         
@@ -512,7 +775,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
               manufacturing={manufacturing}
               inventory={inventory}
               shelfItems={activeShelfItems}
-              employees={employees}
+              employees={employeesForView}
             />
             {isStoreBusiness && (
               <div style={{ display: "grid", gap: 16, marginBottom: 16 }}>
@@ -894,7 +1157,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
               </div>
             </div>
 
-            <BusinessEmployeesDashboard business={business} employees={employees} />
+            <BusinessEmployeesDashboard business={business} employees={employeesForView} />
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
@@ -1143,7 +1406,7 @@ export default function BusinessDetailsClient({ business, production, manufactur
                   Active Capital Project
                 </div>
                 <div style={{ fontWeight: 600 }}>
-                  {upgradeDefinitions.find((definition) => definition.upgrade_key === activeUpgradeProject.upgrade_key)?.display_name ?? formatLabel(activeUpgradeProject.upgrade_key)}
+                  {upgradeDefinitionsState.find((definition) => definition.upgrade_key === activeUpgradeProject.upgrade_key)?.display_name ?? formatLabel(activeUpgradeProject.upgrade_key)}
                   {" "}Lv.{activeUpgradeProject.target_level}
                 </div>
                 <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginTop: 4 }}>
@@ -1151,9 +1414,9 @@ export default function BusinessDetailsClient({ business, production, manufactur
                 </div>
               </div>
             )}
-            {upgradeDefinitions.length > 0 ? (
+            {upgradeDefinitionsState.length > 0 ? (
               <div style={{ display: "grid", gap: 12 }}>
-                {upgradeDefinitions.map((def) => {
+                {upgradeDefinitionsState.map((def) => {
                   const currentUpgrade = upgrades.find((u) => u.upgrade_key === def.upgrade_key);
                   const currentLevel = currentUpgrade?.level || 0;
                   const preview = calculateUpgradePreview(def, { upgradeKey: def.upgrade_key, currentLevel });

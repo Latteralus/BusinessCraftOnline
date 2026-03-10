@@ -1,18 +1,18 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NPC_PRICE_CEILINGS } from "@/config/items";
 import { formatMarketTransactionLine } from "@/domains/market/feed";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency } from "@/lib/formatters";
 import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
-import { fetchMarketPageData, queryKeys, type MarketPageData } from "@/lib/client/queries";
+import type { MarketPageData } from "@/lib/client/queries";
 import { formatItemKey } from "@/lib/items";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
+import { useMarketSlice } from "@/stores/game-store";
 
 type Props = {
   initialData: MarketPageData;
@@ -131,16 +131,10 @@ function formatTimestamp(value: string) {
 }
 
 export default function MarketClient({ initialData }: Props) {
-  const queryClient = useQueryClient();
-  const marketPageQuery = useQuery({
-    queryKey: queryKeys.marketPage,
-    queryFn: fetchMarketPageData,
-    initialData,
-  });
-
-  const businesses = marketPageQuery.data.businesses;
-  const listings = marketPageQuery.data.listings;
-  const transactions = marketPageQuery.data.transactions;
+  const market = useMarketSlice();
+  const businesses = market.businesses;
+  const listings = market.listings;
+  const transactions = market.transactions;
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -237,16 +231,6 @@ export default function MarketClient({ initialData }: Props) {
       .slice(0, 5);
   }, [activeListings]);
 
-  async function refreshMarketData() {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.marketPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.bankingPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.inventoryPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.appShell }),
-    ]);
-  }
-
   async function createListing() {
     if (!sourceBusinessId || busy) return;
     setBusy(true);
@@ -257,7 +241,6 @@ export default function MarketClient({ initialData }: Props) {
         { sourceBusinessId, itemKey, quality, quantity, unitPrice },
         { fallbackError: "Failed to create listing." }
       );
-      await refreshMarketData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create listing.");
     } finally {
@@ -271,7 +254,6 @@ export default function MarketClient({ initialData }: Props) {
     setError(null);
     try {
       await apiPost(apiRoutes.market.cancel(listingId), undefined, { fallbackError: "Failed to cancel listing." });
-      await refreshMarketData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to cancel listing.");
     } finally {
@@ -293,7 +275,6 @@ export default function MarketClient({ initialData }: Props) {
         },
         { fallbackError: "Failed to buy listing." }
       );
-      await refreshMarketData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to buy listing.");
     } finally {
@@ -334,9 +315,7 @@ export default function MarketClient({ initialData }: Props) {
             </div>
           </div>
           <div style={{ display: "grid", gap: 8, minWidth: 220 }}>
-            <StatusBadge tone={marketPageQuery.isFetching ? "warn" : "good"}>
-              {marketPageQuery.isFetching ? "Refreshing Floor" : "Market Live"}
-            </StatusBadge>
+            <StatusBadge tone={busy ? "warn" : "good"}>{busy ? "Order Processing" : "Market Live"}</StatusBadge>
             <StatusBadge tone={busy ? "warn" : "neutral"}>{busy ? "Order Processing" : "Ready For Trade"}</StatusBadge>
             <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
               {activeListings.length} active listings across {listingSummary.distinctItems} item classes

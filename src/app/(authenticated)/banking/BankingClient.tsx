@@ -1,15 +1,15 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BANK_ACCOUNT_LABELS } from "@/domains/banking";
 import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
-import { fetchBankingPageData, queryKeys, type BankingPageData } from "@/lib/client/queries";
+import type { BankingPageData } from "@/lib/client/queries";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
+import { useBankingSlice } from "@/stores/game-store";
 
 type Props = {
   initialData: BankingPageData;
@@ -121,18 +121,13 @@ function formatTransactionType(value: string) {
 }
 
 export default function BankingClient({ initialData }: Props) {
-  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const bankingPageQuery = useQuery({
-    queryKey: queryKeys.bankingPage,
-    queryFn: fetchBankingPageData,
-    initialData,
-  });
-  const accounts = bankingPageQuery.data.accounts;
-  const loanData = bankingPageQuery.data.loanData;
-  const transactions = bankingPageQuery.data.transactions;
-  const businesses = bankingPageQuery.data.businesses;
+  const banking = useBankingSlice();
+  const accounts = banking.accounts;
+  const loanData = banking.loanData ?? initialData.loanData;
+  const transactions = banking.transactions;
+  const businesses = banking.businesses;
 
   const checking = initialData.accounts.find((account) => account.account_type === "checking");
   const [fromAccountId, setFromAccountId] = useState(checking?.id ?? "");
@@ -194,16 +189,6 @@ export default function BankingClient({ initialData }: Props) {
     setSuccess(null);
   }
 
-  async function refreshBankingData() {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.bankingPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.inventoryPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.marketPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.appShell }),
-    ]);
-  }
-
   async function submitTransfer() {
     if (transferSubmitting) return;
     setTransferSubmitting(true);
@@ -212,7 +197,6 @@ export default function BankingClient({ initialData }: Props) {
       await apiPost(apiRoutes.banking.transfer, { fromAccountId, toAccountId, amount: Number(transferAmount) }, { fallbackError: "Transfer failed." });
       setTransferAmount("");
       setSuccess("Personal account transfer completed.");
-      await refreshBankingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transfer failed.");
     } finally {
@@ -241,7 +225,6 @@ export default function BankingClient({ initialData }: Props) {
           ? "Funds moved from personal banking into the business."
           : "Funds moved from the business back into personal banking."
       );
-      await refreshBankingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transfer failed.");
     } finally {
@@ -265,7 +248,6 @@ export default function BankingClient({ initialData }: Props) {
       );
       setOwnedBusinessAmount("");
       setSuccess("Funds reallocated between owned businesses.");
-      await refreshBankingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transfer failed.");
     } finally {
@@ -281,7 +263,6 @@ export default function BankingClient({ initialData }: Props) {
       await apiPost(apiRoutes.banking.loan, { principal: Number(loanPrincipal) }, { fallbackError: "Loan application failed." });
       setLoanPrincipal("");
       setSuccess("Loan application approved and deposited.");
-      await refreshBankingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Loan application failed.");
     } finally {
@@ -301,7 +282,6 @@ export default function BankingClient({ initialData }: Props) {
       );
       setPaymentAmount("");
       setSuccess("Loan payment submitted from checking.");
-      await refreshBankingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Loan payment failed.");
     } finally {
@@ -342,9 +322,7 @@ export default function BankingClient({ initialData }: Props) {
             </div>
           </div>
           <div style={{ display: "grid", gap: 8, minWidth: 220 }}>
-            <StatusBadge tone={bankingPageQuery.isFetching ? "warn" : "good"}>
-              {bankingPageQuery.isFetching ? "Refreshing Banking" : "Banking Live"}
-            </StatusBadge>
+            <StatusBadge tone={allBusy ? "warn" : "good"}>{allBusy ? "Banking Update Pending" : "Banking Live"}</StatusBadge>
             <StatusBadge tone={loanSummary ? (loanSummary.isPaymentOverdue ? "bad" : "warn") : "neutral"}>
               {loanSummary ? (loanSummary.isPaymentOverdue ? "Payment Overdue" : "Loan Active") : "No Active Loan"}
             </StatusBadge>

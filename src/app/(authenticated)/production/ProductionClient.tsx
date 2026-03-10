@@ -1,12 +1,12 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ManufacturingStatusView } from "@/domains/production";
 import { apiGet } from "@/lib/client/api";
-import { fetchProductionPageData, queryKeys, type ProductionPageData } from "@/lib/client/queries";
+import type { ProductionPageData } from "@/lib/client/queries";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useGameStore, useProductionSlice } from "@/stores/game-store";
 
 type Props = {
   initialData: ProductionPageData;
@@ -15,29 +15,19 @@ type Props = {
 type ManufacturingResponse = { status: ManufacturingStatusView; error?: string };
 
 export default function ProductionClient({ initialData }: Props) {
-  const queryClient = useQueryClient();
-  const [selectedBusinessId, setSelectedBusinessId] = useState(initialData.selectedBusinessId);
+  const production = useProductionSlice();
+  const setProduction = useGameStore((state) => state.setProduction);
+  const patchProduction = useGameStore((state) => state.patchProduction);
+  const businesses = production.businesses.length > 0 ? production.businesses : initialData.businesses;
+  const [selectedBusinessId, setSelectedBusinessId] = useState(production.selectedBusinessId || initialData.selectedBusinessId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const productionPageQuery = useQuery({
-    queryKey: queryKeys.productionPage,
-    queryFn: fetchProductionPageData,
-    initialData,
-  });
-  const businesses = productionPageQuery.data.businesses;
-  const manufacturingStatusQuery = useQuery({
-    queryKey: queryKeys.productionStatus(selectedBusinessId || "none"),
-    queryFn: async () => {
-      const payload = await apiGet<ManufacturingResponse>(`/api/production/manufacturing?businessId=${selectedBusinessId}`, {
-        fallbackError: "Failed to load manufacturing status.",
-      });
-      return payload.status;
-    },
-    enabled: Boolean(selectedBusinessId),
-    initialData: selectedBusinessId === initialData.selectedBusinessId ? initialData.manufacturing ?? undefined : undefined,
-    refetchInterval: selectedBusinessId ? 15_000 : false,
-  });
-  const manufacturing = selectedBusinessId ? manufacturingStatusQuery.data ?? null : null;
+  const manufacturing =
+    selectedBusinessId === production.selectedBusinessId
+      ? production.manufacturing
+      : selectedBusinessId === initialData.selectedBusinessId
+        ? initialData.manufacturing
+        : null;
 
   const manufacturingBusinesses = useMemo(
     () =>
@@ -46,6 +36,17 @@ export default function ProductionClient({ initialData }: Props) {
       ),
     [businesses]
   );
+
+  async function loadBusinessStatus(businessId: string) {
+    const payload = await apiGet<ManufacturingResponse>(`/api/production/manufacturing?businessId=${businessId}`, {
+      fallbackError: "Failed to load manufacturing status.",
+    });
+    setProduction({
+      businesses,
+      selectedBusinessId: businessId,
+      manufacturing: payload.status,
+    });
+  }
 
   async function setRecipe(lineId: string, recipeKey: string) {
     if (!lineId || !recipeKey || busy) return;
@@ -62,8 +63,7 @@ export default function ProductionClient({ initialData }: Props) {
       setError(payload.error ?? "Failed to set recipe.");
       return;
     }
-    queryClient.setQueryData(queryKeys.productionStatus(selectedBusinessId), payload.status);
-    void queryClient.invalidateQueries({ queryKey: queryKeys.productionPage });
+    patchProduction({ selectedBusinessId, manufacturing: payload.status });
   }
 
   async function setRunning(lineId: string, action: "start" | "stop") {
@@ -81,8 +81,7 @@ export default function ProductionClient({ initialData }: Props) {
       setError(payload.error ?? `Failed to ${action} manufacturing.`);
       return;
     }
-    queryClient.setQueryData(queryKeys.productionStatus(selectedBusinessId), payload.status);
-    void queryClient.invalidateQueries({ queryKey: queryKeys.productionPage });
+    patchProduction({ selectedBusinessId, manufacturing: payload.status });
   }
 
   return (
@@ -97,7 +96,7 @@ export default function ProductionClient({ initialData }: Props) {
         </div>
       </header>
 
-      {productionPageQuery.isFetching || manufacturingStatusQuery.isFetching ? <p>Refreshing production data...</p> : null}
+      {busy ? <p>Refreshing production data...</p> : null}
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
 
       <section>
@@ -110,15 +109,9 @@ export default function ProductionClient({ initialData }: Props) {
               const nextBusinessId = event.target.value;
               setSelectedBusinessId(nextBusinessId);
               if (nextBusinessId) {
-                void queryClient.prefetchQuery({
-                  queryKey: queryKeys.productionStatus(nextBusinessId),
-                  queryFn: async () => {
-                    const payload = await apiGet<ManufacturingResponse>(`/api/production/manufacturing?businessId=${nextBusinessId}`, {
-                      fallbackError: "Failed to load manufacturing status.",
-                    });
-                    return payload.status;
-                  },
-                }).catch((err) => setError(err instanceof Error ? err.message : "Failed to load manufacturing status."));
+                void loadBusinessStatus(nextBusinessId).catch((err) =>
+                  setError(err instanceof Error ? err.message : "Failed to load manufacturing status.")
+                );
               }
             }}
             title="Business"

@@ -1,15 +1,15 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { OnlinePlayerPreview } from "@/domains/auth-character";
 import type { ChatMessage } from "@/domains/chat";
 import { formatCurrency } from "@/lib/formatters";
 import { apiPost } from "@/lib/client/api";
-import { fetchAppShell, fetchChatMessages, queryKeys, type AppShellData } from "@/lib/client/queries";
+import { fetchChatMessages } from "@/lib/client/queries";
+import { runOptimisticUpdate } from "@/stores/optimistic";
+import { useAppShellSlice, useChatSlice, useGameStore, usePlayerSlice } from "@/stores/game-store";
 
 const CHAT_MESSAGE_LIMIT = 50;
 const CHAT_LAST_VIEWED_STORAGE_KEY = "lco-chat-last-viewed-at";
@@ -42,37 +42,20 @@ function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[]) {
     .slice(-CHAT_MESSAGE_LIMIT);
 }
 
-interface TopbarProps {
-  initials?: string;
-  firstName?: string;
-  lastName?: string;
-  initialAppShell?: AppShellData;
-}
-
-export function Topbar({
-  initials,
-  firstName,
-  lastName,
-  initialAppShell,
-}: TopbarProps) {
+export function Topbar() {
   const pathname = usePathname();
-  const queryClient = useQueryClient();
-  const [identity, setIdentity] = useState(() => ({
-    initials: initials ?? "··",
-    firstName: firstName ?? "",
-    lastName: lastName ?? "",
-    loaded: Boolean(initials && firstName && lastName),
-  }));
-  const [playerCount, setPlayerCount] = useState<number | null>(initialAppShell?.playerCount ?? null);
-  const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayerPreview[]>(initialAppShell?.onlinePlayers ?? []);
-  const [notificationsCount, setNotificationsCount] = useState<number | null>(initialAppShell?.notificationsCount ?? null);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const identity = usePlayerSlice();
+  const appShell = useAppShellSlice();
+  const chatMessages = useChatSlice();
+  const patchChat = useGameStore((state) => state.patchChat);
+  const setChat = useGameStore((state) => state.setChat);
+  const removeChatMessage = useGameStore((state) => state.removeChatMessage);
+  const patchAppShell = useGameStore((state) => state.patchAppShell);
   const [chatInput, setChatInput] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(true);
   const [isSendingChat, setIsSendingChat] = useState(false);
-  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const [isOnlineListOpen, setIsOnlineListOpen] = useState(false);
   const onlineListRef = useRef<HTMLDivElement | null>(null);
   const chatRef = useRef<HTMLDivElement | null>(null);
@@ -87,21 +70,15 @@ export function Topbar({
     return window.localStorage.getItem(CHAT_LAST_VIEWED_STORAGE_KEY);
   });
   const lastViewedChatAtRef = useRef<string | null>(lastViewedChatAt);
-
-  const appShellQuery = useQuery({
-    queryKey: queryKeys.appShell,
-    queryFn: fetchAppShell,
-    initialData: initialAppShell,
-    refetchInterval: 3 * 60_000,
-    staleTime: 2 * 60_000,
-  });
-
-  const chatQuery = useQuery({
-    queryKey: queryKeys.chatMessages,
-    queryFn: fetchChatMessages,
-    refetchInterval: isRealtimeConnected ? false : 60_000,
-    staleTime: 10_000,
-  });
+  const playerCount = appShell.playerCount;
+  const onlinePlayers = appShell.onlinePlayers as OnlinePlayerPreview[];
+  const notificationsCount = appShell.notificationsCount;
+  const isRealtimeConnected = appShell.connectionStatus === "connected";
+  const identityLoaded = Boolean(identity.playerId && identity.firstName && identity.lastName);
+  const chatUnreadCount =
+    !isChatOpen && lastViewedChatAt
+      ? chatMessages.filter((message) => new Date(message.created_at).getTime() > new Date(lastViewedChatAt).getTime()).length
+      : 0;
 
   function getLatestChatTimestamp(messages: ChatMessage[]) {
     return messages[messages.length - 1]?.created_at ?? null;
@@ -123,62 +100,58 @@ export function Topbar({
   }
 
   function applyIncomingMessages(incoming: ChatMessage[]) {
-    setChatMessages((current) => {
-      const merged = mergeChatMessages(current, incoming);
-      const latestMergedTimestamp = getLatestChatTimestamp(merged);
-
-      if (!hasInitializedChatRef.current) {
-        hasInitializedChatRef.current = true;
-        if (!lastViewedChatAtRef.current) {
-          markChatViewed(latestMergedTimestamp);
-        }
-        return merged;
-      }
-
-      if (isChatOpenRef.current) {
+    const latestMergedTimestamp = getLatestChatTimestamp(incoming);
+    if (!hasInitializedChatRef.current) {
+      hasInitializedChatRef.current = true;
+      if (!lastViewedChatAtRef.current) {
         markChatViewed(latestMergedTimestamp);
-        return merged;
       }
+      return;
+    }
 
-      return merged;
-    });
+    if (isChatOpenRef.current) {
+      markChatViewed(latestMergedTimestamp);
+    }
   }
 
   useEffect(() => {
-    setIdentity({
-      initials: initials ?? "··",
-      firstName: firstName ?? "",
-      lastName: lastName ?? "",
-      loaded: Boolean(initials && firstName && lastName),
-    });
-  }, [firstName, initials, lastName]);
-
-  useEffect(() => {
-    if (!appShellQuery.data) {
-      return;
-    }
-
-    setPlayerCount(appShellQuery.data.playerCount ?? 0);
-    setOnlinePlayers((appShellQuery.data.onlinePlayers ?? []) as OnlinePlayerPreview[]);
-    setNotificationsCount(appShellQuery.data.notificationsCount ?? 0);
-  }, [appShellQuery.data]);
-
-  useEffect(() => {
-    if (chatQuery.isPending) {
-      setIsChatLoading(true);
-      return;
-    }
-
-    if (chatQuery.error) {
-      setChatError(chatQuery.error instanceof Error ? chatQuery.error.message : "Failed to load chat.");
+    if (chatMessages.length > 0) {
+      applyIncomingMessages(chatMessages);
       setIsChatLoading(false);
       return;
     }
 
-    applyIncomingMessages(chatQuery.data?.messages ?? []);
-    setChatError(null);
-    setIsChatLoading(false);
-  }, [chatQuery.data, chatQuery.error, chatQuery.isPending]);
+    let cancelled = false;
+    setIsChatLoading(true);
+    void fetchChatMessages()
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+        const messages = data.messages ?? [];
+        setChat(messages);
+        applyIncomingMessages(messages);
+        setChatError(null);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setChatError(error instanceof Error ? error.message : "Failed to load chat.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsChatLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chatMessages.length, setChat]);
+
+  useEffect(() => {
+    patchAppShell({ unreadChatCount: chatUnreadCount });
+  }, [chatUnreadCount, patchAppShell]);
 
   useEffect(() => {
     const heartbeat = window.setInterval(() => {
@@ -194,98 +167,6 @@ export function Topbar({
       markChatViewed(getLatestChatTimestamp(chatMessages));
     }
   }, [chatMessages, isChatOpen]);
-
-  const chatUnreadCount =
-    !isChatOpen && lastViewedChatAt
-      ? chatMessages.filter((message) => new Date(message.created_at).getTime() > new Date(lastViewedChatAt).getTime()).length
-      : 0;
-
-  useEffect(() => {
-    let isCancelled = false;
-    let removeChannel: (() => void) | null = null;
-
-    async function connectChatRealtime() {
-      setIsRealtimeConnected(false);
-
-      try {
-        const response = await fetch("/api/realtime-auth");
-        const payload = (await response.json().catch(() => null)) as
-          | { token?: string; error?: string }
-          | null;
-
-        if (!response.ok || !payload?.token || isCancelled) {
-          return;
-        }
-
-        const supabase = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
-          {
-            auth: {
-              persistSession: false,
-              autoRefreshToken: false,
-            },
-            global: {
-              headers: {
-                Authorization: `Bearer ${payload.token}`,
-              },
-            },
-          }
-        );
-
-        supabase.realtime.setAuth(payload.token);
-
-        const channel = supabase
-          .channel(`global-chat-${Date.now()}`)
-          .on(
-            "postgres_changes",
-            {
-              event: "INSERT",
-              schema: "public",
-              table: "chat_messages",
-            },
-            (change) => {
-              const message = change.new as ChatMessage;
-              queryClient.setQueryData(queryKeys.chatMessages, (current: { messages?: ChatMessage[] } | undefined) => ({
-                messages: mergeChatMessages(current?.messages ?? [], [message]),
-              }));
-              applyIncomingMessages([message]);
-              setChatError(null);
-              setIsChatLoading(false);
-            }
-          )
-          .subscribe((status) => {
-            if (isCancelled) {
-              return;
-            }
-
-            const connected = status === "SUBSCRIBED";
-            setIsRealtimeConnected(connected);
-
-            if (connected) {
-              void queryClient.invalidateQueries({ queryKey: queryKeys.chatMessages });
-            }
-          });
-
-        removeChannel = () => {
-          setIsRealtimeConnected(false);
-          void supabase.removeChannel(channel);
-        };
-      } catch {
-        if (!isCancelled) {
-          setIsRealtimeConnected(false);
-        }
-      }
-    }
-
-    void connectChatRealtime();
-
-    return () => {
-      isCancelled = true;
-      setIsRealtimeConnected(false);
-      removeChannel?.();
-    };
-  }, [queryClient]);
 
   useEffect(() => {
     if (!isChatOpen) {
@@ -323,29 +204,6 @@ export function Topbar({
     };
   }, []);
 
-  const sendChatMutation = useMutation({
-    mutationFn: async (message: string) =>
-      apiPost<{ message?: ChatMessage; error?: string }>("/api/chat", { message }, { fallbackError: "Failed to send chat message." }),
-    onMutate: () => {
-      setIsSendingChat(true);
-      setChatError(null);
-    },
-    onSuccess: (payload) => {
-      if (payload.message) {
-        queryClient.setQueryData(queryKeys.chatMessages, (current: { messages?: ChatMessage[] } | undefined) => ({
-          messages: mergeChatMessages(current?.messages ?? [], [payload.message as ChatMessage]),
-        }));
-      }
-      setChatInput("");
-    },
-    onError: (error) => {
-      setChatError(error instanceof Error ? error.message : "Failed to send chat message.");
-    },
-    onSettled: () => {
-      setIsSendingChat(false);
-    },
-  });
-
   async function handleSendChatMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const message = chatInput.trim();
@@ -354,7 +212,34 @@ export function Topbar({
       return;
     }
 
-    await sendChatMutation.mutateAsync(message);
+    const optimisticMessage: ChatMessage = {
+      id: `optimistic-${Date.now()}`,
+      player_id: identity.playerId ?? "me",
+      character_first_name: identity.firstName || "You",
+      message,
+      created_at: new Date().toISOString(),
+    };
+
+    setIsSendingChat(true);
+    setChatError(null);
+
+    try {
+      await runOptimisticUpdate("chat", () => {
+        patchChat(optimisticMessage);
+      }, async () => {
+        const payload = await apiPost<{ message?: ChatMessage; error?: string }>("/api/chat", { message }, { fallbackError: "Failed to send chat message." });
+        removeChatMessage(optimisticMessage.id);
+        if (payload.message) {
+          patchChat(payload.message);
+        }
+        return payload;
+      });
+      setChatInput("");
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "Failed to send chat message.");
+    } finally {
+      setIsSendingChat(false);
+    }
   }
 
   return (
@@ -466,20 +351,20 @@ export function Topbar({
               </form>
               <div className="chat-footer">
                 <span>{chatInput.trim().length}/280</span>
-                <span>{chatError ?? "Live updates enabled"}</span>
+                <span>{chatError ?? (isRealtimeConnected ? "Live updates enabled" : "Fallback polling active")}</span>
               </div>
             </div>
           ) : null}
         </div>
         <div className="icon-btn" title="Storefront alerts">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-          {(notificationsCount ?? 0) > 0 ? <div className="notif-badge">{notificationsCount}</div> : null}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+            {(notificationsCount ?? 0) > 0 ? <div className="notif-badge">{notificationsCount}</div> : null}
         </div>
-        <div className={`avatar-btn ${identity.loaded ? "" : "avatar-btn-loading"}`.trim()}>
+        <div className={`avatar-btn ${identityLoaded ? "" : "avatar-btn-loading"}`.trim()}>
           <div className="avatar-circle">{identity.initials}</div>
           <div className="avatar-info">
             <div className="avatar-name">
-              {identity.loaded ? `${identity.firstName} ${identity.lastName}` : "Loading profile"}
+              {identityLoaded ? `${identity.firstName} ${identity.lastName}` : "Loading profile"}
             </div>
             <div className="avatar-level">Active operator</div>
           </div>

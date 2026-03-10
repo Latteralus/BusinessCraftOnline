@@ -2,6 +2,7 @@ import { getCharacter, updateCharacterCity } from "@/domains/auth-character";
 import { completeTravel, getActiveTravel, getCities, getCityById } from "@/domains/cities-travel";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
+import { GameHydrationProvider } from "@/providers/game-hydration-provider";
 import TravelClient from "./TravelClient";
 
 function hasArrived(isoDate: string) {
@@ -40,13 +41,23 @@ export default async function TravelPage() {
     : null;
 
   return (
-    <TravelClient
-      cities={cities}
-      travelState={{
-        currentCity,
-        activeTravel,
-        canPurchaseBusiness: !activeTravel,
+    <GameHydrationProvider
+      initialData={{
+        travel: {
+          currentCity,
+          activeTravel,
+          canPurchaseBusiness: !activeTravel,
+        },
       }}
-    />
+    >
+      <TravelClient
+        cities={cities}
+        travelState={{
+          currentCity,
+          activeTravel,
+          canPurchaseBusiness: !activeTravel,
+        }}
+      />
+    </GameHydrationProvider>
   );
 }

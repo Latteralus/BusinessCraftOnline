@@ -1,15 +1,15 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { EMPLOYEE_TYPES } from "@/config/employees";
 import type { Employee, EmployeeRole, EmployeeSummary, EmployeeType } from "@/domains/employees";
 import { apiDelete, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
-import { fetchEmployeesPageData, queryKeys, type EmployeesPageData } from "@/lib/client/queries";
+import type { EmployeesPageData } from "@/lib/client/queries";
 import { formatNullableDateTime } from "@/lib/formatters";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useEmployeesSlice } from "@/stores/game-store";
 
 type Business = { id: string; name: string };
 type Props = {
@@ -20,15 +20,10 @@ const FIRST_NAMES = ["James", "John", "Robert", "Michael", "William", "David", "
 const LAST_NAMES = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin", "Lee", "Perez", "Thompson", "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson"];
 
 export default function EmployeesClient({ initialData }: Props) {
-  const queryClient = useQueryClient();
-  const employeesPageQuery = useQuery({
-    queryKey: queryKeys.employeesPage,
-    queryFn: fetchEmployeesPageData,
-    initialData,
-  });
-  const employees = employeesPageQuery.data.employees;
-  const summary = employeesPageQuery.data.summary;
-  const businesses = employeesPageQuery.data.businesses as Business[];
+  const employeesSlice = useEmployeesSlice();
+  const employees = employeesSlice.employees;
+  const summary = employeesSlice.summary as EmployeeSummary | null;
+  const businesses = employeesSlice.businesses as Business[];
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [employeeType, setEmployeeType] = useState<EmployeeType>("temp");
@@ -71,14 +66,6 @@ export default function EmployeesClient({ initialData }: Props) {
     }
   }, [assignBusinessId, assignEmployeeId, assignableBusinesses]);
 
-  async function refreshEmployeesData() {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.employeesPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.productionPage }),
-    ]);
-  }
-
   async function submitHire() {
     if (hiring) return;
     setHiring(true);
@@ -100,7 +87,6 @@ export default function EmployeesClient({ initialData }: Props) {
       );
       setSpecialtySkillKey("");
       setSuccess("Employee hired successfully.");
-      await refreshEmployeesData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to hire employee.");
     } finally {
@@ -122,7 +108,6 @@ export default function EmployeesClient({ initialData }: Props) {
       setSuccess("Employee assigned successfully.");
       setAssignEmployeeId("");
       setAssignBusinessId("");
-      await refreshEmployeesData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to assign employee.");
     } finally {
@@ -136,7 +121,6 @@ export default function EmployeesClient({ initialData }: Props) {
     try {
       await apiPost(apiRoutes.employees.reactivate, { employeeId }, { fallbackError: "Failed to reactivate employee." });
       setSuccess("Employee re-activated.");
-      await refreshEmployeesData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reactivate employee.");
     }
@@ -148,7 +132,6 @@ export default function EmployeesClient({ initialData }: Props) {
     try {
       await apiPost(apiRoutes.employees.unassign, { employeeId }, { fallbackError: "Failed to unassign employee." });
       setSuccess("Employee unassigned.");
-      await refreshEmployeesData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to unassign employee.");
     }
@@ -160,7 +143,6 @@ export default function EmployeesClient({ initialData }: Props) {
     try {
       await apiDelete(apiRoutes.employees.detail(employeeId), undefined, { fallbackError: "Failed to fire employee." });
       setSuccess("Employee fired.");
-      await refreshEmployeesData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fire employee.");
     }
@@ -178,7 +160,7 @@ export default function EmployeesClient({ initialData }: Props) {
         </div>
       </header>
 
-      {employeesPageQuery.isFetching ? <p>Refreshing employees...</p> : null}
+      {hiring || assigning ? <p>Updating employees...</p> : null}
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
       {success ? <p style={{ color: "#34d399" }}>{success}</p> : null}
 

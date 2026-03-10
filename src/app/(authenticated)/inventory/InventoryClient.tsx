@@ -1,10 +1,9 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NPC_PRICE_CEILINGS } from "@/config/items";
 import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
-import { fetchInventoryPageData, queryKeys, type InventoryPageData } from "@/lib/client/queries";
+import type { InventoryPageData } from "@/lib/client/queries";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
@@ -12,6 +11,7 @@ import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
+import { useInventorySlice } from "@/stores/game-store";
 
 type Props = {
   initialData: InventoryPageData;
@@ -162,15 +162,10 @@ function InventoryRowCard(props: {
 }
 
 export default function InventoryClient({ initialData }: Props) {
-  const queryClient = useQueryClient();
   const availableItemKeys = Object.keys(NPC_PRICE_CEILINGS);
-  const inventoryPageQuery = useQuery({
-    queryKey: queryKeys.inventoryPage,
-    queryFn: fetchInventoryPageData,
-    initialData,
-  });
+  const inventory = useInventorySlice();
   const { personalInventory, businessInventory, shippingQueue, accounts, businesses, businessNamesById, cityNamesById } =
-    inventoryPageQuery.data;
+    inventory;
 
   const [sourceType, setSourceType] = useState<"personal" | "business">("personal");
   const [sourceBusinessId, setSourceBusinessId] = useState(initialData.businesses[0]?.id ?? "");
@@ -395,12 +390,6 @@ export default function InventoryClient({ initialData }: Props) {
           : "Transfer completed instantly."
       );
 
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.inventoryPage }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.bankingPage }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.marketPage }),
-      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transfer failed.");
     } finally {
@@ -441,9 +430,7 @@ export default function InventoryClient({ initialData }: Props) {
             </div>
           </div>
           <div style={{ display: "grid", gap: 8, minWidth: 220 }}>
-            <StatusBadge tone={inventoryPageQuery.isFetching ? "warn" : "good"}>
-              {inventoryPageQuery.isFetching ? "Refreshing Inventory" : "Inventory Live"}
-            </StatusBadge>
+            <StatusBadge tone={submitting ? "warn" : "good"}>{submitting ? "Transfer Pending" : "Inventory Live"}</StatusBadge>
             <StatusBadge tone={submitting ? "warn" : "neutral"}>
               {submitting ? "Transfer In Flight" : routeMode}
             </StatusBadge>

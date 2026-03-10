@@ -1,13 +1,14 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NPC_PRICE_CEILINGS } from "@/config/items";
 import type { Contract, ContractStatus } from "@/domains/contracts";
 import { formatCurrency } from "@/lib/formatters";
 import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
-import { fetchContractsPageData, queryKeys, type ContractsPageData } from "@/lib/client/queries";
+import type { ContractsPageData } from "@/lib/client/queries";
 import { formatItemKey } from "@/lib/items";
+import { useBusinessesSlice, useContractsSlice, useGameStore } from "@/stores/game-store";
+import { runOptimisticUpdate } from "@/stores/optimistic";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
@@ -116,14 +117,10 @@ function formatTimestamp(value: string | null) {
 }
 
 export default function ContractsClient({ initialData }: Props) {
-  const queryClient = useQueryClient();
-  const contractsPageQuery = useQuery({
-    queryKey: queryKeys.contractsPage,
-    queryFn: fetchContractsPageData,
-    initialData,
-  });
-  const businesses = contractsPageQuery.data.businesses;
-  const contracts = contractsPageQuery.data.contracts;
+  const businesses = useBusinessesSlice();
+  const contracts = useContractsSlice();
+  const patchContract = useGameStore((state) => state.patchContracts);
+  const removeContract = useGameStore((state) => state.removeContract);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [businessId, setBusinessId] = useState(initialData.businesses[0]?.id ?? "");
@@ -160,27 +157,47 @@ export default function ContractsClient({ initialData }: Props) {
     };
   }, [contracts]);
 
-  async function refreshContractsData() {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.contractsPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.inventoryPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.marketPage }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.bankingPage }),
-    ]);
-  }
-
   async function createContract() {
     if (!businessId || busy) return;
     setBusy(true);
     setError(null);
+    const optimisticId = `optimistic-contract-${Date.now()}`;
     try {
-      await apiPost(
-        apiRoutes.contracts.root,
-        { businessId, title: title.trim(), itemKey, requiredQuantity, unitPrice },
-        { fallbackError: "Failed to create contract." }
-      );
-      await refreshContractsData();
+      await runOptimisticUpdate("contracts", () => {
+        patchContract({
+          id: optimisticId,
+          owner_player_id: "",
+          business_id: businessId,
+          title: title.trim(),
+          item_key: itemKey,
+          required_quantity: requiredQuantity,
+          delivered_quantity: 0,
+          unit_price: unitPrice,
+          status: "open",
+          notes: null,
+          accepted_at: null,
+          due_at: null,
+          expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+          completed_at: null,
+          cancelled_at: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }, async () => {
+        const payload = await apiPost<{ contract?: Contract }>(
+          apiRoutes.contracts.root,
+          { businessId, title: title.trim(), itemKey, requiredQuantity, unitPrice },
+          { fallbackError: "Failed to create contract." }
+        );
+        removeContract(optimisticId);
+        if (payload.contract) {
+          patchContract(payload.contract);
+        }
+        return payload;
+      });
+      setTitle("");
+      setRequiredQuantity(1);
+      setUnitPrice(0.01);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create contract.");
     } finally {
@@ -199,8 +216,47 @@ export default function ContractsClient({ initialData }: Props) {
           : kind === "cancel"
             ? apiRoutes.contracts.cancel(contractId)
             : apiRoutes.contracts.fulfill(contractId);
-      await apiPost(path, undefined, { fallbackError: `Failed to ${kind} contract.` });
-      await refreshContractsData();
+      const existing = contracts.find((contract) => contract.id === contractId);
+      if (!existing) {
+        throw new Error("Contract not found.");
+      }
+
+      await runOptimisticUpdate("contracts", () => {
+        if (kind === "accept") {
+          patchContract({
+            id: contractId,
+            status: "accepted",
+            accepted_at: new Date().toISOString(),
+            due_at: existing.due_at ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+          return;
+        }
+
+        if (kind === "cancel") {
+          patchContract({
+            id: contractId,
+            status: "cancelled",
+            cancelled_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+          return;
+        }
+
+        patchContract({
+          id: contractId,
+          status: "fulfilled",
+          delivered_quantity: existing.required_quantity,
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }, async () => {
+        const payload = await apiPost<{ contract?: Contract }>(path, undefined, { fallbackError: `Failed to ${kind} contract.` });
+        if (payload.contract) {
+          patchContract(payload.contract);
+        }
+        return payload;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to ${kind} contract.`);
     } finally {
@@ -242,7 +298,7 @@ export default function ContractsClient({ initialData }: Props) {
           </div>
           <div style={{ display: "grid", gap: 8, minWidth: 220 }}>
             <div style={{ color: "#cbd5e1", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.18em" }}>Contract Status</div>
-            <StatusBadge status={contractsPageQuery.isFetching ? "accepted" : "fulfilled"} />
+            <StatusBadge status={busy ? "accepted" : "fulfilled"} />
             <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
               {summary.live} live agreements across {businesses.length} businesses
             </div>

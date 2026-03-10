@@ -2,15 +2,15 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { STARTUP_COSTS } from "@/config/businesses";
-import type { BusinessType } from "@/domains/businesses";
+import type { BusinessType, BusinessWithBalance } from "@/domains/businesses";
 import { apiPost } from "@/lib/client/api";
-import { fetchBusinessesPageData, queryKeys, type BusinessesPageData } from "@/lib/client/queries";
+import type { BusinessesPageData } from "@/lib/client/queries";
 import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency, formatDateTime, formatLabel } from "@/lib/formatters";
 import { BUSINESS_TYPE_LABELS } from "@/lib/businesses";
+import { useBusinessesSlice, useGameStore, useTravelSlice } from "@/stores/game-store";
 
 type Props = {
   initialData: BusinessesPageData;
@@ -132,19 +132,12 @@ function EmptyState(props: { children: ReactNode }) {
 }
 
 export default function BusinessesClient({ initialData }: Props) {
-  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const businessesPageQuery = useQuery({
-    queryKey: queryKeys.businessesPage,
-    queryFn: fetchBusinessesPageData,
-    initialData,
-  });
-
-  const businesses = businessesPageQuery.data.businesses;
-  const summary = businessesPageQuery.data.summary;
-  const cities = businessesPageQuery.data.cities;
-  const travelState = businessesPageQuery.data.travelState;
+  const businesses = useBusinessesSlice();
+  const travelState = useTravelSlice() ?? initialData.travelState;
+  const patchBusinesses = useGameStore((state) => state.patchBusinesses);
+  const cities = initialData.cities;
 
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<BusinessType>("farm");
@@ -164,20 +157,31 @@ export default function BusinessesClient({ initialData }: Props) {
   );
 
   const portfolioMetrics = useMemo(() => {
+    const totalBusinessBalance = businesses.reduce((sum, business) => sum + business.balance, 0);
+    const summary = {
+      totalBusinesses: businesses.length,
+      totalBusinessBalance,
+      producingTypesOwned: new Set(businesses.map((business) => business.type)).size,
+      topBusiness:
+        businesses.length > 0
+          ? [...businesses].sort((left, right) => right.balance - left.balance || right.value - left.value)[0]
+          : null,
+    };
     const totalValue = businesses.reduce((sum, business) => sum + business.value, 0);
     const profitableCount = businesses.filter((business) => business.balance >= STARTUP_COSTS[business.type]).length;
     const underfundedCount = businesses.filter((business) => business.balance < STARTUP_COSTS[business.type] * 0.5).length;
     const cityCount = new Set(businesses.map((business) => business.city_id)).size;
-    const averageBalance = businesses.length > 0 ? (summary?.totalBusinessBalance ?? 0) / businesses.length : 0;
+    const averageBalance = businesses.length > 0 ? summary.totalBusinessBalance / businesses.length : 0;
 
     return {
+      summary,
       totalValue,
       profitableCount,
       underfundedCount,
       cityCount,
       averageBalance,
     };
-  }, [businesses, summary?.totalBusinessBalance]);
+  }, [businesses]);
 
   const businessCards = useMemo(
     () =>
@@ -187,7 +191,10 @@ export default function BusinessesClient({ initialData }: Props) {
           const startupCost = STARTUP_COSTS[business.type];
           const cityLabel = cityById[business.city_id] ?? "Unknown city";
           const capitalCoverage = startupCost > 0 ? business.balance / startupCost : 0;
-          const portfolioShare = (summary?.totalBusinessBalance ?? 0) > 0 ? business.balance / (summary?.totalBusinessBalance ?? 0) : 0;
+          const portfolioShare =
+            portfolioMetrics.summary.totalBusinessBalance > 0
+              ? business.balance / portfolioMetrics.summary.totalBusinessBalance
+              : 0;
           const valuationDelta = business.value - startupCost;
           const healthTone: "good" | "warn" | "bad" = capitalCoverage >= 1 ? "good" : capitalCoverage >= 0.5 ? "warn" : "bad";
           const healthLabel =
@@ -204,8 +211,9 @@ export default function BusinessesClient({ initialData }: Props) {
             healthLabel,
           };
         }),
-    [businesses, cityById, summary?.totalBusinessBalance]
+    [businesses, cityById, portfolioMetrics.summary.totalBusinessBalance]
   );
+  const summary = portfolioMetrics.summary;
 
   async function submitCreateBusiness() {
     if (creating) return;
@@ -214,7 +222,7 @@ export default function BusinessesClient({ initialData }: Props) {
     setSuccess(null);
 
     try {
-      await apiPost(
+      const payload = await apiPost<{ business?: BusinessWithBalance }>(
         apiRoutes.businesses.root,
         {
           name: createName,
@@ -224,18 +232,11 @@ export default function BusinessesClient({ initialData }: Props) {
         { fallbackError: "Failed to create business." }
       );
 
+      if (payload.business) {
+        patchBusinesses(payload.business);
+      }
       setCreateName("");
       setSuccess("Business created successfully.");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.businessesPage }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.bankingPage }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.inventoryPage }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.marketPage }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.employeesPage }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.contractsPage }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.productionPage }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.appShell }),
-      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create business.");
     } finally {
@@ -276,9 +277,7 @@ export default function BusinessesClient({ initialData }: Props) {
             </div>
           </div>
           <div style={{ display: "grid", gap: 8, minWidth: 220 }}>
-            <StatusBadge tone={businessesPageQuery.isFetching ? "warn" : "good"}>
-              {businessesPageQuery.isFetching ? "Refreshing Portfolio" : "Portfolio Live"}
-            </StatusBadge>
+            <StatusBadge tone={creating ? "warn" : "good"}>{creating ? "Publishing Business" : "Portfolio Live"}</StatusBadge>
             <StatusBadge tone={travelState.activeTravel ? "warn" : travelState.canPurchaseBusiness ? "good" : "neutral"}>
               {travelState.activeTravel
                 ? "Travel In Progress"

@@ -12,6 +12,7 @@ import { getBusinessInventory } from "@/domains/inventory";
 import { getStoreShelfItems } from "@/domains/stores";
 import { getUpgradeDefinitionsForBusinessType, type BusinessType } from "@/domains/upgrades";
 import { formatBusinessType } from "@/lib/businesses";
+import { GameHydrationProvider } from "@/providers/game-hydration-provider";
 import { requireAuthedPageContext } from "../../server-data";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -88,20 +89,41 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
         </div>
       </div>
 
-      <BusinessDetailsClient 
-        business={business} 
-        production={production}
-        manufacturing={manufacturing}
-        inventory={inventory}
-        shelfItems={shelfItems}
-        upgrades={upgrades}
-        upgradeProjects={upgradeProjects}
-        employees={employees as any}
-        upgradeDefinitions={upgradeDefinitions}
-        financeDashboard={financeDashboard}
-        ownedBusinesses={ownedBusinesses}
-        initialTab={searchParams.tab}
-      />
+      <GameHydrationProvider
+        initialData={{
+          businesses: ownedBusinesses,
+          businessDetails: {
+            [business.id]: {
+              business,
+              production,
+              manufacturing,
+              inventory,
+              shelfItems,
+              upgrades,
+              upgradeProjects,
+              employees: employees as any,
+              financeDashboard,
+              ownedBusinesses,
+              upgradeDefinitions,
+            },
+          },
+        }}
+      >
+        <BusinessDetailsClient 
+          business={business} 
+          production={production}
+          manufacturing={manufacturing}
+          inventory={inventory}
+          shelfItems={shelfItems}
+          upgrades={upgrades}
+          upgradeProjects={upgradeProjects}
+          employees={employees as any}
+          upgradeDefinitions={upgradeDefinitions}
+          financeDashboard={financeDashboard}
+          ownedBusinesses={ownedBusinesses}
+          initialTab={searchParams.tab}
+        />
+      </GameHydrationProvider>
     </>
   );
 }

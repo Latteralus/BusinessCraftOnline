@@ -4,8 +4,8 @@ import type { City, TravelQuote, TravelState } from "@/domains/cities-travel";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { cancelTravelAction, getTravelQuoteAction, startTravelAction } from "./actions";
+import { useGameStore, useTravelSlice } from "@/stores/game-store";
 
 type Props = {
   cities: City[];
@@ -30,25 +30,24 @@ function getTravelCountdown(arrivesAt: string, nowMs: number) {
   return formatDuration(remaining);
 }
 
-export default function TravelClient({ cities, travelState }: Props) {
-  const router = useRouter();
+export default function TravelClient({ cities, travelState: initialTravelState }: Props) {
+  const storeTravelState = useTravelSlice() ?? initialTravelState;
+  const setTravel = useGameStore((state) => state.setTravel);
   const [selectedCityId, setSelectedCityId] = useState<string>("");
   const [quote, setQuote] = useState<TravelQuote | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
   const [error, setError] = useState<string | null>(null);
-  const [travelRefreshLocked, setTravelRefreshLocked] = useState(false);
-  const activeTravelEta = travelState.activeTravel?.arrives_at ?? null;
-  const arrivalRefreshTriggeredRef = useRef(false);
+  const arrivalHandledRef = useRef(false);
+  const activeTravelEta = storeTravelState.activeTravel?.arrives_at ?? null;
 
   useEffect(() => {
     setNowMs(Date.now());
-    setTravelRefreshLocked(false);
-    arrivalRefreshTriggeredRef.current = false;
+    arrivalHandledRef.current = false;
   }, [activeTravelEta]);
 
   useEffect(() => {
-    if (!travelState.activeTravel || travelRefreshLocked) {
+    if (!storeTravelState.activeTravel) {
       return;
     }
 
@@ -57,10 +56,10 @@ export default function TravelClient({ cities, travelState }: Props) {
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [travelRefreshLocked, travelState.activeTravel]);
+  }, [storeTravelState.activeTravel]);
 
   useEffect(() => {
-    if (!activeTravelEta || travelRefreshLocked || arrivalRefreshTriggeredRef.current) {
+    if (!activeTravelEta || arrivalHandledRef.current) {
       return;
     }
 
@@ -68,10 +67,13 @@ export default function TravelClient({ cities, travelState }: Props) {
       return;
     }
 
-    arrivalRefreshTriggeredRef.current = true;
-    setTravelRefreshLocked(true);
-    router.refresh();
-  }, [activeTravelEta, nowMs, router, travelRefreshLocked]);
+    arrivalHandledRef.current = true;
+    setTravel({
+      ...storeTravelState,
+      activeTravel: null,
+      canPurchaseBusiness: true,
+    });
+  }, [activeTravelEta, nowMs, setTravel, storeTravelState]);
 
   const selectedCity = useMemo(
     () => cities.find((city) => city.id === selectedCityId) ?? null,
@@ -85,7 +87,7 @@ export default function TravelClient({ cities, travelState }: Props) {
 
   async function getQuote(destinationCityId: string) {
     setError(null);
-    if (!destinationCityId || destinationCityId === travelState.currentCity?.id) {
+    if (!destinationCityId || destinationCityId === storeTravelState.currentCity?.id) {
       setQuote(null);
       return;
     }
@@ -101,39 +103,62 @@ export default function TravelClient({ cities, travelState }: Props) {
   }
 
   async function startTravel() {
-    if (!selectedCityId || submitting) return;
+    if (!selectedCityId || submitting || !quote) return;
     setSubmitting(true);
     setError(null);
+
+    const destination = cities.find((city) => city.id === selectedCityId) ?? null;
+    const optimisticTravel = destination && storeTravelState.currentCity ? {
+      id: `optimistic-travel-${Date.now()}`,
+      player_id: "me",
+      from_city_id: storeTravelState.currentCity.id,
+      to_city_id: destination.id,
+      departs_at: new Date().toISOString(),
+      arrives_at: new Date(Date.now() + quote.minutes * 60_000).toISOString(),
+      cost: quote.cost,
+      status: "traveling" as const,
+      created_at: new Date().toISOString(),
+    } : null;
+
+    if (optimisticTravel) {
+      setTravel({
+        currentCity: storeTravelState.currentCity,
+        activeTravel: optimisticTravel,
+        canPurchaseBusiness: false,
+      });
+    }
 
     const result = await startTravelAction(selectedCityId);
     setSubmitting(false);
 
     if (!result.ok) {
+      setTravel(initialTravelState);
       setError(result.error ?? "Travel request failed.");
       return;
     }
 
     setSelectedCityId("");
     setQuote(null);
-    router.refresh();
   }
 
   async function cancelTravel() {
     if (submitting) return;
     setSubmitting(true);
     setError(null);
+    const previousState = storeTravelState;
+    setTravel({
+      ...storeTravelState,
+      activeTravel: null,
+      canPurchaseBusiness: true,
+    });
 
     const result = await cancelTravelAction();
     setSubmitting(false);
 
     if (!result.ok) {
+      setTravel(previousState);
       setError(result.error ?? "Could not cancel travel.");
-      return;
     }
-
-    setTravelRefreshLocked(true);
-    arrivalRefreshTriggeredRef.current = true;
-    router.refresh();
   }
 
   return (
@@ -153,32 +178,32 @@ export default function TravelClient({ cities, travelState }: Props) {
       <section>
         <h2 style={{ marginTop: 0 }}>Current Location</h2>
         <p>
-          <strong>City:</strong> {travelState.currentCity?.name ?? "Unknown"}
+          <strong>City:</strong> {storeTravelState.currentCity?.name ?? "Unknown"}
         </p>
         <p>
           <strong><TooltipLabel label="Business Purchase Status" content="You cannot buy a new business while your character is actively traveling between cities." /></strong>{" "}
-          {travelState.canPurchaseBusiness ? "Allowed" : "Blocked while traveling"}
+          {storeTravelState.canPurchaseBusiness ? "Allowed" : "Blocked while traveling"}
         </p>
       </section>
 
       <section>
         <h2 style={{ marginTop: 0 }}>Travel Status</h2>
-        {travelState.activeTravel ? (
+        {storeTravelState.activeTravel ? (
           <>
             <p>
               <strong>Route:</strong>{" "}
-              {cityById.get(travelState.activeTravel.from_city_id)?.name ??
-                travelState.activeTravel.from_city_id}{" "}
+              {cityById.get(storeTravelState.activeTravel.from_city_id)?.name ??
+                storeTravelState.activeTravel.from_city_id}{" "}
               →{" "}
-              {cityById.get(travelState.activeTravel.to_city_id)?.name ??
-                travelState.activeTravel.to_city_id}
+              {cityById.get(storeTravelState.activeTravel.to_city_id)?.name ??
+                storeTravelState.activeTravel.to_city_id}
             </p>
             <p>
               <strong>Arrives In:</strong>{" "}
-              {getTravelCountdown(travelState.activeTravel.arrives_at, nowMs)}
+              {getTravelCountdown(storeTravelState.activeTravel.arrives_at, nowMs)}
             </p>
             <p>
-              <strong>Travel Cost:</strong> ${Number(travelState.activeTravel.cost).toFixed(2)}
+              <strong>Travel Cost:</strong> ${Number(storeTravelState.activeTravel.cost).toFixed(2)}
             </p>
             <button onClick={cancelTravel} disabled={submitting}>
               {submitting ? "Cancelling..." : "Cancel Travel"}
@@ -202,14 +227,14 @@ export default function TravelClient({ cities, travelState }: Props) {
               setSelectedCityId(destinationId);
               void getQuote(destinationId);
             }}
-            disabled={Boolean(travelState.activeTravel) || submitting}
+            disabled={Boolean(storeTravelState.activeTravel) || submitting}
           >
             <option value="">Select destination city</option>
             {cities.map((city) => (
               <option
                 key={city.id}
                 value={city.id}
-                disabled={city.id === travelState.currentCity?.id}
+                disabled={city.id === storeTravelState.currentCity?.id}
               >
                 {city.name}, {city.state}
               </option>
@@ -238,7 +263,7 @@ export default function TravelClient({ cities, travelState }: Props) {
 
           <button
             onClick={startTravel}
-            disabled={!selectedCityId || Boolean(travelState.activeTravel) || submitting}
+            disabled={!selectedCityId || Boolean(storeTravelState.activeTravel) || submitting}
           >
             {submitting ? "Starting Travel..." : "Start Travel"}
           </button>
