@@ -80,6 +80,60 @@ function resolveOutputQuality(
   return Math.max(1, Math.min(100, Math.round(weightedQuality / totalUnits + qualityBonus)));
 }
 
+async function syncLegacyManufacturingJobForBusiness(
+  supabase: ReturnType<typeof createClient>,
+  businessId: string
+) {
+  const { data: lineRows, error: lineError } = await supabase
+    .from("manufacturing_lines")
+    .select(
+      "business_id, configured_recipe_key, status, worker_assigned, employee_id, output_progress, input_progress, last_tick_at"
+    )
+    .eq("business_id", businessId)
+    .order("line_number", { ascending: true });
+
+  if (lineError) throw lineError;
+
+  const lines = (lineRows ?? []) as Array<{
+    business_id: string;
+    configured_recipe_key: string | null;
+    status: string;
+    worker_assigned: boolean | null;
+    employee_id: string | null;
+    output_progress: number | string | null;
+    input_progress: Record<string, unknown> | null;
+    last_tick_at: string | null;
+  }>;
+
+  const legacySource =
+    lines.find((line) => line.status === "active") ??
+    lines.find((line) => Boolean(line.configured_recipe_key)) ??
+    lines[0] ??
+    null;
+
+  const payload = {
+    business_id: businessId,
+    active_recipe_key: legacySource?.configured_recipe_key ?? null,
+    status: legacySource?.status === "active" ? "active" : "idle",
+    worker_assigned: Boolean(legacySource?.employee_id) && Boolean(legacySource?.worker_assigned),
+    output_progress: toNumber(legacySource?.output_progress),
+    input_progress:
+      legacySource?.input_progress &&
+      typeof legacySource.input_progress === "object" &&
+      !Array.isArray(legacySource.input_progress)
+        ? legacySource.input_progress
+        : {},
+    last_tick_at: legacySource?.last_tick_at ?? null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error: upsertError } = await supabase
+    .from("manufacturing_jobs")
+    .upsert(payload, { onConflict: "business_id" });
+
+  if (upsertError) throw upsertError;
+}
+
 async function consumeInventoryForContract(
   supabase: ReturnType<typeof createClient>,
   playerId: string,
@@ -149,6 +203,7 @@ Deno.serve(async (request) => {
   try {
 
     const nowIso = new Date().toISOString();
+    const businessesNeedingLegacySync = new Set<string>();
 
     const { data: readyRetools } = await supabase
       .from("manufacturing_lines")
@@ -173,6 +228,17 @@ Deno.serve(async (request) => {
         .eq("id", line.id);
     }
 
+    if ((readyRetools ?? []).length > 0) {
+      const { data: retooledBusinessRows } = await supabase
+        .from("manufacturing_lines")
+        .select("business_id")
+        .in("id", (readyRetools ?? []).map((line) => line.id));
+
+      for (const row of retooledBusinessRows ?? []) {
+        if (row.business_id) businessesNeedingLegacySync.add(String(row.business_id));
+      }
+    }
+
     const { data: jobs, error: jobsError } = await supabase
       .from("manufacturing_lines")
       .select("id, business_id, employee_id, configured_recipe_key, status, output_progress, input_progress, last_tick_at")
@@ -192,6 +258,7 @@ Deno.serve(async (request) => {
     let workerlessJobs = 0;
 
     for (const job of jobs ?? []) {
+    businessesNeedingLegacySync.add(job.business_id);
     if (!job.configured_recipe_key) continue;
 
     const recipe = getManufacturingRecipeByKey(job.configured_recipe_key);
@@ -484,7 +551,11 @@ Deno.serve(async (request) => {
     if (fulfillError) throw fulfillError;
 
     contractsFulfilled += 1;
-  }
+    }
+
+    for (const businessId of businessesNeedingLegacySync) {
+      await syncLegacyManufacturingJobForBusiness(supabase, businessId);
+    }
 
     const payload = {
       ok: true,
