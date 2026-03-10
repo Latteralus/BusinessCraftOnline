@@ -258,10 +258,10 @@ export default function BusinessFinanceDashboardPanel({ financeDashboard, initia
           title="Capital & Cash Flow"
           rows={[
             ...snapshot.cashFlow,
-            { label: "Owner Contributions", amount: financeDashboard.capital.ownerContributions },
-            { label: "Owner Draws", amount: -financeDashboard.capital.ownerDraws },
-            { label: "Intercompany Inflows", amount: financeDashboard.capital.intercompanyInflows },
-            { label: "Intercompany Outflows", amount: -financeDashboard.capital.intercompanyOutflows },
+            { label: "Owner Contributions", amount: snapshot.capital.ownerContributions },
+            { label: "Owner Draws", amount: -snapshot.capital.ownerDraws },
+            { label: "Intercompany Sales", amount: snapshot.capital.intercompanySales },
+            { label: "Intercompany Purchases", amount: -snapshot.capital.intercompanyPurchases },
           ]}
         />
         <div

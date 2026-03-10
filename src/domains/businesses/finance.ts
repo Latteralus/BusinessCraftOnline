@@ -150,6 +150,12 @@ export type BusinessFinancePeriodSnapshot = {
   };
   incomeStatement: IncomeStatementRow[];
   cashFlow: CashFlowSection[];
+  capital: {
+    ownerContributions: number;
+    ownerDraws: number;
+    intercompanySales: number;
+    intercompanyPurchases: number;
+  };
   series: BusinessFinanceSeriesPoint[];
   recentEvents: BusinessFinanceRecentEvent[];
 };
@@ -159,12 +165,6 @@ export type BusinessFinanceDashboard = {
   currentPeriod: FinancePeriod;
   periods: Record<FinancePeriod, BusinessFinancePeriodSnapshot>;
   balanceSheet: BalanceSheetSection[];
-  capital: {
-    ownerContributions: number;
-    ownerDraws: number;
-    intercompanyInflows: number;
-    intercompanyOutflows: number;
-  };
   valuation: BusinessValuationBreakdown;
   assumptions: string[];
 };
@@ -593,6 +593,16 @@ export async function getBusinessFinanceDashboard(
         (row) => row.accountCode === "owner_draw",
         (row) => row.amount
       );
+      const intercompanySales = sumAmounts(
+        ledgerInRange,
+        (row) => row.accountCode === "intercompany" && row.category === "business_transfer_in",
+        (row) => row.amount
+      );
+      const intercompanyPurchases = sumAmounts(
+        ledgerInRange,
+        (row) => row.accountCode === "intercompany" && row.category === "business_transfer_out",
+        (row) => row.amount
+      );
       const ownerEquity = round2(cashBalance + inventoryAssetValue - liabilities);
       const transferRevenueReferenceIds = new Set(
         financialInRange
@@ -645,6 +655,12 @@ export async function getBusinessFinanceDashboard(
           { label: "Investing Cash Flow", amount: round2(-sumAmounts(ledgerInRange, (row) => row.accountCode === "inventory", (row) => row.amount)) },
           { label: "Financing Cash Flow", amount: round2(ownerContributions - ownerDraws) },
         ],
+        capital: {
+          ownerContributions,
+          ownerDraws,
+          intercompanySales,
+          intercompanyPurchases,
+        },
         series: buildSeries(range, ledgerEvents, financialEvents, cashBalance),
         recentEvents,
       };
@@ -658,19 +674,6 @@ export async function getBusinessFinanceDashboard(
     periods[period].kpis.valuation = valuation.currentValue;
   }
 
-  const ownerContributions = sumAmounts(ledgerEvents, (row) => row.accountCode === "owner_equity", (row) => row.amount);
-  const ownerDraws = sumAmounts(ledgerEvents, (row) => row.accountCode === "owner_draw", (row) => row.amount);
-  const intercompanyInflows = sumAmounts(
-    ledgerEvents,
-    (row) => row.accountCode === "intercompany" && row.category === "business_transfer_in",
-    (row) => row.amount
-  );
-  const intercompanyOutflows = sumAmounts(
-    ledgerEvents,
-    (row) => row.accountCode === "intercompany" && row.category === "business_transfer_out",
-    (row) => row.amount
-  );
-
   return {
     generatedAt: nowIso(),
     currentPeriod,
@@ -681,12 +684,6 @@ export async function getBusinessFinanceDashboard(
       { label: "Liabilities", amount: -liabilities },
       { label: "Owner Equity", amount: round2(cashBalance + inventoryAssetValue - liabilities) },
     ],
-    capital: {
-      ownerContributions,
-      ownerDraws,
-      intercompanyInflows,
-      intercompanyOutflows,
-    },
     valuation,
     assumptions: [
       "Weighted-average inventory costing is used when explicit inventory cost exists.",

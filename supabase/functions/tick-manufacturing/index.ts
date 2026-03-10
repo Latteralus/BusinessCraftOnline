@@ -6,7 +6,7 @@ import {
   getManufacturingInputQuantityPerTick,
   getManufacturingOutputQuantityPerTick,
   getManufacturingRecipeByKey,
-} from "../../../src/config/production.ts";
+} from "../_shared/manufacturing-config.ts";
 import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
 
 const XP_PER_TICK = 5;
@@ -78,6 +78,36 @@ function resolveOutputQuality(
   }
 
   return Math.max(1, Math.min(100, Math.round(weightedQuality / totalUnits + qualityBonus)));
+}
+
+function resolveAvailableInputQuality(
+  rows: Array<{ quantity: number | string; reserved_quantity: number | string; quality: number | string }>
+): number | null {
+  let totalUnits = 0;
+  let weightedQuality = 0;
+
+  for (const row of rows) {
+    const available = Math.max(0, toNumber(row.quantity) - toNumber(row.reserved_quantity));
+    if (available <= 0) continue;
+    totalUnits += available;
+    weightedQuality += available * toNumber(row.quality);
+  }
+
+  if (totalUnits <= 0) return null;
+  return weightedQuality / totalUnits;
+}
+
+function resolveManufacturingQuality(
+  consumedInputs: Array<{ used: number; quality: number }>,
+  fallbackInputQuality: number | null,
+  qualityBonus: number
+): number {
+  const consumedUnits = consumedInputs.reduce((sum, input) => sum + Math.max(0, input.used), 0);
+  if (consumedUnits > 0) {
+    return resolveOutputQuality(consumedInputs, qualityBonus);
+  }
+
+  return Math.max(1, Math.min(100, Math.round((fallbackInputQuality ?? 1) + qualityBonus)));
 }
 
 async function syncLegacyManufacturingJobForBusiness(
@@ -323,10 +353,16 @@ Deno.serve(async (request) => {
       string,
       { id: string; quantity: number; reserved_quantity: number; used: number; quality: number }
     >();
+    const referenceInputQualities: number[] = [];
 
     for (const input of recipeInputs) {
-      if (input.quantity <= 0) continue;
       const rows = await getInventoryRows(supabase, business.id, business.player_id, input.itemKey);
+      const availableInputQuality = resolveAvailableInputQuality(rows);
+      if (availableInputQuality !== null) {
+        referenceInputQualities.push(availableInputQuality);
+      }
+
+      if (input.quantity <= 0) continue;
       if (rows.length === 0) {
         canProduce = false;
         break;
@@ -404,11 +440,17 @@ Deno.serve(async (request) => {
       .eq("skill_key", recipe.skillKey)
       .maybeSingle();
 
-    const quality = resolveOutputQuality(
+    const fallbackInputQuality =
+      referenceInputQualities.length > 0
+        ? referenceInputQualities.reduce((sum, quality) => sum + quality, 0) / referenceInputQualities.length
+        : null;
+
+    const quality = resolveManufacturingQuality(
       Array.from(inventoryConsumptionPlan.values()).map((row) => ({
         used: row.used,
         quality: row.quality,
       })),
+      fallbackInputQuality,
       effects.manufacturingQualityBonus
     );
 
