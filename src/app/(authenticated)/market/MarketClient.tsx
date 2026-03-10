@@ -2,7 +2,6 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NPC_PRICE_CEILINGS } from "@/config/items";
-import type { MarketStorefrontSetting } from "@/domains/market";
 import { formatMarketTransactionLine } from "@/domains/market/feed";
 import { formatCurrency } from "@/lib/formatters";
 import { apiPost } from "@/lib/client/api";
@@ -11,7 +10,7 @@ import { fetchMarketPageData, queryKeys, type MarketPageData } from "@/lib/clien
 import { formatItemKey } from "@/lib/items";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 type Props = {
   initialData: MarketPageData;
@@ -140,9 +139,6 @@ export default function MarketClient({ initialData }: Props) {
   const businesses = marketPageQuery.data.businesses;
   const listings = marketPageQuery.data.listings;
   const transactions = marketPageQuery.data.transactions;
-  const storefrontByBusinessId = Object.fromEntries(
-    marketPageQuery.data.storefront.map((row) => [row.business_id, row])
-  ) as Record<string, MarketStorefrontSetting>;
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,15 +150,8 @@ export default function MarketClient({ initialData }: Props) {
   const [quantity, setQuantity] = useState(5);
   const [unitPrice, setUnitPrice] = useState(5);
   const [buyQuantityByListingId, setBuyQuantityByListingId] = useState<Record<string, number>>({});
-  const [storefrontAdBudget, setStorefrontAdBudget] = useState(0);
-  const [storefrontTrafficMultiplier, setStorefrontTrafficMultiplier] = useState(1);
-  const [storefrontAdEnabled, setStorefrontAdEnabled] = useState(true);
 
   const activeListings = useMemo(() => listings.filter((listing) => listing.status === "active"), [listings]);
-  const activeStorefronts = useMemo(
-    () => marketPageQuery.data.storefront.filter((row) => row.is_ad_enabled),
-    [marketPageQuery.data.storefront]
-  );
 
   const sourceBusiness = useMemo(
     () => businesses.find((business) => business.id === sourceBusinessId) ?? null,
@@ -191,10 +180,13 @@ export default function MarketClient({ initialData }: Props) {
     const net = transactions.reduce((sum, tx) => sum + tx.net_total, 0);
     const fees = transactions.reduce((sum, tx) => sum + tx.market_fee, 0);
     const units = transactions.reduce((sum, tx) => sum + tx.quantity, 0);
-    const npcCount = transactions.filter((tx) => tx.buyer_type === "npc").length;
-    const playerCount = transactions.length - npcCount;
+    const counterparties = new Set<string>();
+    for (const tx of transactions) {
+      if (tx.seller_business_id) counterparties.add(tx.seller_business_id);
+      if (tx.buyer_business_id) counterparties.add(tx.buyer_business_id);
+    }
 
-    return { revenue, net, fees, units, npcCount, playerCount };
+    return { revenue, net, fees, units, counterparties: counterparties.size };
   }, [transactions]);
 
   const marketFeed = useMemo(() => {
@@ -208,17 +200,7 @@ export default function MarketClient({ initialData }: Props) {
       }
     }
 
-    const listingEvents = listings.map((listing) => ({
-      id: `listing-${listing.id}`,
-      createdAt: listing.created_at,
-      title: `${listing.business?.name ?? "A business"} posted ${formatItemKey(listing.item_key)}`,
-      line: `[${formatClock(listing.created_at)}] ${listing.business?.name ?? "A business"} posted ${listing.quantity} ${formatItemKey(
-        listing.item_key
-      )} at $${listing.unit_price.toFixed(2)} each for $${(listing.quantity * listing.unit_price).toFixed(2)}`,
-      kind: "listing" as const,
-    }));
-
-    const transactionEvents = transactions.map((tx) => ({
+    return transactions.map((tx) => ({
       id: `tx-${tx.id}`,
       createdAt: tx.created_at,
       title: `${formatItemKey(tx.item_key)} trade cleared`,
@@ -228,9 +210,7 @@ export default function MarketClient({ initialData }: Props) {
         formatTimestamp: formatClock,
       }),
       kind: "trade" as const,
-    }));
-
-    return [...listingEvents, ...transactionEvents]
+    }))
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 40);
   }, [businesses, listings, transactions]);
@@ -254,20 +234,6 @@ export default function MarketClient({ initialData }: Props) {
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 5);
   }, [activeListings]);
-
-  useEffect(() => {
-    const selected = sourceBusinessId ? storefrontByBusinessId[sourceBusinessId] : null;
-    if (!selected) {
-      setStorefrontAdBudget(0);
-      setStorefrontTrafficMultiplier(1);
-      setStorefrontAdEnabled(true);
-      return;
-    }
-
-    setStorefrontAdBudget(selected.ad_budget_per_tick);
-    setStorefrontTrafficMultiplier(selected.traffic_multiplier);
-    setStorefrontAdEnabled(selected.is_ad_enabled);
-  }, [sourceBusinessId, storefrontByBusinessId]);
 
   async function refreshMarketData() {
     await Promise.all([
@@ -333,37 +299,12 @@ export default function MarketClient({ initialData }: Props) {
     }
   }
 
-  async function saveStorefrontSettings() {
-    if (!sourceBusinessId || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const payload = await apiPost<{ storefront?: MarketStorefrontSetting; error?: string }>(
-        apiRoutes.market.storefront,
-        {
-          businessId: sourceBusinessId,
-          adBudgetPerTick: storefrontAdBudget,
-          trafficMultiplier: storefrontTrafficMultiplier,
-          isAdEnabled: storefrontAdEnabled,
-        },
-        { fallbackError: "Failed to update storefront settings." }
-      );
-      if (payload.storefront) {
-        await refreshMarketData();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update storefront settings.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <div className="anim" style={{ display: "grid", gap: 18 }}>
       <header className="lc-page-header">
         <div>
           <h1>Market</h1>
-          <p>Operate your wholesale floor, move B2B inventory, and tune storefront demand for NPC and player-driven trade.</p>
+          <p>Broker goods between your businesses and other players on the public exchange.</p>
         </div>
         <div style={{ alignSelf: "center" }}>
           <Link href="/dashboard">Back to Dashboard</Link>
@@ -384,10 +325,10 @@ export default function MarketClient({ initialData }: Props) {
           <div style={{ maxWidth: 760 }}>
             <div style={{ fontSize: 12, letterSpacing: "0.2em", textTransform: "uppercase", color: "#cbd5e1" }}>Trade Floor</div>
             <div style={{ marginTop: 8, fontSize: "1.95rem", fontWeight: 800, color: "#f8fafc" }}>
-              Inventory exchange built for business supply and live storefront demand
+              Open exchange for player-run supply chains
             </div>
             <div style={{ marginTop: 8, color: "var(--text-secondary)", fontSize: 13, lineHeight: 1.6 }}>
-              Publish outbound stock, source inputs for other businesses, and keep your consumer-facing storefronts visible without leaving the business operating stack.
+              List excess stock, source inputs from other operators, and move goods between businesses without leaving the exchange.
             </div>
           </div>
           <div style={{ display: "grid", gap: 8, minWidth: 220 }}>
@@ -405,8 +346,8 @@ export default function MarketClient({ initialData }: Props) {
           <MarketMetric label="Open Order Book" value={formatCurrency(listingSummary.grossOpenValue)} sub={`${activeListings.length} live asks on the floor`} tone="accent" />
           <MarketMetric label="Recent Gross Sales" value={formatCurrency(transactionSummary.revenue)} sub={`${transactionSummary.units} units cleared in the recent tape`} tone="positive" />
           <MarketMetric label="Net Seller Proceeds" value={formatCurrency(transactionSummary.net)} sub={`${formatCurrency(transactionSummary.fees)} in market fees`} tone="positive" />
-          <MarketMetric label="Demand Broadcasts" value={`${activeStorefronts.length}`} sub={`${marketPageQuery.data.storefront.length} storefront configs tracked`} />
-          <MarketMetric label="Buyer Mix" value={`${transactionSummary.playerCount}/${transactionSummary.npcCount}`} sub="Player-linked vs NPC-driven trades" />
+          <MarketMetric label="Active Item Classes" value={`${listingSummary.distinctItems}`} sub={`${listingSummary.cities} cities represented in the book`} />
+          <MarketMetric label="Trading Businesses" value={`${transactionSummary.counterparties}`} sub="Distinct businesses active in recent exchange clears" />
         </div>
       </section>
 
@@ -531,7 +472,7 @@ export default function MarketClient({ initialData }: Props) {
                 </div>
 
                 <div style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6 }}>
-                  Use the buyer selector as your active B2B routing target while browsing the floor. Storefront demand settings below control NPC traffic pressure for retail-style sell-through.
+                  Set the buyer business before lifting an ask so incoming inventory lands in the correct operation.
                 </div>
               </div>
             </div>
@@ -655,59 +596,6 @@ export default function MarketClient({ initialData }: Props) {
         </div>
 
         <div style={{ display: "grid", gap: 18 }}>
-          <Panel title="Storefront Broadcast" eyebrow="NPC Demand">
-            <div style={{ display: "grid", gap: 12 }}>
-              <label>
-                <FieldLabel>Store Business</FieldLabel>
-                <select value={sourceBusinessId} onChange={(event) => setSourceBusinessId(event.target.value)} title="Store business">
-                  <option value="">Select business</option>
-                  {businesses.map((business) => (
-                    <option key={business.id} value={business.id}>
-                      {business.name} ({business.type})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <FieldLabel>Ad Budget Per Minute</FieldLabel>
-                <input type="number" min={0} step={0.01} value={storefrontAdBudget} onChange={(event) => setStorefrontAdBudget(Number(event.target.value) || 0)} />
-              </label>
-              <label>
-                <FieldLabel>Traffic Multiplier</FieldLabel>
-                <input
-                  type="number"
-                  min={0.5}
-                  max={3}
-                  step={0.01}
-                  value={storefrontTrafficMultiplier}
-                  onChange={(event) => setStorefrontTrafficMultiplier(Number(event.target.value) || 1)}
-                />
-              </label>
-              <label style={{ display: "flex", gap: 10, alignItems: "center", padding: "6px 0" }}>
-                <input type="checkbox" checked={storefrontAdEnabled} onChange={(event) => setStorefrontAdEnabled(event.target.checked)} style={{ width: 16, height: 16, marginTop: 0 }} />
-                <span style={{ color: "#e2e8f0" }}>Ads enabled</span>
-              </label>
-              <button onClick={() => void saveStorefrontSettings()} disabled={busy || !sourceBusinessId}>
-                {busy ? "Saving..." : "Save Storefront Settings"}
-              </button>
-            </div>
-
-            <div style={{ display: "grid", gap: 8, marginTop: 16, color: "var(--text-secondary)", fontSize: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <span>Selected storefront</span>
-                <strong style={{ color: "#f8fafc" }}>{sourceBusiness?.name ?? "None"}</strong>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <span>Ad state</span>
-                <strong style={{ color: storefrontAdEnabled ? "#86efac" : "#fca5a5" }}>{storefrontAdEnabled ? "Live" : "Muted"}</strong>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <span>Traffic pressure</span>
-                <strong style={{ color: "#f8fafc" }}>{storefrontTrafficMultiplier.toFixed(2)}x</strong>
-              </div>
-            </div>
-          </Panel>
-
           <Panel title="Market Pulse" eyebrow="Tape">
             <div style={{ display: "grid", gap: 12 }}>
               <div
@@ -719,16 +607,16 @@ export default function MarketClient({ initialData }: Props) {
                 }}
               >
                 <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>
-                  Flow Mix
+                  Trade Flow
                 </div>
                 <div style={{ display: "grid", gap: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: "var(--text-secondary)" }}>B2B / player-linked trades</span>
-                    <strong>{transactionSummary.playerCount}</strong>
+                    <span style={{ color: "var(--text-secondary)" }}>Recent exchange clears</span>
+                    <strong>{transactions.length}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: "var(--text-secondary)" }}>NPC shopper trades</span>
-                    <strong>{transactionSummary.npcCount}</strong>
+                    <span style={{ color: "var(--text-secondary)" }}>Businesses involved</span>
+                    <strong>{transactionSummary.counterparties}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                     <span style={{ color: "var(--text-secondary)" }}>Units moved</span>

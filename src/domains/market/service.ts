@@ -20,6 +20,7 @@ import type {
   MarketStorefrontPerformanceSnapshot,
   MarketStorefrontFilter,
   MarketStorefrontSetting,
+  MarketTransactionFilter,
   MarketTransaction,
   NpcMarketSubtickState,
   RecordNpcPurchaseInput,
@@ -564,14 +565,21 @@ export async function recordNpcPurchase(
 export async function getMarketTransactions(
   client: QueryClient,
   playerId: string,
-  limit = 100
+  limit = 100,
+  filter: MarketTransactionFilter = {}
 ): Promise<MarketTransaction[]> {
-  const { data, error } = await client
+  let query = client
     .from("market_transactions")
     .select("*")
     .or(`seller_player_id.eq.${playerId},buyer_player_id.eq.${playerId}`)
     .order("created_at", { ascending: false })
     .limit(Math.max(1, Math.min(300, limit)));
+
+  if (filter.buyerType) {
+    query = query.eq("buyer_type", filter.buyerType);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw error;
   return ((data as MarketTransaction[]) ?? []).map(normalizeTransaction);

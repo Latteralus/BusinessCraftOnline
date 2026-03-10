@@ -48,6 +48,10 @@ export type MarketTransaction = {
   created_at: string;
 };
 
+export type MarketTransactionFilter = {
+  buyerType?: "player" | "npc";
+};
+
 export type NpcShopperTierKey = "small" | "medium" | "large";
 
 export type NpcMarketSubtickState = {

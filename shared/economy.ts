@@ -100,7 +100,7 @@ export const NPC_PRICE_CEILINGS = {
   drill_bit: 85.0,
   chair: 55.0,
   table: 140.0,
-  flour: 11.0,
+  flour: 17.0,
   chips: 5.0,
   red_wine: 18.0,
   whiskey: 20.0,

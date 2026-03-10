@@ -47,7 +47,7 @@ export const apiRoutes = {
   },
   market: {
     root: "/api/market",
-    listings: (options: { includeTransactions?: boolean; transactionsLimit?: number } = {}) =>
+    listings: (options: { includeTransactions?: boolean; transactionsLimit?: number; buyerType?: "player" | "npc" } = {}) =>
       withSearch("/api/market", options),
     cancel: (listingId: string) => `/api/market/${listingId}/cancel`,
     buy: (listingId: string) => `/api/market/${listingId}/buy`,

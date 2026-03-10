@@ -229,14 +229,13 @@ export async function loadProductionPageData() {
 
 export async function loadMarketPageData() {
   const { supabase, user } = await requireAuthedPageContext();
-  const [businesses, listings, transactions, storefront] = await Promise.all([
+  const [businesses, listings, transactions] = await Promise.all([
     getBusinessesWithBalancesCached(supabase, user.id),
     getMarketListings(supabase, user.id).catch(() => []),
-    getMarketTransactions(supabase, user.id, 40).catch(() => []),
-    getStorefrontSettingsCached(supabase, user.id),
+    getMarketTransactions(supabase, user.id, 40, { buyerType: "player" }).catch(() => []),
   ]);
 
-  return { businesses, listings, transactions, storefront };
+  return { businesses, listings, transactions };
 }
 
 export async function loadDashboardAnalytics(userId: string) {

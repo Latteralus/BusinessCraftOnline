@@ -34,6 +34,7 @@ export type {
   MarketListingStatus,
   MarketStorefrontFilter,
   MarketStorefrontSetting,
+  MarketTransactionFilter,
   MarketTransaction,
   NpcMarketSubtickState,
   NpcShopperTierKey,

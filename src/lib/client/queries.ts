@@ -12,7 +12,7 @@ import type { CitiesResponse, City, TravelState, TravelStateResponse } from "@/d
 import type { Contract } from "@/domains/contracts";
 import type { Employee, EmployeeSummary } from "@/domains/employees";
 import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } from "@/domains/inventory";
-import type { MarketListing, MarketStorefrontSetting, MarketTransaction } from "@/domains/market";
+import type { MarketListing, MarketTransaction } from "@/domains/market";
 import type { ManufacturingStatusView } from "@/domains/production";
 import type { ChatMessage } from "@/domains/chat";
 import { apiGet } from "@/lib/client/api";
@@ -51,7 +51,6 @@ export type MarketPageData = {
   businesses: BusinessWithBalance[];
   listings: MarketListing[];
   transactions: MarketTransaction[];
-  storefront: MarketStorefrontSetting[];
 };
 
 export type EmployeesPageData = {
@@ -108,11 +107,6 @@ type ContractsResponse = {
 type ListingsResponse = {
   listings: MarketListing[];
   transactions?: MarketTransaction[];
-  error?: string;
-};
-
-type StorefrontResponse = {
-  storefront: MarketStorefrontSetting[];
   error?: string;
 };
 
@@ -213,13 +207,10 @@ export async function fetchInventoryPageData(): Promise<InventoryPageData> {
 }
 
 export async function fetchMarketPageData(): Promise<MarketPageData> {
-  const [businessesJson, listingsJson, storefrontJson] = await Promise.all([
+  const [businessesJson, listingsJson] = await Promise.all([
     apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." }),
-    apiGet<ListingsResponse>(apiRoutes.market.listings({ includeTransactions: true, transactionsLimit: 40 }), {
+    apiGet<ListingsResponse>(apiRoutes.market.listings({ includeTransactions: true, transactionsLimit: 40, buyerType: "player" }), {
       fallbackError: "Failed to load market listings.",
-    }),
-    apiGet<StorefrontResponse>(apiRoutes.market.storefront, {
-      fallbackError: "Failed to load storefront settings.",
     }),
   ]);
 
@@ -227,7 +218,6 @@ export async function fetchMarketPageData(): Promise<MarketPageData> {
     businesses: businessesJson.businesses ?? [],
     listings: listingsJson.listings ?? [],
     transactions: listingsJson.transactions ?? [],
-    storefront: storefrontJson.storefront ?? [],
   };
 }
 

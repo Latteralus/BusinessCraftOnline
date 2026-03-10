@@ -94,6 +94,15 @@ function normalizeManufacturingLine(row: ManufacturingLine): ManufacturingLine {
   };
 }
 
+function resolveReadyManufacturingStatus(
+  line: Pick<ManufacturingLine, "employee_id" | "worker_assigned" | "configured_recipe_key" | "status">
+): ManufacturingLine["status"] {
+  if (line.status === "retooling") return "retooling";
+  if (!line.configured_recipe_key) return "idle";
+  if (!line.employee_id && !line.worker_assigned) return "idle";
+  return "active";
+}
+
 function getMaxLines(workerCapacitySlots: number): number {
   return 1 + Math.max(0, Math.trunc(workerCapacitySlots));
 }
@@ -236,7 +245,11 @@ async function finalizeManufacturingRetools(client: QueryClient, businessId: str
         pending_recipe_key: null,
         retool_started_at: null,
         retool_complete_at: null,
-        status: "idle",
+        status: resolveReadyManufacturingStatus({
+          ...line,
+          configured_recipe_key: line.pending_recipe_key,
+          status: line.status,
+        }),
         output_progress: 0,
         input_progress: {},
         updated_at: nowIso,
@@ -780,7 +793,12 @@ export async function assignManufacturingLine(
     .update({
       employee_id: employee.id,
       worker_assigned: true,
-      status: line.status === "resting" ? "idle" : line.status,
+      status: resolveReadyManufacturingStatus({
+        ...line,
+        employee_id: employee.id,
+        worker_assigned: true,
+        status: line.status === "resting" ? "idle" : line.status,
+      }),
       updated_at: new Date().toISOString(),
     })
     .eq("id", line.id)
