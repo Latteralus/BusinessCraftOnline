@@ -7,6 +7,7 @@ import {
   EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
   EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
   EXTRACTION_SKILL_KEY_BY_BUSINESS,
+  EXTRACTION_TOOL_OUTPUT_BONUS_BY_BUSINESS,
   EXTRACTION_XP_PER_LEVEL,
   EXTRACTION_XP_PER_TICK,
 } from "../../../shared/production/extraction.ts";
@@ -382,6 +383,10 @@ Deno.serve(async (request) => {
           typedBusiness.type as keyof typeof EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS
         ] ?? null;
       let outputMultiplier = 1;
+      const toolOutputBonus =
+        EXTRACTION_TOOL_OUTPUT_BONUS_BY_BUSINESS[
+          typedBusiness.type as keyof typeof EXTRACTION_TOOL_OUTPUT_BONUS_BY_BUSINESS
+        ] ?? 0;
       if (requiredTool) {
         const { data: tool } = await supabase
           .from("tool_durability")
@@ -412,6 +417,7 @@ Deno.serve(async (request) => {
           }
         } else {
           const operationalTool = parsedTool;
+          outputMultiplier += Math.max(0, toolOutputBonus);
           const nextUses = operationalTool.uses_remaining - 1;
           const { error: toolUpdateError } = await supabase
             .from("tool_durability")
@@ -420,13 +426,9 @@ Deno.serve(async (request) => {
           if (toolUpdateError) throw toolUpdateError;
 
           if (nextUses <= 0) {
-            if (missingToolOutputMultiplier !== null) {
-              outputMultiplier = missingToolOutputMultiplier;
-              reducedOutputCount += 1;
-            } else {
+            if (missingToolOutputMultiplier === null) {
               await failSlot(supabase, slot.id, "tool_broken");
               brokenTools += 1;
-              continue;
             }
           }
         }

@@ -3,9 +3,9 @@ export const TOOL_ITEM_TYPES = ["pickaxe", "axe", "drill_bit"] as const;
 export type SharedToolItemType = (typeof TOOL_ITEM_TYPES)[number];
 
 export const TOOL_BASE_DURABILITY = {
-  pickaxe: 120,
-  axe: 100,
-  drill_bit: 80,
+  pickaxe: 60,
+  axe: 60,
+  drill_bit: 60,
 } as const satisfies Record<SharedToolItemType, number>;
 
 export const EXTRACTION_SLOT_STATUSES = ["active", "idle", "resting", "tool_broken", "retooling"] as const;
@@ -37,7 +37,11 @@ export const EXTRACTION_REQUIRED_TOOL_BY_BUSINESS = {
 } as const satisfies Partial<Record<SharedExtractionBusinessType, SharedToolItemType>>;
 
 export const EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS = {
-  mine: 0.25,
+  mine: 1,
+} as const satisfies Partial<Record<SharedExtractionBusinessType, number>>;
+
+export const EXTRACTION_TOOL_OUTPUT_BONUS_BY_BUSINESS = {
+  mine: 2,
 } as const satisfies Partial<Record<SharedExtractionBusinessType, number>>;
 
 export const EXTRACTION_UPGRADE_KEY_BY_BUSINESS = {
