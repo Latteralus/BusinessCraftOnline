@@ -27,6 +27,7 @@ import { getNpcBuyerPriceRange, getNpcSuggestedBasePrice } from "@/config/items"
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import { useGameStore } from "@/stores/game-store";
+import { shouldSyncHydratedEntry } from "@/stores/hydration";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 import { makeNpcShopperName } from "../../../shared/core/npc-shopper-names";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
@@ -200,20 +201,37 @@ export default function BusinessDetailsClient({
   })() as FinancePeriod;
 
   useEffect(() => {
-    if (!detail) {
-      upsertBusinessDetail(businessId, {
-        business: initialBusiness,
-        production: initialProduction,
-        manufacturing: initialManufacturing,
-        inventory: initialInventory,
-        shelfItems: initialShelfItems,
-        upgrades: initialUpgrades,
-        upgradeProjects: initialUpgradeProjects,
-        employees: initialEmployees,
-        financeDashboard: financeDashboard ?? null,
-        ownedBusinesses,
-        upgradeDefinitions,
-      });
+    const currentDetail = useGameStore.getState().businessDetails.data[businessId];
+    const incomingDetail = {
+      business: initialBusiness,
+      production: initialProduction,
+      manufacturing: initialManufacturing,
+      inventory: initialInventory,
+      shelfItems: initialShelfItems,
+      upgrades: initialUpgrades,
+      upgradeProjects: initialUpgradeProjects,
+      employees: initialEmployees,
+      financeDashboard: financeDashboard ?? null,
+      ownedBusinesses,
+      upgradeDefinitions,
+    };
+    const shouldSyncFromServer = shouldSyncHydratedEntry({
+      current: currentDetail,
+      incoming: incomingDetail,
+      getVersion: (value) => `${value.business.updated_at}:${value.financeDashboard?.generatedAt ?? "none"}`,
+      getArraySizes: [
+        (value) => value.inventory,
+        (value) => value.shelfItems,
+        (value) => value.upgrades,
+        (value) => value.upgradeProjects,
+        (value) => value.employees,
+        (value) => value.ownedBusinesses,
+        (value) => value.upgradeDefinitions,
+      ],
+    });
+
+    if (shouldSyncFromServer) {
+      upsertBusinessDetail(businessId, incomingDetail);
     }
   }, [
     businessId,
