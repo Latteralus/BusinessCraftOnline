@@ -8,6 +8,7 @@ import {
   getBusinessUpgradeProjects,
   getBusinessUpgrades,
   getBusinessesWithBalances,
+  supportsExtraction,
 } from "@/domains/businesses";
 import { getBusinessInventory } from "@/domains/inventory";
 import { getManufacturingStatus, getProductionStatus } from "@/domains/production";
@@ -205,7 +206,7 @@ export function RealtimeProvider() {
           return;
         }
 
-        const isExtraction = ["mine", "farm", "water_company", "logging_camp", "oil_well"].includes(business.type);
+        const isExtraction = supportsExtraction(business.type);
         const [production, manufacturing, inventory, shelfItems, upgrades, upgradeProjects, employeesRes, upgradeDefinitions, financeDashboard, ownedBusinesses] =
           await Promise.all([
             isExtraction ? getProductionStatus(supabase, playerId, business.id).catch(() => null) : Promise.resolve(null),

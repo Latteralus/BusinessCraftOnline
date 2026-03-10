@@ -1,9 +1,9 @@
-type VersionSelector<T> = (value: T) => string | number | null | undefined;
+export type HydratedSliceVersionSelector<T> = (value: T) => string | number | null | undefined;
 
-type SyncCheckInput<T> = {
+export type HydratedSliceSyncCheckInput<T> = {
   current: T | null | undefined;
   incoming: T;
-  getVersion?: VersionSelector<T>;
+  getVersion?: HydratedSliceVersionSelector<T>;
   getArraySizes?: Array<(value: T) => unknown[] | null | undefined>;
 };
 
@@ -12,7 +12,7 @@ export function shouldSyncHydratedEntry<T>({
   incoming,
   getVersion,
   getArraySizes = [],
-}: SyncCheckInput<T>): boolean {
+}: HydratedSliceSyncCheckInput<T>): boolean {
   if (!current) return true;
 
   if (getVersion) {
@@ -32,4 +32,8 @@ export function shouldSyncHydratedEntry<T>({
   }
 
   return false;
+}
+
+export function resolveHydratedEntry<T>(current: T | null | undefined, incoming: T): T {
+  return current ?? incoming;
 }

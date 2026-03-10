@@ -1,8 +1,9 @@
-import { STORE_BUSINESS_TYPES, isStoreBusinessType } from "@/config/businesses";
+import { STORE_BUSINESS_TYPES } from "@/config/businesses";
 import {
   MARKET_TRANSACTION_FEE,
   STOREFRONT_DEFAULT_SETTINGS,
 } from "@/config/market";
+import { supportsStorefront } from "@/domains/businesses";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
 import {
   computeWeightedAverageCost,
@@ -127,6 +128,64 @@ async function getListing(client: QueryClient, listingId: string): Promise<Marke
   if (error) throw error;
   if (!data) throw new Error("Listing not found.");
   return normalizeListing(data as MarketListing);
+}
+
+async function ensurePersistedStorefrontSettings(
+  client: QueryClient,
+  playerId: string,
+  filter: MarketStorefrontFilter = {}
+): Promise<void> {
+  let storesQuery = client
+    .from("businesses")
+    .select("id, type")
+    .eq("player_id", playerId)
+    .in("type", [...STORE_BUSINESS_TYPES]);
+
+  if (filter.businessId) {
+    storesQuery = storesQuery.eq("id", filter.businessId);
+  }
+
+  const { data: storeRows, error: storesError } = await storesQuery;
+  if (storesError) throw storesError;
+
+  const stores = ((storeRows as Array<{ id: string; type: string }>) ?? []).filter((store) =>
+    supportsStorefront(store.type as any)
+  );
+  if (stores.length === 0) {
+    return;
+  }
+
+  const businessIds = stores.map((store) => store.id);
+  const { data: existingRows, error: existingError } = await client
+    .from("market_storefront_settings")
+    .select("business_id")
+    .eq("owner_player_id", playerId)
+    .in("business_id", businessIds);
+  if (existingError) throw existingError;
+
+  const existingIds = new Set(
+    (((existingRows as Array<{ business_id: string }>) ?? []) as Array<{ business_id: string }>).map(
+      (row) => row.business_id
+    )
+  );
+  const missingIds = businessIds.filter((businessId) => !existingIds.has(businessId));
+  if (missingIds.length === 0) {
+    return;
+  }
+
+  const timestamp = nowIso();
+  const { error: insertError } = await client.from("market_storefront_settings").upsert(
+    missingIds.map((businessId) => ({
+      owner_player_id: playerId,
+      business_id: businessId,
+      ad_budget_per_tick: STOREFRONT_DEFAULT_SETTINGS.ad_budget_per_tick,
+      traffic_multiplier: STOREFRONT_DEFAULT_SETTINGS.traffic_multiplier,
+      is_ad_enabled: STOREFRONT_DEFAULT_SETTINGS.is_ad_enabled,
+      updated_at: timestamp,
+    })),
+    { onConflict: "business_id" }
+  );
+  if (insertError) throw insertError;
 }
 
 async function applySourceInventorySale(
@@ -640,6 +699,8 @@ export async function getMarketStorefrontSettings(
   playerId: string,
   filter: MarketStorefrontFilter = {}
 ): Promise<MarketStorefrontSetting[]> {
+  await ensurePersistedStorefrontSettings(client, playerId, filter);
+
   let query = client
     .from("market_storefront_settings")
     .select("*")
@@ -652,37 +713,7 @@ export async function getMarketStorefrontSettings(
 
   const { data, error } = await query;
   if (error) throw error;
-
-  const existing = ((data as MarketStorefrontSetting[]) ?? []).map(normalizeStorefrontSetting);
-  const byBusinessId = new Map(existing.map((row) => [row.business_id, row]));
-
-  let storesQuery = client
-    .from("businesses")
-    .select("id")
-    .eq("player_id", playerId)
-    .in("type", [...STORE_BUSINESS_TYPES]);
-
-  if (filter.businessId) {
-    storesQuery = storesQuery.eq("id", filter.businessId);
-  }
-
-  const { data: storeRows, error: storesError } = await storesQuery;
-  if (storesError) throw storesError;
-
-  const defaults = ((storeRows as Array<{ id: string }>) ?? [])
-    .filter((store) => !byBusinessId.has(store.id))
-    .map((store) => ({
-      id: `default-${store.id}`,
-      owner_player_id: playerId,
-      business_id: store.id,
-      ad_budget_per_tick: STOREFRONT_DEFAULT_SETTINGS.ad_budget_per_tick,
-      traffic_multiplier: STOREFRONT_DEFAULT_SETTINGS.traffic_multiplier,
-      is_ad_enabled: STOREFRONT_DEFAULT_SETTINGS.is_ad_enabled,
-      created_at: toIso(0),
-      updated_at: toIso(0),
-    }));
-
-  return [...existing, ...defaults];
+  return ((data as MarketStorefrontSetting[]) ?? []).map(normalizeStorefrontSetting);
 }
 
 export async function updateMarketStorefrontSettings(
@@ -691,9 +722,11 @@ export async function updateMarketStorefrontSettings(
   input: UpdateMarketStorefrontSettingsInput
 ): Promise<MarketStorefrontSetting> {
   const business = await ensureOwnedBusiness(client, playerId, input.businessId);
-  if (!isStoreBusinessType(business.type)) {
+  if (!supportsStorefront(business.type)) {
     throw new Error("Storefront settings are only available for store businesses.");
   }
+
+  await ensurePersistedStorefrontSettings(client, playerId, { businessId: business.id });
 
   const payload = {
     owner_player_id: playerId,

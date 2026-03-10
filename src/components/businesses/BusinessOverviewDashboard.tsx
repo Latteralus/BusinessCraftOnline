@@ -1,12 +1,17 @@
 "use client";
 
-import { isStoreBusinessType } from "@/config/businesses";
 import {
   EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
   EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
   EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
 } from "@/config/production";
-import type { Business, BusinessFinanceDashboard, BusinessUpgrade } from "@/domains/businesses";
+import {
+  getBusinessOperationalMode,
+  supportsStorefront,
+  type Business,
+  type BusinessFinanceDashboard,
+  type BusinessUpgrade,
+} from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { ManufacturingStatusView, ProductionStatus } from "@/domains/production";
@@ -213,7 +218,8 @@ export default function BusinessOverviewDashboard(props: Props) {
   const availableInventoryUnits = props.inventory.reduce((sum, item) => sum + Math.max(0, item.quantity - item.reserved_quantity), 0);
   const reservedInventoryUnits = props.inventory.reduce((sum, item) => sum + item.reserved_quantity, 0);
   const inventoryLines = props.inventory.length;
-  const isStore = isStoreBusinessType(props.business.type);
+  const isStore = supportsStorefront(props.business.type);
+  const operationalMode = getBusinessOperationalMode(props.business.type);
 
   const extractionThroughput = production
     ? production.slots.reduce((sum, slot) => {
@@ -389,7 +395,7 @@ export default function BusinessOverviewDashboard(props: Props) {
           rows={[
             { label: "Entity", value: formatLabel(props.business.entity_type) },
             { label: "Business Type", value: formatBusinessType(props.business.type) },
-            { label: "Operating Mode", value: props.production ? "Extraction" : props.manufacturing ? "Manufacturing" : isStore ? "Retail" : "Idle" },
+            { label: "Operating Mode", value: operationalMode.charAt(0).toUpperCase() + operationalMode.slice(1) },
             { label: "Finance Signal", value: finance ? `${formatCurrency(finance.kpis.operatingProfit)} operating profit` : "No recent data" },
             { label: "Inventory Asset", value: props.financeDashboard ? formatCurrency(props.financeDashboard.balanceSheet.find((row) => row.label === "Inventory")?.amount ?? 0) : "$0.00" },
           ]}

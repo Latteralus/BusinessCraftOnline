@@ -1,7 +1,6 @@
 import {
   BUSINESS_UPGRADE_KEYS_BY_TYPE,
   STARTUP_COSTS,
-  isStoreBusinessType,
   type BusinessEntityType,
   type BusinessType,
   type BusinessUpgradeKey,
@@ -14,6 +13,7 @@ import {
   getUpgradePreviewForBusiness,
 } from "@/domains/upgrades";
 import { round2, toNumber } from "@/lib/core/number";
+import { isProductionBusinessType } from "./capabilities";
 import { getBusinessFinanceDashboard as buildBusinessFinanceDashboard } from "./finance";
 import type {
   Business,
@@ -494,7 +494,7 @@ export function summarizeBusinessesWithBalances(
   const producingTypesOwned = new Set(
     businesses
       .map((business) => business.type)
-      .filter((type) => !isStoreBusinessType(type))
+      .filter((type) => isProductionBusinessType(type))
   ).size;
 
   const topBusiness =

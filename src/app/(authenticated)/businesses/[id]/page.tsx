@@ -5,6 +5,7 @@ import {
   getBusinessUpgradeProjects,
   getBusinessUpgrades,
   getBusinessesWithBalances,
+  supportsExtraction,
 } from "@/domains/businesses";
 import { getCityById } from "@/domains/cities-travel";
 import { getProductionStatus, getManufacturingStatus } from "@/domains/production";
@@ -35,14 +36,7 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
     ? searchParams.period
     : "1h") as FinancePeriod;
 
-  // Handle differences between extraction and manufacturing businesses
-  const isExtraction = [
-    "mine",
-    "farm",
-    "water_company",
-    "logging_camp",
-    "oil_well",
-  ].includes(business.type);
+  const isExtraction = supportsExtraction(business.type);
 
   const [city, production, manufacturing, inventory, shelfItems, upgrades, upgradeProjects, employeesRes, upgradeDefinitions, financeDashboard, ownedBusinesses] = await Promise.all([
     getCityById(supabase, business.city_id).catch(() => null),

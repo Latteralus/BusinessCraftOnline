@@ -1,135 +1,37 @@
 "use client";
 
-import { isStoreBusinessType } from "@/config/businesses";
 import { getExtractionProductOptionsForBusinessType } from "@/config/production";
 import { type FinancePeriod } from "@/config/finance";
 import { useState, useEffect, Fragment } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type {
-  Business,
-  BusinessFinanceDashboard,
-  BusinessUpgrade,
-  BusinessUpgradeProject,
-} from "@/domains/businesses";
-import type { ProductionStatus, ManufacturingStatusView } from "@/domains/production";
-import { summarizeManufacturingLines } from "@/domains/production/view";
+import { supportsStorefront, type Business, type BusinessUpgradeProject } from "@/domains/businesses";
+import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import type { BusinessInventoryItem } from "@/domains/inventory";
+import type { ManufacturingStatusView, ProductionStatus } from "@/domains/production";
 import type { StoreShelfItem } from "@/domains/stores";
-import type { EmployeeAssignment, Employee } from "@/domains/employees";
 import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
-import type { UpgradeDefinition } from "@/domains/upgrades";
 import { calculateUpgradePreview, formatInstallTimeMinutes } from "@/domains/upgrades";
-import { getBusinessFinanceDashboard as buildBusinessFinanceDashboard } from "@/domains/businesses/finance";
 import { BASE_WAGE_PER_HOUR } from "@/config/employees";
 import { apiDelete, apiPatch, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import { getNpcBuyerPriceRange, getNpcSuggestedBasePrice } from "@/config/items";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
-import { useGameStore } from "@/stores/game-store";
-import { shouldSyncHydratedEntry } from "@/stores/hydration";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 import { makeNpcShopperName } from "../../../shared/core/npc-shopper-names";
-import { createSupabaseBrowserClient } from "@/lib/supabase";
 import BusinessEmployeesDashboard from "./BusinessEmployeesDashboard";
 import BusinessFinanceDashboardPanel from "./BusinessFinanceDashboard";
 import BusinessInventoryDashboard from "./BusinessInventoryDashboard";
 import BusinessOptionsPanel from "./BusinessOptionsPanel";
 import BusinessOverviewDashboard from "./BusinessOverviewDashboard";
 import BusinessOperationsDashboard from "./BusinessOperationsDashboard";
+import {
+  type BusinessDetailsClientProps as Props,
+  type LocalEmployee,
+} from "./business-details-state";
+import { useBusinessDetailsController } from "./useBusinessDetailsController";
 
 type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades" | "options";
-
-type Props = {
-  business: Business;
-  production: ProductionStatus | null;
-  manufacturing: ManufacturingStatusView | null;
-  inventory: BusinessInventoryItem[];
-  shelfItems: StoreShelfItem[];
-  upgrades: BusinessUpgrade[];
-  upgradeProjects: BusinessUpgradeProject[];
-  employees: (Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] })[];
-  upgradeDefinitions?: UpgradeDefinition[];
-  financeDashboard?: BusinessFinanceDashboard | null;
-  ownedBusinesses?: Array<Pick<Business, "id" | "name" | "city_id">>;
-  initialTab?: string;
-};
-
-type LocalEmployee = Employee & {
-  employee_assignments?: (EmployeeAssignment & { business: Business })[] | null;
-};
-
-type ManufacturingLineView = NonNullable<ManufacturingStatusView["lines"]>[number];
-
-function normalizeManufacturingLine(
-  line: ManufacturingLineView,
-  existing?: ManufacturingLineView
-): ManufacturingLineView {
-  return {
-    ...existing,
-    ...line,
-    available_recipes: Array.isArray(line.available_recipes)
-      ? line.available_recipes
-      : existing?.available_recipes ?? [],
-    configured_recipe: line.configured_recipe
-      ? {
-          ...line.configured_recipe,
-          inputs: Array.isArray(line.configured_recipe.inputs) ? line.configured_recipe.inputs : [],
-        }
-      : line.configured_recipe === null
-        ? null
-        : existing?.configured_recipe ?? null,
-    pending_recipe: line.pending_recipe
-      ? {
-          ...line.pending_recipe,
-          inputs: Array.isArray(line.pending_recipe.inputs) ? line.pending_recipe.inputs : [],
-        }
-      : line.pending_recipe === null
-        ? null
-        : existing?.pending_recipe ?? null,
-  };
-}
-
-function normalizeManufacturingStatus(
-  manufacturing: ManufacturingStatusView | null | undefined
-): ManufacturingStatusView | null {
-  if (!manufacturing) return null;
-
-  const lines = Array.isArray(manufacturing.lines)
-    ? manufacturing.lines.map((line) => normalizeManufacturingLine(line))
-    : [];
-
-  return {
-    ...manufacturing,
-    lines,
-    summary: summarizeManufacturingLines(lines),
-  };
-}
-
-function normalizeProductionStatus(
-  production: ProductionStatus | null | undefined
-): ProductionStatus | null {
-  if (!production) return null;
-
-  return {
-    ...production,
-    slots: Array.isArray(production.slots) ? production.slots : [],
-  };
-}
-
-function summarizeProductionSlots(
-  slots: NonNullable<ProductionStatus["slots"]>
-): ProductionStatus["summary"] {
-  return {
-    total: slots.length,
-    active: slots.filter((slot) => slot.status === "active").length,
-    idle: slots.filter((slot) => slot.status === "idle").length,
-    resting: slots.filter((slot) => slot.status === "resting").length,
-    toolBroken: slots.filter((slot) => slot.status === "tool_broken").length,
-    retooling: slots.filter((slot) => slot.status === "retooling").length,
-    occupied: slots.filter((slot) => Boolean(slot.employee_id)).length,
-  };
-}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -161,12 +63,10 @@ export default function BusinessDetailsClient({
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const businessId = initialBusiness.id;
-  const detail = useGameStore((state) => state.businessDetails.data[businessId]);
-  const upsertBusinessDetail = useGameStore((state) => state.upsertBusinessDetail);
   const tempPayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.temp / 4);
   const partTimePayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.part_time / 4);
   const fullTimePayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.full_time / 4);
+  const businessId = initialBusiness.id;
   
   const defaultTab = (initialTab as TabType) || "overview";
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
@@ -184,71 +84,45 @@ export default function BusinessDetailsClient({
   const [shelfActionItem, setShelfActionItem] = useState<{ itemKey: string; quality: number; maxQuantity: number } | null>(null);
   const [shelfQuantity, setShelfQuantity] = useState(1);
   const [shelfPrice, setShelfPrice] = useState(1);
-  const business = detail?.business ?? initialBusiness;
-  const production = normalizeProductionStatus(detail?.production ?? initialProduction);
-  const manufacturing = normalizeManufacturingStatus(detail?.manufacturing ?? initialManufacturing);
-  const inventory = Array.isArray(detail?.inventory) ? detail.inventory : initialInventory;
-  const shelfItems = Array.isArray(detail?.shelfItems) ? detail.shelfItems : initialShelfItems;
-  const upgrades = Array.isArray(detail?.upgrades) ? detail.upgrades : initialUpgrades;
-  const upgradeProjects = Array.isArray(detail?.upgradeProjects) ? detail.upgradeProjects : initialUpgradeProjects;
-  const employees = Array.isArray(detail?.employees) ? (detail.employees as LocalEmployee[]) : initialEmployees;
-  const ownedBusinessesState = Array.isArray(detail?.ownedBusinesses) ? detail.ownedBusinesses : ownedBusinesses;
-  const financeDashboardState = detail?.financeDashboard ?? financeDashboard ?? null;
-  const upgradeDefinitionsState = detail?.upgradeDefinitions ?? upgradeDefinitions;
+  const {
+    business,
+    production,
+    manufacturing,
+    inventory,
+    shelfItems,
+    upgrades,
+    upgradeProjects,
+    employees,
+    ownedBusinesses: ownedBusinessesState,
+    financeDashboard: financeDashboardState,
+    upgradeDefinitions: upgradeDefinitionsState,
+    patchDetail,
+    refreshFinanceDashboard,
+    updateEmployeeRecord,
+    updateExtractionSlot,
+    updateManufacturingLine,
+    patchInventoryItem,
+    adjustInventoryByKey,
+    upsertShelfItem,
+    removeShelfItemFromDetail,
+  } = useBusinessDetailsController({
+    business: initialBusiness,
+    production: initialProduction,
+    manufacturing: initialManufacturing,
+    inventory: initialInventory,
+    shelfItems: initialShelfItems,
+    upgrades: initialUpgrades,
+    upgradeProjects: initialUpgradeProjects,
+    employees: initialEmployees,
+    upgradeDefinitions,
+    financeDashboard,
+    ownedBusinesses,
+    initialTab,
+  });
   const selectedFinancePeriod = (() => {
     const period = searchParams.get("period");
     return period === "24h" || period === "7d" || period === "30d" ? period : "1h";
   })() as FinancePeriod;
-
-  useEffect(() => {
-    const currentDetail = useGameStore.getState().businessDetails.data[businessId];
-    const incomingDetail = {
-      business: initialBusiness,
-      production: initialProduction,
-      manufacturing: initialManufacturing,
-      inventory: initialInventory,
-      shelfItems: initialShelfItems,
-      upgrades: initialUpgrades,
-      upgradeProjects: initialUpgradeProjects,
-      employees: initialEmployees,
-      financeDashboard: financeDashboard ?? null,
-      ownedBusinesses,
-      upgradeDefinitions,
-    };
-    const shouldSyncFromServer = shouldSyncHydratedEntry({
-      current: currentDetail,
-      incoming: incomingDetail,
-      getVersion: (value) => `${value.business.updated_at}:${value.financeDashboard?.generatedAt ?? "none"}`,
-      getArraySizes: [
-        (value) => value.inventory,
-        (value) => value.shelfItems,
-        (value) => value.upgrades,
-        (value) => value.upgradeProjects,
-        (value) => value.employees,
-        (value) => value.ownedBusinesses,
-        (value) => value.upgradeDefinitions,
-      ],
-    });
-
-    if (shouldSyncFromServer) {
-      upsertBusinessDetail(businessId, incomingDetail);
-    }
-  }, [
-    businessId,
-    detail,
-    financeDashboard,
-    initialBusiness,
-    initialEmployees,
-    initialInventory,
-    initialManufacturing,
-    initialProduction,
-    initialShelfItems,
-    initialUpgradeProjects,
-    initialUpgrades,
-    ownedBusinesses,
-    upgradeDefinitions,
-    upsertBusinessDetail,
-  ]);
 
   useEffect(() => {
     if (initialTab && ["overview", "finance", "operations", "employees", "inventory", "upgrades", "options"].includes(initialTab)) {
@@ -282,7 +156,7 @@ export default function BusinessDetailsClient({
     const effectiveStatus = getWorkerEffectiveStatus(employee.status, employee.shift_ends_at);
     return !getAssignmentForBusiness(employee) && effectiveStatus === "available";
   });
-  const isStoreBusiness = isStoreBusinessType(business.type);
+  const isStoreBusiness = supportsStorefront(business.type);
   const transferBusinesses = ownedBusinessesState.filter((row) => row.id !== business.id);
   const shelfKey = (itemKey: string, quality: number) => `${itemKey}:${quality}`;
   const activeShelfItems = shelfItems.filter((item) => item.quantity > 0);
@@ -320,114 +194,6 @@ export default function BusinessDetailsClient({
     employee_assignments: employee.employee_assignments ?? undefined,
   }));
 
-  function patchDetail(value: Partial<{
-    business: Business;
-    production: ProductionStatus | null;
-    manufacturing: ManufacturingStatusView | null;
-    inventory: BusinessInventoryItem[];
-    shelfItems: StoreShelfItem[];
-    upgrades: BusinessUpgrade[];
-    upgradeProjects: BusinessUpgradeProject[];
-    employees: LocalEmployee[];
-    financeDashboard: BusinessFinanceDashboard | null;
-  }>) {
-    const currentDetail = useGameStore.getState().businessDetails.data[businessId];
-
-    upsertBusinessDetail(businessId, {
-      business: currentDetail?.business ?? business,
-      production: currentDetail?.production ?? production,
-      manufacturing: currentDetail?.manufacturing ?? manufacturing,
-      inventory: currentDetail?.inventory ?? inventory,
-      shelfItems: currentDetail?.shelfItems ?? shelfItems,
-      upgrades: currentDetail?.upgrades ?? upgrades,
-      upgradeProjects: currentDetail?.upgradeProjects ?? upgradeProjects,
-      employees: (currentDetail?.employees as LocalEmployee[] | undefined) ?? employees,
-      financeDashboard: currentDetail?.financeDashboard ?? financeDashboardState,
-      ownedBusinesses: currentDetail?.ownedBusinesses ?? ownedBusinessesState,
-      upgradeDefinitions: currentDetail?.upgradeDefinitions ?? upgradeDefinitionsState,
-      ...value,
-    });
-  }
-
-  async function refreshFinanceDashboard(period: FinancePeriod = selectedFinancePeriod) {
-    const finance = await buildBusinessFinanceDashboard(
-      createSupabaseBrowserClient(),
-      business.player_id,
-      business,
-      period
-    );
-    patchDetail({ financeDashboard: finance });
-    return finance;
-  }
-
-  function updateEmployeeRecord(nextEmployee: LocalEmployee) {
-    const index = employees.findIndex((employee) => employee.id === nextEmployee.id);
-    if (index === -1) {
-      patchDetail({ employees: [nextEmployee, ...employees] });
-      return;
-    }
-    const next = employees.slice();
-    next[index] = {
-      ...next[index],
-      ...nextEmployee,
-    };
-    patchDetail({ employees: next });
-  }
-
-  function updateExtractionSlot(slot: ProductionStatus["slots"][number]) {
-    if (!production) return;
-    const slots = production.slots.map((entry) => (entry.id === slot.id ? slot : entry));
-    patchDetail({
-      production: {
-        ...production,
-        slots,
-        summary: summarizeProductionSlots(slots),
-      },
-    });
-  }
-
-  function updateManufacturingLine(line: ManufacturingStatusView["lines"][number]) {
-    if (!manufacturing) return;
-    const lines = manufacturing.lines.map((entry) =>
-      entry.id === line.id ? normalizeManufacturingLine(line, entry) : entry
-    );
-    patchDetail({
-      manufacturing: {
-        ...manufacturing,
-        lines,
-        summary: summarizeManufacturingLines(lines),
-      },
-    });
-  }
-
-  function patchInventoryItem(itemId: string, patch: Partial<BusinessInventoryItem>) {
-    patchDetail({
-      inventory: inventory
-        .map((item) => (item.id === itemId ? { ...item, ...patch } : item))
-        .filter((item) => item.quantity > 0 || item.reserved_quantity > 0),
-    });
-  }
-
-  function adjustInventoryByKey(itemKey: string, quality: number, patch: (item: BusinessInventoryItem) => BusinessInventoryItem) {
-    patchDetail({
-      inventory: inventory.map((item) => (item.item_key === itemKey && item.quality === quality ? patch(item) : item)),
-    });
-  }
-
-  function upsertShelfItem(nextShelfItem: StoreShelfItem) {
-    const index = shelfItems.findIndex((item) => item.id === nextShelfItem.id);
-    if (index === -1) {
-      patchDetail({ shelfItems: [nextShelfItem, ...shelfItems] });
-      return;
-    }
-    const next = shelfItems.slice();
-    next[index] = nextShelfItem;
-    patchDetail({ shelfItems: next });
-  }
-
-  function removeShelfItemFromDetail(shelfItemId: string) {
-    patchDetail({ shelfItems: shelfItems.filter((item) => item.id !== shelfItemId) });
-  }
   async function runBusyAction(action: () => Promise<void>, fallbackMessage: string) {
     if (busy) return;
 

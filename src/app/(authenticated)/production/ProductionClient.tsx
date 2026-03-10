@@ -1,6 +1,7 @@
 "use client";
 
 import { PRODUCTION_RETOOL_DURATION_MINUTES } from "@/config/production";
+import { supportsManufacturing } from "@/domains/businesses";
 import type { ManufacturingStatusView } from "@/domains/production";
 import { apiGet } from "@/lib/client/api";
 import type { ProductionPageData } from "@/lib/client/queries";
@@ -65,9 +66,7 @@ export default function ProductionClient({ initialData }: Props) {
 
   const manufacturingBusinesses = useMemo(
     () =>
-      businesses.filter((business) =>
-        ["sawmill", "metalworking_factory", "food_processing_plant", "winery_distillery", "carpentry_workshop"].includes(business.type)
-      ),
+      businesses.filter((business) => supportsManufacturing(business.type)),
     [businesses]
   );
 

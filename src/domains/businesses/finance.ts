@@ -6,10 +6,10 @@ import {
   INVENTORY_BASELINE_UNIT_COSTS,
   type FinancePeriod,
 } from "@/config/finance";
-import { isStoreBusinessType } from "@/config/businesses";
 import { round2, toNumber } from "@/lib/core/number";
 import { addHoursToNowIso, nowIso } from "@/lib/core/time";
 import type { QueryClient } from "@/lib/db/query-client";
+import { supportsStorefront } from "./capabilities";
 import type { Business, BusinessAccountEntry } from "./types";
 
 type FinancialEventAccountCode =
@@ -634,7 +634,7 @@ export async function getBusinessFinanceDashboard(
   currentPeriod: FinancePeriod = "1h"
 ): Promise<BusinessFinanceDashboard> {
   const ranges = getPeriodRanges();
-  const isStore = isStoreBusinessType(business.type);
+  const isStore = supportsStorefront(business.type);
 
   const [ledgerRes, inventoryRes, financialEventsRes, balanceValue, storefrontSnapshotsRes] = await Promise.all([
     client

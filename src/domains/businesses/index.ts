@@ -18,6 +18,14 @@ export {
 } from "./service";
 
 export {
+  getBusinessOperationalMode,
+  isProductionBusinessType,
+  supportsExtraction,
+  supportsManufacturing,
+  supportsStorefront,
+} from "./capabilities";
+
+export {
   businessListFilterSchema,
   createBusinessSchema,
   purchaseUpgradeSchema,
