@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { fetchAppShell, fetchBankingPageData, fetchBusinessesPageData, fetchChatMessages, fetchContractsPageData, fetchEmployeesPageData, fetchInventoryPageData, fetchMarketPageData, fetchProductionPageData, fetchTravelState } from "@/lib/client/queries";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
@@ -22,7 +22,7 @@ async function fetchRealtimeToken() {
 export function RealtimeProvider() {
   const hydrated = useGameStore((state) => state.hydrated);
   const playerId = useGameStore((state) => state.player.data.playerId);
-  const bankingAccountIds = useGameStore((state) => state.banking.data.accounts.map((account) => account.id));
+  const bankingAccounts = useGameStore((state) => state.banking.data.accounts);
   const setBusinesses = useGameStore((state) => state.setBusinesses);
   const patchBusinesses = useGameStore((state) => state.patchBusinesses);
   const removeBusiness = useGameStore((state) => state.removeBusiness);
@@ -40,6 +40,10 @@ export function RealtimeProvider() {
   const patchChat = useGameStore((state) => state.patchChat);
   const setChat = useGameStore((state) => state.setChat);
   const patchAppShell = useGameStore((state) => state.patchAppShell);
+  const bankingAccountIds = useMemo(
+    () => bankingAccounts.map((account) => account.id),
+    [bankingAccounts]
+  );
 
   useEffect(() => {
     if (!hydrated || !playerId) {
