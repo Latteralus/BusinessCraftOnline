@@ -98,6 +98,9 @@ export type CashFlowSection = {
 
 export type BusinessFinanceSeriesPoint = {
   label: string;
+  bucketStart: string;
+  bucketEnd: string;
+  isCurrent: boolean;
   revenue: number;
   cogs: number;
   grossProfit: number;
@@ -384,6 +387,64 @@ function groupAmountByDay<T extends { effectiveAt: string }>(
   return map;
 }
 
+function getBucketConfig(period: FinancePeriod) {
+  switch (period) {
+    case "1h":
+      return { bucketMs: 5 * 60 * 1000 };
+    case "24h":
+      return { bucketMs: 30 * 60 * 1000 };
+    case "7d":
+      return { bucketMs: 6 * 60 * 60 * 1000 };
+    case "30d":
+    default:
+      return { bucketMs: 24 * 60 * 60 * 1000 };
+  }
+}
+
+function floorToBucket(timestampMs: number, bucketMs: number) {
+  return Math.floor(timestampMs / bucketMs) * bucketMs;
+}
+
+function groupAmountByBucket<T extends { effectiveAt: string }>(
+  rows: T[],
+  bucketMs: number,
+  selectAmount: (row: T) => number
+): Map<number, number> {
+  const map = new Map<number, number>();
+  for (const row of rows) {
+    const timestamp = new Date(row.effectiveAt).getTime();
+    if (Number.isNaN(timestamp)) continue;
+    const key = floorToBucket(timestamp, bucketMs);
+    map.set(key, round2((map.get(key) ?? 0) + selectAmount(row)));
+  }
+  return map;
+}
+
+function formatBucketLabel(period: FinancePeriod, bucketStartMs: number): string {
+  const date = new Date(bucketStartMs);
+  if (period === "1h" || period === "24h") {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+
+  if (period === "7d") {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
 function toRecentEvent(event: LedgerEvent | DerivedFinancialEvent): BusinessFinanceRecentEvent {
   return {
     id: event.id,
@@ -408,29 +469,40 @@ function buildSeries(
   currentCashBalance: number
 ): BusinessFinanceSeriesPoint[] {
   const combined = [...ledgerEvents, ...financialEvents].sort((a, b) => a.effectiveAt.localeCompare(b.effectiveAt));
-  const startDay = period.since ? period.since.slice(0, 10) : combined[0]?.effectiveAt.slice(0, 10);
-  const endDay = nowIso().slice(0, 10);
-  if (!startDay) return [];
+  const { bucketMs } = getBucketConfig(period.key);
+  const nowMs = Date.now();
+  const startMs = period.since
+    ? floorToBucket(new Date(period.since).getTime(), bucketMs)
+    : combined[0]
+      ? floorToBucket(new Date(combined[0].effectiveAt).getTime(), bucketMs)
+      : floorToBucket(nowMs, bucketMs);
+  const endBucketStartMs = floorToBucket(nowMs, bucketMs);
 
-  const revenueByDay = groupAmountByDay(
+  if (Number.isNaN(startMs)) return [];
+
+  const revenueByBucket = groupAmountByBucket(
     ledgerEvents.filter((row) => row.accountCode === "revenue"),
+    bucketMs,
     (row) => row.amount
   );
-  const transferRevenueByDay = groupAmountByDay(
+  const transferRevenueByBucket = groupAmountByBucket(
     financialEvents.filter(
       (row) => row.accountCode === "revenue" && row.referenceType === "inventory_transfer"
     ),
+    bucketMs,
     (row) => row.amount
   );
-  const opexByDay = groupAmountByDay(
+  const opexByBucket = groupAmountByBucket(
     ledgerEvents.filter((row) => row.accountCode === "operating_expense"),
+    bucketMs,
     (row) => row.amount
   );
-  const cogsByDay = groupAmountByDay(
+  const cogsByBucket = groupAmountByBucket(
     financialEvents.filter((row) => row.accountCode === "cogs"),
+    bucketMs,
     (row) => row.amount
   );
-  const cashDeltaByDay = groupAmountByDay(ledgerEvents, (row) => {
+  const cashDeltaByBucket = groupAmountByBucket(ledgerEvents, bucketMs, (row) => {
     if (row.accountCode === "intercompany") return 0;
     if (row.accountCode === "revenue" || row.accountCode === "owner_equity") return row.amount;
     return -row.amount;
@@ -438,32 +510,32 @@ function buildSeries(
 
   let runningCash = round2(
     currentCashBalance -
-      Array.from(cashDeltaByDay.entries())
-        .filter(([day]) => day >= startDay)
+      Array.from(cashDeltaByBucket.entries())
+        .filter(([bucketStart]) => bucketStart >= startMs)
         .reduce((sum, [, value]) => sum + value, 0)
   );
 
   const points: BusinessFinanceSeriesPoint[] = [];
-  let cursor = new Date(`${startDay}T00:00:00.000Z`);
-  const end = new Date(`${endDay}T00:00:00.000Z`);
-  while (cursor.getTime() <= end.getTime()) {
-    const key = cursor.toISOString().slice(0, 10);
-    runningCash = round2(runningCash + (cashDeltaByDay.get(key) ?? 0));
-    const revenue = round2((revenueByDay.get(key) ?? 0) + (transferRevenueByDay.get(key) ?? 0));
-    const cogs = round2(cogsByDay.get(key) ?? 0);
-    const operatingExpense = round2(opexByDay.get(key) ?? 0);
+  for (let bucketStartMs = startMs; bucketStartMs <= endBucketStartMs; bucketStartMs += bucketMs) {
+    const bucketEndMs = bucketStartMs + bucketMs;
+    runningCash = round2(runningCash + (cashDeltaByBucket.get(bucketStartMs) ?? 0));
+    const revenue = round2((revenueByBucket.get(bucketStartMs) ?? 0) + (transferRevenueByBucket.get(bucketStartMs) ?? 0));
+    const cogs = round2(cogsByBucket.get(bucketStartMs) ?? 0);
+    const operatingExpense = round2(opexByBucket.get(bucketStartMs) ?? 0);
     points.push({
-      label: key.slice(5),
+      label: formatBucketLabel(period.key, bucketStartMs),
+      bucketStart: new Date(bucketStartMs).toISOString(),
+      bucketEnd: new Date(bucketEndMs).toISOString(),
+      isCurrent: bucketStartMs === endBucketStartMs,
       revenue,
       cogs,
       grossProfit: round2(revenue - cogs),
       operatingExpense,
       cash: runningCash,
     });
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
 
-  return points.slice(-12);
+  return points;
 }
 
 function sumAmounts<T>(rows: T[], predicate: (row: T) => boolean, selectAmount: (row: T) => number): number {

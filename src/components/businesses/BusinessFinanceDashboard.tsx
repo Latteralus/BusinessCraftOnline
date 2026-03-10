@@ -6,7 +6,7 @@ import type { BusinessFinanceDashboard } from "@/domains/businesses";
 import { formatCurrency } from "@/lib/formatters";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Props = {
   financeDashboard: BusinessFinanceDashboard | null;
@@ -85,31 +85,92 @@ function StatementTable(props: { title: string; rows: Array<{ label: string; amo
   );
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function buildSmoothPath(points: Array<{ x: number; y: number }>) {
+  if (points.length === 0) return "";
+  if (points.length === 1) return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  if (points.length === 2) {
+    return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)} L ${points[1].x.toFixed(2)} ${points[1].y.toFixed(2)}`;
+  }
+
+  let path = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
+    const midpointX = (current.x + next.x) / 2;
+    const midpointY = (current.y + next.y) / 2;
+    path += ` Q ${current.x.toFixed(2)} ${current.y.toFixed(2)} ${midpointX.toFixed(2)} ${midpointY.toFixed(2)}`;
+  }
+
+  const penultimate = points[points.length - 2];
+  const last = points[points.length - 1];
+  path += ` Q ${penultimate.x.toFixed(2)} ${penultimate.y.toFixed(2)} ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
+  return path;
+}
+
 function LineChart(props: {
   title: string;
   series: Array<{ label: string; value: number; color: string }>;
-  points: Array<Record<string, number | string>>;
+  points: Array<Record<string, number | string | boolean>>;
 }) {
   const width = 520;
   const height = 180;
   const pad = 18;
   const chartW = width - pad * 2;
   const chartH = height - pad * 2;
-  const values = props.points.flatMap((point) => props.series.map((serie) => Number(point[serie.label] ?? 0)));
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const displayedPoints = useMemo(() => {
+    return props.points.map((point, index, allPoints) => {
+      const previousPoint = index > 0 ? allPoints[index - 1] : null;
+      const bucketStart = new Date(String(point.bucketStart ?? "")).getTime();
+      const bucketEnd = new Date(String(point.bucketEnd ?? "")).getTime();
+      const progress =
+        point.isCurrent && Number.isFinite(bucketStart) && Number.isFinite(bucketEnd) && bucketEnd > bucketStart
+          ? clamp((nowMs - bucketStart) / (bucketEnd - bucketStart), 0, 1)
+          : 1;
+
+      const nextPoint = { ...point } as Record<string, number | string>;
+      for (const serie of props.series) {
+        const currentValue = Number(point[serie.label] ?? 0);
+        const previousValue = previousPoint ? Number(previousPoint[serie.label] ?? 0) : 0;
+        nextPoint[serie.label] = point.isCurrent
+          ? previousValue + (currentValue - previousValue) * progress
+          : currentValue;
+      }
+      nextPoint.liveProgress = progress;
+      return nextPoint;
+    });
+  }, [nowMs, props.points, props.series]);
+
+  const values = displayedPoints.flatMap((point) => props.series.map((serie) => Number(point[serie.label] ?? 0)));
   const min = Math.min(0, ...values);
   const max = Math.max(1, ...values);
   const range = max - min || 1;
 
   const paths = props.series.map((serie) => {
-    const d = props.points
+    const coords = displayedPoints
       .map((point, index) => {
-        const x = pad + (props.points.length <= 1 ? chartW / 2 : (index / (props.points.length - 1)) * chartW);
+        const x = pad + (displayedPoints.length <= 1 ? chartW / 2 : (index / (displayedPoints.length - 1)) * chartW);
         const y = pad + chartH - ((Number(point[serie.label] ?? 0) - min) / range) * chartH;
-        return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+        return { x, y };
       })
-      .join(" ");
-    return { ...serie, d };
+      .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+    return { ...serie, d: buildSmoothPath(coords), coords };
   });
+
+  const currentPointIndex = displayedPoints.findIndex((point) => point.isCurrent);
+  const pulseRadius = 4 + ((Math.sin(nowMs / 350) + 1) / 2) * 2.5;
 
   return (
     <div
@@ -137,12 +198,24 @@ function LineChart(props: {
           return <line key={step} x1={pad} y1={y} x2={width - pad} y2={y} stroke="rgba(148,163,184,0.12)" strokeWidth="1" />;
         })}
         {paths.map((serie) => (
-          <path key={serie.label} d={serie.d} fill="none" stroke={serie.color} strokeWidth="3" strokeLinecap="round" />
+          <path key={serie.label} d={serie.d} fill="none" stroke={serie.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
         ))}
-        {props.points.map((point, index) => {
-          const x = pad + (props.points.length <= 1 ? chartW / 2 : (index / (props.points.length - 1)) * chartW);
+        {paths.map((serie) =>
+          serie.coords.map((point, index) => (
+            <circle
+              key={`${serie.label}-${index}`}
+              cx={point.x}
+              cy={point.y}
+              r={currentPointIndex === index ? pulseRadius : 2.2}
+              fill={serie.color}
+              fillOpacity={currentPointIndex === index ? 0.95 : 0.6}
+            />
+          ))
+        )}
+        {displayedPoints.map((point, index) => {
+          const x = pad + (displayedPoints.length <= 1 ? chartW / 2 : (index / (displayedPoints.length - 1)) * chartW);
           return (
-            <text key={String(point.label)} x={x} y={height - 2} textAnchor="middle" fill="rgba(148,163,184,0.8)" fontSize="10">
+            <text key={`${String(point.label)}-${index}`} x={x} y={height - 2} textAnchor="middle" fill="rgba(148,163,184,0.8)" fontSize="10">
               {String(point.label)}
             </text>
           );
