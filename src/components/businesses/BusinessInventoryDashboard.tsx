@@ -7,6 +7,7 @@ import type { StoreShelfItem } from "@/domains/stores";
 import { formatCurrency } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 
 type Props = {
   inventory: BusinessInventoryItem[];
@@ -91,7 +92,33 @@ function InventoryTable(props: { title: string; rows: Array<{ label: string; val
   );
 }
 
+function FlowRail(props: { label: string; sub: string; progress: number; color: string }) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <div style={{ color: "#f8fafc", fontWeight: 600 }}>{props.label}</div>
+          <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>{props.sub}</div>
+        </div>
+        <strong style={{ color: props.color }}>{Math.round(props.progress * 100)}%</strong>
+      </div>
+      <div style={{ position: "relative", height: 10, background: "rgba(148,163,184,0.1)", borderRadius: 999, overflow: "hidden" }}>
+        <div style={{ width: `${props.progress * 100}%`, height: "100%", background: props.color, borderRadius: 999, transition: "width 900ms linear" }} />
+      </div>
+    </div>
+  );
+}
+
 export default function BusinessInventoryDashboard({ inventory, shelfItems }: Props) {
+  const [nowMs, setNowMs] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const availableUnits = inventory.reduce((sum, row) => sum + Math.max(0, row.quantity - row.reserved_quantity), 0);
   const reservedUnits = inventory.reduce((sum, row) => sum + row.reserved_quantity, 0);
   const totalUnits = inventory.reduce((sum, row) => sum + row.quantity, 0);
@@ -107,6 +134,10 @@ export default function BusinessInventoryDashboard({ inventory, shelfItems }: Pr
     .map((row) => ({ label: `${formatItemKey(row.item_key)} Q${row.quality}`, value: row.quantity }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 5);
+  const shelfFill = shelfUnits + availableUnits > 0 ? shelfUnits / (shelfUnits + availableUnits) : 0;
+  const reserveLoad = totalUnits > 0 ? reservedUnits / totalUnits : 0;
+  const freeFlow = totalUnits > 0 ? availableUnits / totalUnits : 0;
+  const liveMarkerColor = ["#22c55e", "#60a5fa", "#f59e0b"][Math.floor((nowMs / 1200) % 3)];
 
   return (
     <div style={{ display: "grid", gap: 18, marginBottom: 18 }}>
@@ -149,6 +180,24 @@ export default function BusinessInventoryDashboard({ inventory, shelfItems }: Pr
             { label: "Estimated Asset", value: formatCurrency(estimatedAssetValue) },
           ]}
         />
+      </div>
+
+      <div
+        style={{
+          background: "linear-gradient(180deg, rgba(9, 14, 25, 0.98), rgba(5, 10, 19, 0.98))",
+          border: "1px solid rgba(148, 163, 184, 0.16)",
+          borderRadius: 16,
+          padding: 18,
+        }}
+      >
+        <div style={{ fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase", color: "#cbd5e1", marginBottom: 12 }}>
+          Live Stock Flow
+        </div>
+        <div style={{ display: "grid", gap: 12 }}>
+          <FlowRail label="Shelf Pull" sub={`${shelfUnits} staged for sale or dispatch`} progress={shelfFill} color="#22c55e" />
+          <FlowRail label="Reserve Load" sub={`${reservedUnits} committed units locked`} progress={reserveLoad} color="#ef4444" />
+          <FlowRail label="Free Flow" sub={`${availableUnits} units ready to move`} progress={freeFlow} color={liveMarkerColor} />
+        </div>
       </div>
 
       <InventoryBars

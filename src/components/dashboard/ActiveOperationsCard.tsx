@@ -97,7 +97,13 @@ export function ActiveOperationsCard({ operations }: Props) {
                     <div className="mfg-name">{op.name}</div>
                     <div className="mfg-recipe" style={{ textTransform: "capitalize" }}>{op.detail}</div>
                   </div>
-                  <div className="mfg-bar-track">
+                  <div
+                    className="mfg-bar-track"
+                    style={{
+                      position: "relative",
+                      overflow: "hidden",
+                    }}
+                  >
                     <div
                       className={`mfg-bar-fill ${op.running ? "anim-pulse" : ""}`}
                       style={{
@@ -105,11 +111,30 @@ export function ActiveOperationsCard({ operations }: Props) {
                         background: op.running ? "var(--accent-green)" : "var(--accent-red)",
                       }}
                     />
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "50%",
+                        left: `calc(${progressPercent.toFixed(0)}% - 7px)`,
+                        width: 14,
+                        height: 14,
+                        borderRadius: 999,
+                        transform: "translateY(-50%)",
+                        background: op.running ? "#dcfce7" : "#fecaca",
+                        boxShadow: op.running
+                          ? "0 0 0 4px rgba(34,197,94,0.18), 0 0 14px rgba(34,197,94,0.35)"
+                          : "0 0 0 4px rgba(248,113,113,0.14), 0 0 14px rgba(248,113,113,0.3)",
+                        transition: "left 900ms linear",
+                      }}
+                    />
                   </div>
                   <div className="mfg-bottom">
                     <div className="mfg-inputs">
                       <span className={`input-chip ${op.running ? "input-filled" : "input-empty"}`}>
                         Status: {op.statusLabel}
+                      </span>
+                      <span className={`input-chip ${op.running ? "input-filled" : "input-empty"}`}>
+                        Cycle: {progressPercent.toFixed(0)}%
                       </span>
                     </div>
                     <div
@@ -129,8 +154,21 @@ export function ActiveOperationsCard({ operations }: Props) {
               <div className="mfg-name">No active production</div>
               <div className="mfg-recipe">Assign workers to start</div>
             </div>
-            <div className="mfg-bar-track">
+            <div className="mfg-bar-track" style={{ position: "relative", overflow: "hidden" }}>
               <div className="mfg-bar-fill" style={{ width: "0%", background: "var(--accent-red)" }} />
+              <div
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "-2px",
+                  width: 14,
+                  height: 14,
+                  borderRadius: 999,
+                  transform: "translateY(-50%)",
+                  background: "#fecaca",
+                  boxShadow: "0 0 0 4px rgba(248,113,113,0.14), 0 0 14px rgba(248,113,113,0.3)",
+                }}
+              />
             </div>
             <div className="mfg-bottom">
               <div className="mfg-inputs">

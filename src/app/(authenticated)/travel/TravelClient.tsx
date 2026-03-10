@@ -30,6 +30,10 @@ function getTravelCountdown(arrivesAt: string, nowMs: number) {
   return formatDuration(remaining);
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
 export default function TravelClient({ cities, travelState: initialTravelState }: Props) {
   const storeTravelState = useTravelSlice() ?? initialTravelState;
   const setTravel = useGameStore((state) => state.setTravel);
@@ -84,6 +88,15 @@ export default function TravelClient({ cities, travelState: initialTravelState }
     () => new Map(cities.map((city) => [city.id, city])),
     [cities]
   );
+  const activeTravelProgress = useMemo(() => {
+    if (!storeTravelState.activeTravel) return 0;
+    const departsMs = new Date(storeTravelState.activeTravel.departs_at).getTime();
+    const arrivesMs = new Date(storeTravelState.activeTravel.arrives_at).getTime();
+    if (!Number.isFinite(departsMs) || !Number.isFinite(arrivesMs) || arrivesMs <= departsMs) {
+      return 0;
+    }
+    return clamp((nowMs - departsMs) / (arrivesMs - departsMs), 0, 1);
+  }, [nowMs, storeTravelState.activeTravel]);
 
   async function getQuote(destinationCityId: string) {
     setError(null);
@@ -205,6 +218,57 @@ export default function TravelClient({ cities, travelState: initialTravelState }
             <p>
               <strong>Travel Cost:</strong> ${Number(storeTravelState.activeTravel.cost).toFixed(2)}
             </p>
+            <div
+              style={{
+                margin: "16px 0",
+                padding: 16,
+                borderRadius: 14,
+                border: "1px solid rgba(148, 163, 184, 0.16)",
+                background: "linear-gradient(180deg, rgba(9, 14, 25, 0.98), rgba(5, 10, 19, 0.98))",
+                display: "grid",
+                gap: 10,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+                <div style={{ color: "#cbd5e1", fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase" }}>
+                  Route Progress
+                </div>
+                <strong style={{ color: "#86efac" }}>{Math.round(activeTravelProgress * 100)}%</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12, color: "var(--text-secondary)" }}>
+                <span>{cityById.get(storeTravelState.activeTravel.from_city_id)?.name ?? storeTravelState.activeTravel.from_city_id}</span>
+                <span>{cityById.get(storeTravelState.activeTravel.to_city_id)?.name ?? storeTravelState.activeTravel.to_city_id}</span>
+              </div>
+              <div style={{ position: "relative", height: 14, borderRadius: 999, background: "rgba(148,163,184,0.1)", overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: `${activeTravelProgress * 100}%`,
+                    height: "100%",
+                    background: "linear-gradient(90deg, rgba(34,197,94,0.85), rgba(96,165,250,0.95))",
+                    borderRadius: 999,
+                    transition: "width 900ms linear",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: `calc(${activeTravelProgress * 100}% - 10px)`,
+                    width: 20,
+                    height: 20,
+                    borderRadius: 999,
+                    transform: "translateY(-50%)",
+                    background: "#f8fafc",
+                    boxShadow: "0 0 0 4px rgba(96,165,250,0.22), 0 0 18px rgba(96,165,250,0.45)",
+                    transition: "left 900ms linear",
+                  }}
+                />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12, color: "var(--text-secondary)" }}>
+                <span>Departed {new Date(storeTravelState.activeTravel.departs_at).toLocaleTimeString()}</span>
+                <span>ETA {getTravelCountdown(storeTravelState.activeTravel.arrives_at, nowMs)}</span>
+              </div>
+            </div>
             <button onClick={cancelTravel} disabled={submitting}>
               {submitting ? "Cancelling..." : "Cancel Travel"}
             </button>

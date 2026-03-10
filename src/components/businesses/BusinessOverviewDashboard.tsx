@@ -14,6 +14,7 @@ import type { StoreShelfItem } from "@/domains/stores";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
+import { useEffect, useMemo, useState } from "react";
 
 type Props = {
   business: Business;
@@ -44,6 +45,105 @@ function OverviewCard(props: { label: string; value: string; sub?: string; tone?
       </div>
       <div style={{ fontSize: "1.35rem", fontWeight: 700, color }}>{props.value}</div>
       {props.sub ? <div style={{ marginTop: 6, color: "var(--text-secondary)", fontSize: 12 }}>{props.sub}</div> : null}
+    </div>
+  );
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function buildSmoothPath(points: Array<{ x: number; y: number }>) {
+  if (points.length === 0) return "";
+  if (points.length === 1) return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  if (points.length === 2) {
+    return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)} L ${points[1].x.toFixed(2)} ${points[1].y.toFixed(2)}`;
+  }
+
+  let path = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
+    const midpointX = (current.x + next.x) / 2;
+    const midpointY = (current.y + next.y) / 2;
+    path += ` Q ${current.x.toFixed(2)} ${current.y.toFixed(2)} ${midpointX.toFixed(2)} ${midpointY.toFixed(2)}`;
+  }
+
+  const penultimate = points[points.length - 2];
+  const last = points[points.length - 1];
+  path += ` Q ${penultimate.x.toFixed(2)} ${penultimate.y.toFixed(2)} ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
+  return path;
+}
+
+function SparklineCard(props: {
+  label: string;
+  value: string;
+  sub: string;
+  color: string;
+  values: number[];
+  tone?: "neutral" | "positive" | "negative";
+}) {
+  const [nowMs, setNowMs] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const width = 220;
+  const height = 52;
+  const pad = 6;
+  const pulseRadius = 3.5 + ((Math.sin(nowMs / 350) + 1) / 2) * 1.8;
+
+  const { path, points } = useMemo(() => {
+    const values = props.values.length > 0 ? props.values : [0];
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min || 1;
+    const coords = values.map((value, index) => {
+      const x = pad + (values.length <= 1 ? (width - pad * 2) / 2 : (index / (values.length - 1)) * (width - pad * 2));
+      const y = pad + (height - pad * 2) - ((value - min) / range) * (height - pad * 2);
+      return { x, y };
+    });
+
+    return {
+      path: buildSmoothPath(coords),
+      points: coords,
+    };
+  }, [props.values]);
+
+  const color =
+    props.tone === "positive" ? "#86efac" : props.tone === "negative" ? "#fca5a5" : "#f8fafc";
+
+  return (
+    <div
+      style={{
+        background: "linear-gradient(180deg, rgba(11, 17, 29, 0.98), rgba(6, 10, 19, 0.98))",
+        border: "1px solid rgba(148, 163, 184, 0.16)",
+        borderRadius: 14,
+        padding: 16,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start" }}>
+        <div>
+          <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>
+            {props.label}
+          </div>
+          <div style={{ fontSize: "1.35rem", fontWeight: 700, color }}>{props.value}</div>
+          <div style={{ marginTop: 6, color: "var(--text-secondary)", fontSize: 12 }}>{props.sub}</div>
+        </div>
+        <svg viewBox={`0 0 ${width} ${height}`} style={{ width: 120, height: 52, overflow: "visible" }}>
+          <path d={path} fill="none" stroke={props.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          {points.length > 0 ? (
+            <>
+              <circle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r={pulseRadius} fill={props.color} fillOpacity={0.95} />
+              <circle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r={pulseRadius + 4} fill={props.color} fillOpacity={0.12} />
+            </>
+          ) : null}
+        </svg>
+      </div>
     </div>
   );
 }
@@ -181,6 +281,35 @@ export default function BusinessOverviewDashboard(props: Props) {
   const workforceMax = Math.max(1, assignedEmployees.length, props.production?.maxSlots ?? 0, props.shelfItems.length);
   const activeOps = production?.summary.active ?? (props.manufacturing?.summary.active ?? 0);
   const blockedOps = degradedExtractionSlots || (props.manufacturing?.summary.retooling ?? 0);
+  const sparklineSource = props.financeDashboard?.periods["30d"]?.series?.length
+    ? props.financeDashboard.periods["30d"].series
+    : props.financeDashboard?.periods["7d"]?.series?.length
+      ? props.financeDashboard.periods["7d"].series
+      : props.financeDashboard?.periods["24h"]?.series ?? [];
+  const valuationSeries = useMemo(() => {
+    if (!props.financeDashboard) return [props.business.value];
+    const baseValue = props.financeDashboard.valuation.baseValue;
+    return (sparklineSource.length > 0 ? sparklineSource : [{ cash: 0, revenue: 0, grossProfit: 0 }]).map((point) =>
+      (Number(point.cash ?? 0) + Math.max(0, Number(point.grossProfit ?? 0)) + baseValue)
+    );
+  }, [props.business.value, props.financeDashboard, sparklineSource]);
+  const cashSeries = useMemo(
+    () => (sparklineSource.length > 0 ? sparklineSource.map((point) => Number(point.cash ?? 0)) : [finance?.kpis.cash ?? 0]),
+    [finance?.kpis.cash, sparklineSource]
+  );
+  const activitySeries = useMemo(() => {
+    const source = props.financeDashboard?.periods["30d"]?.recentEvents ?? [];
+    if (source.length === 0) {
+      return [0];
+    }
+
+    const buckets = new Map<string, number>();
+    for (const event of source) {
+      const key = event.occurredAt.slice(0, 10);
+      buckets.set(key, (buckets.get(key) ?? 0) + 1);
+    }
+    return Array.from(buckets.values());
+  }, [props.financeDashboard]);
 
   return (
     <div style={{ display: "grid", gap: 18 }}>
@@ -213,11 +342,35 @@ export default function BusinessOverviewDashboard(props: Props) {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, marginTop: 18 }}>
           <OverviewCard label="Throughput" value={throughputHeadline} sub={operationsHeadline} tone="positive" />
-          <OverviewCard label="Cash Position" value={finance ? formatCurrency(finance.kpis.cash) : formatCurrency(0)} sub={finance ? `${formatCurrency(finance.kpis.revenue)} revenue in window` : "Finance data unavailable"} />
+          <SparklineCard
+            label="Cash Position"
+            value={finance ? formatCurrency(finance.kpis.cash) : formatCurrency(0)}
+            sub={finance ? `${formatCurrency(finance.kpis.revenue)} revenue in window` : "Finance data unavailable"}
+            color="#60a5fa"
+            values={cashSeries}
+          />
           <OverviewCard label="Workforce" value={`${assignedEmployees.length}`} sub={`${props.upgrades.length} upgrades installed`} />
           <OverviewCard label="Inventory Footprint" value={`${availableInventoryUnits} units`} sub={`${inventoryLines} inventory lines · ${reservedInventoryUnits} reserved`} />
           <OverviewCard label="Storefront" value={isStore ? `${props.shelfItems.length} facings` : "Industrial site"} sub={isStore ? "Shelf rows live" : "Production-focused asset"} />
         </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 18 }}>
+        <SparklineCard
+          label="Valuation Flow"
+          value={formatCurrency(props.financeDashboard?.valuation.currentValue ?? props.business.value)}
+          sub="Blended from live cash, profit, and base enterprise value"
+          color="#f472b6"
+          values={valuationSeries}
+          tone={valueDelta >= 0 ? "positive" : "negative"}
+        />
+        <SparklineCard
+          label="Activity Pulse"
+          value={`${props.financeDashboard?.periods["30d"]?.recentEvents.length ?? 0} events`}
+          sub="Recent operating and finance movement"
+          color="#f59e0b"
+          values={activitySeries}
+        />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.15fr) minmax(0, 1fr)", gap: 18 }}>

@@ -130,6 +130,10 @@ function summarizeProductionSlots(
   };
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
 function makeHireName() {
   const fullName = makeNpcShopperName(Math.random);
   const [firstName, ...rest] = fullName.split(" ");
@@ -267,6 +271,10 @@ export default function BusinessDetailsClient({
   const shelfByInventoryKey = Object.fromEntries(activeShelfItems.map((item) => [shelfKey(item.item_key, item.quality), item]));
   const activeUpgradeProject =
     upgradeProjects.find((project) => project.project_status === "installing") ?? null;
+  const totalShelfUnits = activeShelfItems.reduce((sum, item) => sum + item.quantity, 0);
+  const totalBackroomUnits = inventory.reduce((sum, item) => sum + Math.max(0, item.quantity - item.reserved_quantity), 0);
+  const shelfFillRatio = totalShelfUnits + totalBackroomUnits > 0 ? totalShelfUnits / (totalShelfUnits + totalBackroomUnits) : 0;
+  const shelfFlowRatio = totalShelfUnits > 0 ? totalBackroomUnits / Math.max(1, totalShelfUnits) : 0;
   const availableWorkersForSlots = thisBusinessEmployees
     .filter((employee) => {
       const assignment = getAssignmentForBusiness(employee);
@@ -997,49 +1005,88 @@ export default function BusinessDetailsClient({
                     </div>
                   </div>
 
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 16 }}>
+                    {[
+                      { label: "Shelf Fill", value: Math.round(shelfFillRatio * 100), color: "#22c55e", sub: `${totalShelfUnits} shelf / ${totalBackroomUnits} backroom` },
+                      { label: "Restock Readiness", value: Math.round(clamp(totalBackroomUnits / Math.max(1, totalShelfUnits + totalBackroomUnits), 0, 1) * 100), color: "#60a5fa", sub: `${totalBackroomUnits} units ready behind counter` },
+                      { label: "Floor Flow", value: Math.round(clamp(shelfFlowRatio / 2, 0, 1) * 100), color: "#f59e0b", sub: shelfFlowRatio >= 1 ? "Backroom can fully refill floor" : "Shelf load running ahead of reserve" },
+                    ].map((metric) => (
+                      <div key={metric.label} style={{ display: "grid", gap: 6, padding: 12, borderRadius: 12, background: "var(--bg-elevated)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                          <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.12em" }}>{metric.label}</span>
+                          <strong style={{ color: "#f8fafc" }}>{metric.value}%</strong>
+                        </div>
+                        <div style={{ position: "relative", height: 10, borderRadius: 999, background: "rgba(148,163,184,0.1)", overflow: "hidden" }}>
+                          <div style={{ width: `${metric.value}%`, height: "100%", background: metric.color, borderRadius: 999, transition: "width 900ms linear" }} />
+                        </div>
+                        <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{metric.sub}</div>
+                      </div>
+                    ))}
+                  </div>
+
                   {activeShelfItems.length > 0 ? (
                     <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
                       {activeShelfItems.map((item) => (
                         (() => {
                           const pricingGuide = getShelfPricingGuide(item.item_key);
+                          const inventoryItem = inventory.find(
+                            (inventoryRow) => inventoryRow.item_key === item.item_key && inventoryRow.quality === item.quality
+                          );
+                          const freeStock = inventoryItem ? Math.max(0, inventoryItem.quantity - inventoryItem.reserved_quantity) : 0;
+                          const laneFill = item.quantity + freeStock > 0 ? item.quantity / (item.quantity + freeStock) : 0;
                           return (
                             <div
                               key={item.id}
-                              style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", padding: 12, background: "var(--bg-elevated)", borderRadius: 8, flexWrap: "wrap" }}
+                              style={{ display: "grid", gap: 10, padding: 12, background: "var(--bg-elevated)", borderRadius: 8 }}
                             >
-                              <div>
-                                <div style={{ fontWeight: 600 }}>{formatItemKey(item.item_key)} (Q{item.quality})</div>
-                                <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                                  On shelf: {item.quantity} | Price: {formatCurrency(item.unit_price)} | Suggested: {formatCurrency(pricingGuide.suggested)}
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                                <div>
+                                  <div style={{ fontWeight: 600 }}>{formatItemKey(item.item_key)} (Q{item.quality})</div>
+                                  <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                                    On shelf: {item.quantity} | Backroom: {freeStock} | Price: {formatCurrency(item.unit_price)} | Suggested: {formatCurrency(pricingGuide.suggested)}
+                                  </div>
+                                </div>
+                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                  <button
+                                    onClick={() => {
+                                      const inventoryItem = inventory.find(
+                                        (inventoryRow) => inventoryRow.item_key === item.item_key && inventoryRow.quality === item.quality
+                                      );
+                                      const available = inventoryItem ? inventoryItem.quantity - inventoryItem.reserved_quantity : 0;
+                                      setShelfActionItem({
+                                        itemKey: item.item_key,
+                                        quality: item.quality,
+                                        maxQuantity: Math.max(item.quantity, item.quantity + available),
+                                      });
+                                      setShelfQuantity(item.quantity);
+                                      setShelfPrice(item.unit_price);
+                                    }}
+                                    disabled={busy}
+                                    style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => void removeShelfItem(item.id)}
+                                    disabled={busy}
+                                    style={{ fontSize: "0.75rem", padding: "4px 8px", background: "rgba(248, 113, 113, 0.1)", color: "#f87171", border: "1px solid rgba(248, 113, 113, 0.2)" }}
+                                  >
+                                    Remove
+                                  </button>
                                 </div>
                               </div>
-                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                <button
-                                  onClick={() => {
-                                    const inventoryItem = inventory.find(
-                                      (inventoryRow) => inventoryRow.item_key === item.item_key && inventoryRow.quality === item.quality
-                                    );
-                                    const available = inventoryItem ? inventoryItem.quantity - inventoryItem.reserved_quantity : 0;
-                                    setShelfActionItem({
-                                      itemKey: item.item_key,
-                                      quality: item.quality,
-                                      maxQuantity: Math.max(item.quantity, item.quantity + available),
-                                    });
-                                    setShelfQuantity(item.quantity);
-                                    setShelfPrice(item.unit_price);
-                                  }}
-                                  disabled={busy}
-                                  style={{ fontSize: "0.75rem", padding: "4px 8px" }}
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => void removeShelfItem(item.id)}
-                                  disabled={busy}
-                                  style={{ fontSize: "0.75rem", padding: "4px 8px", background: "rgba(248, 113, 113, 0.1)", color: "#f87171", border: "1px solid rgba(248, 113, 113, 0.2)" }}
-                                >
-                                  Remove
-                                </button>
+                              <div style={{ display: "grid", gap: 6 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: "0.78rem" }}>
+                                  <span style={{ color: "var(--text-muted)" }}>Shelf presence</span>
+                                  <strong style={{ color: "#86efac" }}>{Math.round(laneFill * 100)}%</strong>
+                                </div>
+                                <div style={{ position: "relative", height: 10, borderRadius: 999, background: "rgba(148,163,184,0.1)", overflow: "hidden" }}>
+                                  <div style={{ width: `${laneFill * 100}%`, height: "100%", background: "#22c55e", borderRadius: 999, transition: "width 900ms linear" }} />
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                                  <span>{freeStock > 0 ? "Backroom ready to replenish" : "No backroom buffer"}</span>
+                                  <span>{freeStock} reserve</span>
+                                </div>
                               </div>
                             </div>
                           );
@@ -1075,8 +1122,18 @@ export default function BusinessDetailsClient({
                               <tr style={{ borderBottom: isShelfRow ? "none" : "1px solid var(--border-subtle)" }}>
                                 <td style={{ padding: "12px 8px" }}>{formatItemKey(item.item_key)}</td>
                                 <td style={{ padding: "12px 8px" }}>{item.quality}</td>
-                                <td style={{ padding: "12px 8px", textAlign: "right", fontWeight: 600 }}>{available}</td>
-                                <td style={{ padding: "12px 8px", textAlign: "right" }}>{existingShelf?.quantity ?? 0}</td>
+                                <td style={{ padding: "12px 8px", textAlign: "right", fontWeight: 600 }}>
+                                  <div>{available}</div>
+                                  <div style={{ marginTop: 4, height: 6, borderRadius: 999, background: "rgba(148,163,184,0.1)", overflow: "hidden" }}>
+                                    <div style={{ width: `${Math.round(clamp(available / Math.max(1, maxShelfQuantity), 0, 1) * 100)}%`, height: "100%", background: "#60a5fa", borderRadius: 999 }} />
+                                  </div>
+                                </td>
+                                <td style={{ padding: "12px 8px", textAlign: "right" }}>
+                                  <div>{existingShelf?.quantity ?? 0}</div>
+                                  <div style={{ marginTop: 4, height: 6, borderRadius: 999, background: "rgba(148,163,184,0.1)", overflow: "hidden" }}>
+                                    <div style={{ width: `${Math.round(clamp((existingShelf?.quantity ?? 0) / Math.max(1, maxShelfQuantity), 0, 1) * 100)}%`, height: "100%", background: "#22c55e", borderRadius: 999 }} />
+                                  </div>
+                                </td>
                                 <td style={{ padding: "12px 8px", textAlign: "right" }}>
                                   <button
                                     onClick={() => {

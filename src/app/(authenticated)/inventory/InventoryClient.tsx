@@ -10,7 +10,7 @@ import { formatItemKey } from "@/lib/items";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useInventorySlice } from "@/stores/game-store";
 
 type Props = {
@@ -117,6 +117,17 @@ function EmptyState(props: { children: ReactNode }) {
   return <div style={{ color: "var(--text-muted)", fontSize: 14 }}>{props.children}</div>;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function formatCountdown(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function InventoryRowCard(props: {
   title: string;
   meta: string;
@@ -181,6 +192,15 @@ export default function InventoryClient({ initialData }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   const businessOptions = useMemo(
     () =>
@@ -675,58 +695,110 @@ export default function InventoryClient({ initialData }: Props) {
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
                 {shippingFeed.map((row) => (
-                  <article
-                    key={row.id}
-                    style={{
-                      border: "1px solid rgba(148, 163, 184, 0.14)",
-                      borderRadius: 16,
-                      padding: 16,
-                      background: "linear-gradient(180deg, rgba(11, 17, 29, 0.96), rgba(6, 10, 19, 0.95))",
-                      display: "grid",
-                      gap: 12,
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
-                      <div>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                          <h3 style={{ margin: 0, fontSize: "1rem" }}>{formatItemKey(row.item_key)}</h3>
-                          <StatusBadge
-                            tone={row.status === "delivered" ? "good" : row.status === "cancelled" ? "bad" : "warn"}
-                          >
-                            {row.status.replace("_", " ")}
-                          </StatusBadge>
-                        </div>
-                        <div style={{ marginTop: 6, color: "var(--text-secondary)", fontSize: 12 }}>
-                          {cityNamesById[row.from_city_id] ?? row.from_city_id} to {cityNamesById[row.to_city_id] ?? row.to_city_id}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontWeight: 800, fontSize: "1.1rem" }}>{formatCurrency(row.cost)}</div>
-                        <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>Arrives {formatDateTime(row.arrives_at)}</div>
-                      </div>
-                    </div>
+                  (() => {
+                    const dispatchedMs = new Date(row.dispatched_at).getTime();
+                    const arrivesMs = new Date(row.arrives_at).getTime();
+                    const progress =
+                      row.status === "in_transit" && Number.isFinite(dispatchedMs) && Number.isFinite(arrivesMs) && arrivesMs > dispatchedMs
+                        ? clamp((nowMs - dispatchedMs) / (arrivesMs - dispatchedMs), 0, 1)
+                        : row.status === "delivered"
+                          ? 1
+                          : 0;
+                    const remainingMs = Math.max(0, arrivesMs - nowMs);
+                    const progressColor =
+                      row.status === "delivered" ? "#22c55e" : row.status === "cancelled" ? "#ef4444" : "#facc15";
 
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
-                      <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
-                        <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Quantity</div>
-                        <div style={{ marginTop: 6, fontWeight: 700 }}>{row.quantity}</div>
-                      </div>
-                      <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
-                        <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Quality</div>
-                        <div style={{ marginTop: 6, fontWeight: 700 }}>Q{row.quality}</div>
-                      </div>
-                      <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
-                        <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Destination</div>
-                        <div style={{ marginTop: 6, fontWeight: 700, textTransform: "capitalize" }}>{row.destination_type}</div>
-                      </div>
-                      <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
-                        <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Declared Price</div>
-                        <div style={{ marginTop: 6, fontWeight: 700 }}>
-                          {row.declared_unit_price ? formatCurrency(row.declared_unit_price) : "N/A"}
+                    return (
+                      <article
+                        key={row.id}
+                        style={{
+                          border: "1px solid rgba(148, 163, 184, 0.14)",
+                          borderRadius: 16,
+                          padding: 16,
+                          background: "linear-gradient(180deg, rgba(11, 17, 29, 0.96), rgba(6, 10, 19, 0.95))",
+                          display: "grid",
+                          gap: 12,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                          <div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <h3 style={{ margin: 0, fontSize: "1rem" }}>{formatItemKey(row.item_key)}</h3>
+                              <StatusBadge
+                                tone={row.status === "delivered" ? "good" : row.status === "cancelled" ? "bad" : "warn"}
+                              >
+                                {row.status.replace("_", " ")}
+                              </StatusBadge>
+                            </div>
+                            <div style={{ marginTop: 6, color: "var(--text-secondary)", fontSize: 12 }}>
+                              {cityNamesById[row.from_city_id] ?? row.from_city_id} to {cityNamesById[row.to_city_id] ?? row.to_city_id}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontWeight: 800, fontSize: "1.1rem" }}>{formatCurrency(row.cost)}</div>
+                            <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+                              {row.status === "in_transit" ? `ETA ${formatCountdown(remainingMs)}` : `Arrives ${formatDateTime(row.arrives_at)}`}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  </article>
+
+                        <div style={{ display: "grid", gap: 8 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12 }}>
+                            <span style={{ color: "var(--text-secondary)" }}>Transit progress</span>
+                            <strong style={{ color: progressColor }}>
+                              {row.status === "in_transit" ? `${Math.round(progress * 100)}% in motion` : row.status.replace("_", " ")}
+                            </strong>
+                          </div>
+                          <div style={{ position: "relative", height: 12, borderRadius: 999, background: "rgba(148,163,184,0.1)", overflow: "hidden" }}>
+                            <div
+                              style={{
+                                width: `${progress * 100}%`,
+                                height: "100%",
+                                background: progressColor,
+                                borderRadius: 999,
+                                transition: "width 900ms linear",
+                              }}
+                            />
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: "50%",
+                                left: `calc(${progress * 100}% - 7px)`,
+                                width: 14,
+                                height: 14,
+                                borderRadius: 999,
+                                transform: "translateY(-50%)",
+                                background: progressColor,
+                                boxShadow: `0 0 0 4px ${progressColor}22, 0 0 14px ${progressColor}66`,
+                                transition: "left 900ms linear",
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+                          <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
+                            <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Quantity</div>
+                            <div style={{ marginTop: 6, fontWeight: 700 }}>{row.quantity}</div>
+                          </div>
+                          <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
+                            <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Quality</div>
+                            <div style={{ marginTop: 6, fontWeight: 700 }}>Q{row.quality}</div>
+                          </div>
+                          <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
+                            <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Destination</div>
+                            <div style={{ marginTop: 6, fontWeight: 700, textTransform: "capitalize" }}>{row.destination_type}</div>
+                          </div>
+                          <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
+                            <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Declared Price</div>
+                            <div style={{ marginTop: 6, fontWeight: 700 }}>
+                              {row.declared_unit_price ? formatCurrency(row.declared_unit_price) : "N/A"}
+                            </div>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })()
                 ))}
               </div>
             )}

@@ -6,6 +6,7 @@ import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
+import { useEffect, useMemo, useState } from "react";
 
 type Props = {
   business: Business;
@@ -90,7 +91,44 @@ function WorkforceTable(props: { title: string; rows: Array<{ label: string; val
   );
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function formatCountdown(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function ShiftRail(props: { label: string; sub: string; progress: number; color: string }) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <div style={{ color: "#f8fafc", fontWeight: 600 }}>{props.label}</div>
+          <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>{props.sub}</div>
+        </div>
+        <strong style={{ color: props.color }}>{Math.round(props.progress * 100)}%</strong>
+      </div>
+      <div style={{ height: 10, background: "rgba(148,163,184,0.1)", borderRadius: 999, overflow: "hidden" }}>
+        <div style={{ width: `${props.progress * 100}%`, height: "100%", background: props.color, borderRadius: 999, transition: "width 900ms linear" }} />
+      </div>
+    </div>
+  );
+}
+
 export default function BusinessEmployeesDashboard({ business, employees }: Props) {
+  const [nowMs, setNowMs] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const getAssignments = (
     employee: Employee & {
       employee_assignments?: (EmployeeAssignment & { business: Business })[] | (EmployeeAssignment & { business: Business }) | null;
@@ -139,6 +177,27 @@ export default function BusinessEmployeesDashboard({ business, employees }: Prop
     const assignment = getAssignments(employee)[0];
     return assignment && assignment.business_id !== business.id;
   }).length;
+  const activeShiftCountdowns = useMemo(
+    () =>
+      thisBusinessEmployees
+        .map((employee) => {
+          if (!employee.shift_ends_at) return null;
+          const endsMs = new Date(employee.shift_ends_at).getTime();
+          if (!Number.isFinite(endsMs) || endsMs <= nowMs) return null;
+          const totalShiftMs = 8 * 60 * 60 * 1000;
+          const remainingMs = endsMs - nowMs;
+          return {
+            id: employee.id,
+            label: `${employee.first_name} ${employee.last_name}`,
+            remainingMs,
+            progress: clamp(1 - remainingMs / totalShiftMs, 0, 1),
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+        .sort((a, b) => a.remainingMs - b.remainingMs)
+        .slice(0, 4),
+    [nowMs, thisBusinessEmployees]
+  );
 
   return (
     <div style={{ display: "grid", gap: 18, marginBottom: 18 }}>
@@ -215,6 +274,32 @@ export default function BusinessEmployeesDashboard({ business, employees }: Prop
           ]}
         />
       </div>
+
+      {activeShiftCountdowns.length > 0 ? (
+        <div
+          style={{
+            background: "linear-gradient(180deg, rgba(9, 14, 25, 0.98), rgba(5, 10, 19, 0.98))",
+            border: "1px solid rgba(148, 163, 184, 0.16)",
+            borderRadius: 16,
+            padding: 18,
+          }}
+        >
+          <div style={{ fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase", color: "#cbd5e1", marginBottom: 12 }}>
+            Shift Cadence
+          </div>
+          <div style={{ display: "grid", gap: 12 }}>
+            {activeShiftCountdowns.map((shift, index) => (
+              <ShiftRail
+                key={shift.id}
+                label={shift.label}
+                sub={`${formatCountdown(shift.remainingMs)} remaining on active shift`}
+                progress={shift.progress}
+                color={["#22c55e", "#60a5fa", "#f59e0b", "#a78bfa"][index % 4]}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
