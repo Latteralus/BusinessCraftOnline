@@ -313,18 +313,20 @@ export default function BusinessDetailsClient({
     employees: LocalEmployee[];
     financeDashboard: BusinessFinanceDashboard | null;
   }>) {
+    const currentDetail = useGameStore.getState().businessDetails.data[businessId];
+
     upsertBusinessDetail(businessId, {
-      business,
-      production,
-      manufacturing,
-      inventory,
-      shelfItems,
-      upgrades,
-      upgradeProjects,
-      employees,
-      financeDashboard: financeDashboardState,
-      ownedBusinesses: ownedBusinessesState,
-      upgradeDefinitions: upgradeDefinitionsState,
+      business: currentDetail?.business ?? business,
+      production: currentDetail?.production ?? production,
+      manufacturing: currentDetail?.manufacturing ?? manufacturing,
+      inventory: currentDetail?.inventory ?? inventory,
+      shelfItems: currentDetail?.shelfItems ?? shelfItems,
+      upgrades: currentDetail?.upgrades ?? upgrades,
+      upgradeProjects: currentDetail?.upgradeProjects ?? upgradeProjects,
+      employees: (currentDetail?.employees as LocalEmployee[] | undefined) ?? employees,
+      financeDashboard: currentDetail?.financeDashboard ?? financeDashboardState,
+      ownedBusinesses: currentDetail?.ownedBusinesses ?? ownedBusinessesState,
+      upgradeDefinitions: currentDetail?.upgradeDefinitions ?? upgradeDefinitionsState,
       ...value,
     });
   }
