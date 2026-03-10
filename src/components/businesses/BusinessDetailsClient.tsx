@@ -54,6 +54,17 @@ type LocalEmployee = Employee & {
 
 type ManufacturingLineView = NonNullable<ManufacturingStatusView["lines"]>[number];
 
+function summarizeManufacturingLines(lines: ManufacturingLineView[]): ManufacturingStatusView["summary"] {
+  return {
+    total: lines.length,
+    active: lines.filter((line) => line.status === "active").length,
+    idle: lines.filter((line) => line.status === "idle").length,
+    resting: lines.filter((line) => line.status === "resting").length,
+    retooling: lines.filter((line) => line.status === "retooling").length,
+    occupied: lines.filter((line) => Boolean(line.employee_id)).length,
+  };
+}
+
 function normalizeManufacturingLine(
   line: ManufacturingLineView,
   existing?: ManufacturingLineView
@@ -88,11 +99,14 @@ function normalizeManufacturingStatus(
 ): ManufacturingStatusView | null {
   if (!manufacturing) return null;
 
+  const lines = Array.isArray(manufacturing.lines)
+    ? manufacturing.lines.map((line) => normalizeManufacturingLine(line))
+    : [];
+
   return {
     ...manufacturing,
-    lines: Array.isArray(manufacturing.lines)
-      ? manufacturing.lines.map((line) => normalizeManufacturingLine(line))
-      : [],
+    lines,
+    summary: summarizeManufacturingLines(lines),
   };
 }
 
