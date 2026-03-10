@@ -1,11 +1,8 @@
-import { getPlayer } from "@/domains/auth-character";
 import { getBankingSnapshot } from "@/domains/banking";
 import { getBusinessesWithBalances, summarizeBusinessesWithBalances } from "@/domains/businesses";
 import { getActiveTravel, getCityById } from "@/domains/cities-travel";
 import { getEmployeeStatusFromShift, getEmployeeSummary } from "@/domains/employees";
 import {
-  getAdminEconomySummary,
-  getMarketStorefrontSettings,
   getMarketTransactions,
   getStorefrontPerformanceSummary,
   getTickHealthSummary,
@@ -65,59 +62,82 @@ function getBusinessIcon(type: string): string {
   return "🏢";
 }
 
+const DASHBOARD_TIMING_ENABLED = process.env.DASHBOARD_TIMING === "1";
+
+async function measureDashboardQuery<T>(
+  timings: Array<{ label: string; durationMs: number }>,
+  label: string,
+  task: () => PromiseLike<T>
+): Promise<T> {
+  const startedAt = performance.now();
+  const result = await task();
+  timings.push({ label, durationMs: performance.now() - startedAt });
+  return result;
+}
+
 export default async function DashboardPage() {
+  const timings: Array<{ label: string; durationMs: number }> = [];
+  const dashboardStartedAt = performance.now();
   const { supabase, user, character } = await requireAuthedPageContext();
-  const player = await getPlayer(supabase, user.id).catch(() => null);
+  const currentCityId = character.current_city_id;
 
   const [activeTravel, currentCity] = await Promise.all([
-    getActiveTravel(supabase, user.id).catch(() => null),
-    character.current_city_id
-      ? getCityById(supabase, character.current_city_id).catch(() => null)
+    measureDashboardQuery(timings, "getActiveTravel", () => getActiveTravel(supabase, user.id).catch(() => null)),
+    currentCityId
+      ? measureDashboardQuery(timings, "getCurrentCity", () => getCityById(supabase, currentCityId).catch(() => null))
       : Promise.resolve(null),
   ]);
 
-  const destinationCity = activeTravel
-    ? await getCityById(supabase, activeTravel.to_city_id).catch(() => null)
-    : null;
+  const destinationCityPromise = activeTravel?.to_city_id
+    ? measureDashboardQuery(timings, "getDestinationCity", () => getCityById(supabase, activeTravel.to_city_id).catch(() => null))
+    : Promise.resolve(null);
 
   const [
+    destinationCity,
     bankingSnapshot,
     businessesWithBalances,
     employeeSummary,
     marketTransactions,
-    storefrontSettings,
     tickHealth,
     storefrontPerformance,
-    adminEconomySummary,
     res1,
     mfgRes,
     extRes,
   ] = await Promise.all([
-    getBankingSnapshot(supabase, user.id).catch(() => null),
-    getBusinessesWithBalances(supabase, user.id).catch(() => []),
-    getEmployeeSummary(supabase, user.id).catch(() => null),
-    getMarketTransactions(supabase, user.id, 20, { buyerType: "player" }).catch(() => []),
-    getMarketStorefrontSettings(supabase, user.id).catch(() => []),
-    getTickHealthSummary(supabase, 24).catch(() => null),
-    getStorefrontPerformanceSummary(supabase, user.id, 24).catch(() => null),
-    player?.role === "admin" ? getAdminEconomySummary(supabase, 24).catch(() => null) : Promise.resolve(null),
-    supabase
-      .from("shipping_queue")
-      .select("id", { count: "exact", head: true })
-      .eq("owner_player_id", user.id)
-      .eq("status", "in_transit"),
-    supabase
-      .from("manufacturing_jobs")
-      .select("id, business_id, status, active_recipe_key, worker_assigned, last_tick_at, updated_at, business:businesses!inner(name, type, player_id)")
-      .eq("businesses.player_id", user.id)
-      .order("updated_at", { ascending: false })
-      .limit(10),
-    supabase
-      .from("extraction_slots")
-      .select("id, business_id, slot_number, employee_id, status, tool_item_key, last_extracted_at, updated_at, business:businesses!inner(name, type, player_id)")
-      .eq("businesses.player_id", user.id)
-      .order("updated_at", { ascending: false })
-      .limit(20),
+    destinationCityPromise,
+    measureDashboardQuery(timings, "getBankingSnapshot", () => getBankingSnapshot(supabase, user.id).catch(() => null)),
+    measureDashboardQuery(timings, "getBusinessesWithBalances", () => getBusinessesWithBalances(supabase, user.id).catch(() => [])),
+    measureDashboardQuery(timings, "getEmployeeSummary", () => getEmployeeSummary(supabase, user.id).catch(() => null)),
+    measureDashboardQuery(timings, "getMarketTransactions", () =>
+      getMarketTransactions(supabase, user.id, 20, { buyerType: "player" }).catch(() => [])
+    ),
+    measureDashboardQuery(timings, "getTickHealthSummary", () => getTickHealthSummary(supabase, 24).catch(() => null)),
+    measureDashboardQuery(timings, "getStorefrontPerformanceSummary", () =>
+      getStorefrontPerformanceSummary(supabase, user.id, 24).catch(() => null)
+    ),
+    measureDashboardQuery(timings, "countInTransitShipping", () =>
+      supabase
+        .from("shipping_queue")
+        .select("id", { count: "exact", head: true })
+        .eq("owner_player_id", user.id)
+        .eq("status", "in_transit")
+    ),
+    measureDashboardQuery(timings, "getManufacturingJobs", () =>
+      supabase
+        .from("manufacturing_jobs")
+        .select("id, business_id, status, active_recipe_key, worker_assigned, last_tick_at, updated_at, business:businesses!inner(name, type, player_id)")
+        .eq("businesses.player_id", user.id)
+        .order("updated_at", { ascending: false })
+        .limit(10)
+    ),
+    measureDashboardQuery(timings, "getExtractionSlots", () =>
+      supabase
+        .from("extraction_slots")
+        .select("id, business_id, slot_number, employee_id, status, tool_item_key, last_extracted_at, updated_at, business:businesses!inner(name, type, player_id)")
+        .eq("businesses.player_id", user.id)
+        .order("updated_at", { ascending: false })
+        .limit(20)
+    ),
   ]);
   const businessSummary = summarizeBusinessesWithBalances(businessesWithBalances);
 
@@ -131,15 +151,19 @@ export default async function DashboardPage() {
   );
   const [employeeRowsRes, assignmentRowsRes] = extractionEmployeeIds.length
     ? await Promise.all([
-        supabase
-          .from("employees")
-          .select("id, status, shift_ends_at")
-          .in("id", extractionEmployeeIds),
-        supabase
-          .from("employee_assignments")
-          .select("employee_id, business_id, role, slot_number")
-          .in("employee_id", extractionEmployeeIds)
-          .in("business_id", extractionBusinessIds),
+        measureDashboardQuery(timings, "getExtractionEmployees", () =>
+          supabase
+            .from("employees")
+            .select("id, status, shift_ends_at")
+            .in("id", extractionEmployeeIds)
+        ),
+        measureDashboardQuery(timings, "getExtractionAssignments", () =>
+          supabase
+            .from("employee_assignments")
+            .select("employee_id, business_id, role, slot_number")
+            .in("employee_id", extractionEmployeeIds)
+            .in("business_id", extractionBusinessIds)
+        ),
       ])
     : [{ data: [] as Array<any> }, { data: [] as Array<any> }];
   const employeeById = new Map(((employeeRowsRes.data ?? []) as Array<any>).map((row) => [String(row.id), row]));
@@ -216,27 +240,6 @@ export default async function DashboardPage() {
   const travelRemainingMinutes =
     travelRemainingMs !== null ? Math.max(0, Math.ceil(travelRemainingMs / 60000)) : null;
 
-  const adEnabledCount = storefrontSettings?.filter((row) => row.is_ad_enabled)?.length ?? 0;
-  const totalAdBudgetPerTick = storefrontSettings?.reduce((sum, row) => sum + row.ad_budget_per_tick, 0) ?? 0;
-  const avgTrafficMultiplier =
-    storefrontSettings && storefrontSettings.length > 0
-      ? storefrontSettings.reduce((sum, row) => sum + row.traffic_multiplier, 0) / storefrontSettings.length
-      : 1;
-
-  const feedBusinessIds = Array.from(
-    new Set([
-      ...marketTransactions.map((tx) => tx.seller_business_id),
-      ...marketTransactions.map((tx) => tx.buyer_business_id).filter((id): id is string => Boolean(id)),
-    ])
-  ).filter(Boolean);
-
-  const { data: feedBusinesses } =
-    feedBusinessIds.length > 0
-      ? await supabase.from("businesses").select("id, name").in("id", feedBusinessIds)
-      : { data: [] as Array<{ id: string; name: string }> };
-
-  const businessNameById = new Map(((feedBusinesses as Array<{ id: string; name: string }>) ?? []).map((b) => [b.id, b.name]));
-
   const marketFeed = marketTransactions
     .map((tx) => {
       return {
@@ -244,7 +247,6 @@ export default async function DashboardPage() {
         createdAt: tx.created_at,
         line: formatMarketTransactionLine({
           transaction: tx,
-          businessNameById,
           formatTimestamp: formatTimeAgo,
         }),
       };
@@ -260,6 +262,21 @@ export default async function DashboardPage() {
   const investmentBalance = investmentAccount ? investmentAccount.balance : null;
   const bizBalance = businessSummary?.totalBusinessBalance ?? 0;
   const loanBalance = bankingSnapshot?.activeLoan ? bankingSnapshot.activeLoan.balance_remaining : 0;
+
+  if (DASHBOARD_TIMING_ENABLED) {
+    console.info(
+      "[dashboard] timings",
+      JSON.stringify({
+        totalMs: Number((performance.now() - dashboardStartedAt).toFixed(2)),
+        phases: timings
+          .map((entry) => ({
+            label: entry.label,
+            durationMs: Number(entry.durationMs.toFixed(2)),
+          }))
+          .sort((a, b) => b.durationMs - a.durationMs),
+      })
+    );
+  }
 
   return (
     <>

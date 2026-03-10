@@ -68,7 +68,7 @@ export async function ensurePersonalAccounts(
   const missingTypes = BANK_ACCOUNT_TYPES.filter((accountType) => !existingTypes.has(accountType));
 
   if (missingTypes.length === 0) {
-    return existing;
+    return sortAccounts(existing);
   }
 
   const insertedRows: BankAccount[] = [];
@@ -101,7 +101,17 @@ export async function ensurePersonalAccounts(
     }
   }
 
-  return [...existing, ...insertedRows];
+  return sortAccounts([...existing, ...insertedRows]);
+}
+
+function sortAccounts(rows: BankAccount[]): BankAccount[] {
+  const order = new Map<BankAccountType, number>(
+    BANK_ACCOUNT_TYPES.map((accountType, index) => [accountType, index])
+  );
+
+  return [...rows].sort((a, b) => {
+    return (order.get(a.account_type) ?? 999) - (order.get(b.account_type) ?? 999);
+  });
 }
 
 export async function getAccounts(client: QueryClient, playerId: string): Promise<BankAccount[]> {
@@ -112,21 +122,15 @@ export async function getAccounts(client: QueryClient, playerId: string): Promis
 
   if (error) throw error;
 
-  const rows = (data as BankAccount[]) ?? [];
-  const order = new Map<BankAccountType, number>(
-    BANK_ACCOUNT_TYPES.map((accountType, index) => [accountType, index])
-  );
-
-  return rows.sort((a, b) => {
-    return (order.get(a.account_type) ?? 999) - (order.get(b.account_type) ?? 999);
-  });
+  return sortAccounts((data as BankAccount[]) ?? []);
 }
 
 export async function getAccountsWithBalances(
   client: QueryClient,
-  playerId: string
+  playerId: string,
+  existingAccounts?: BankAccount[]
 ): Promise<BankAccountWithBalance[]> {
-  const accounts = await getAccounts(client, playerId);
+  const accounts = existingAccounts ?? (await getAccounts(client, playerId));
 
   if (accounts.length === 0) {
     return [];
@@ -378,15 +382,14 @@ export async function getBankingSnapshot(
   client: QueryClient,
   playerId: string
 ): Promise<BankingSnapshot> {
-  await ensurePersonalAccounts(client, playerId);
-
   const [accounts, activeLoan] = await Promise.all([
-    getAccountsWithBalances(client, playerId),
+    ensurePersonalAccounts(client, playerId),
     getActiveLoan(client, playerId),
   ]);
+  const accountsWithBalances = await getAccountsWithBalances(client, playerId, accounts);
 
   return {
-    accounts,
+    accounts: accountsWithBalances,
     activeLoan,
   };
 }
