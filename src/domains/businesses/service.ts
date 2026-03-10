@@ -33,6 +33,11 @@ type QueryClient = {
   rpc: (fn: string, args?: Record<string, unknown>) => any;
 };
 
+type PersonalAccountRow = {
+  id: string;
+  account_type: string;
+};
+
 function normalizeBusiness(row: Business): Business {
   return {
     ...row,
@@ -60,6 +65,32 @@ function normalizeAccountEntry(row: BusinessAccountEntry): BusinessAccountEntry 
     ...row,
     amount: toNumber(row.amount),
   };
+}
+
+async function getCheckingAccountId(client: QueryClient, playerId: string): Promise<string> {
+  const { data, error } = await client
+    .from("bank_accounts")
+    .select("id, account_type")
+    .eq("player_id", playerId)
+    .eq("account_type", "checking")
+    .maybeSingle();
+
+  if (error) throw error;
+  const account = data as PersonalAccountRow | null;
+  if (!account?.id) {
+    throw new Error("Checking account not found.");
+  }
+
+  return account.id;
+}
+
+async function getPersonalAccountBalance(client: QueryClient, accountId: string): Promise<number> {
+  const { data, error } = await client.rpc("get_bank_account_balance", {
+    p_account_id: accountId,
+  });
+
+  if (error) throw error;
+  return round2(toNumber(data));
 }
 
 export async function getPlayerBusinesses(
@@ -225,50 +256,64 @@ export async function createBusiness(
 
   const startupCost = STARTUP_COSTS[input.type];
   const entityType: BusinessEntityType = input.entityType ?? "sole_proprietorship";
+  const checkingAccountId = await getCheckingAccountId(client, playerId);
+  const checkingBalance = await getPersonalAccountBalance(client, checkingAccountId);
 
-  const { data, error } = await client
-    .from("businesses")
-    .insert({
-      player_id: playerId,
-      name: input.name,
-      type: input.type,
-      city_id: input.cityId,
-      entity_type: entityType,
-      value: startupCost,
-    })
-    .select("*")
-    .single();
+  if (checkingBalance < startupCost) {
+    throw new Error(
+      `Insufficient checking balance. Startup cost is $${startupCost.toFixed(2)} and balance is $${checkingBalance.toFixed(2)}.`
+    );
+  }
 
-  if (error) throw error;
-
-  const business = normalizeBusiness(data as Business);
-
-  const { error: openingCreditError } = await client.from("business_accounts").insert({
-    business_id: business.id,
+  const { error: purchaseDebitError } = await client.from("transactions").insert({
+    account_id: checkingAccountId,
     amount: startupCost,
-    entry_type: "credit",
-    category: "opening_capital",
-    description: `Opening capital benchmark for ${business.name}`,
+    direction: "debit",
+    transaction_type: "manual_adjustment",
+    description: `Business purchase: ${input.name}`,
   });
 
-  if (openingCreditError) throw openingCreditError;
+  if (purchaseDebitError) throw purchaseDebitError;
 
-  const { error: startupDebitError } = await client.from("business_accounts").insert({
-    business_id: business.id,
-    amount: startupCost,
-    entry_type: "debit",
-    category: "startup_purchase",
-    description: `Startup purchase cost for ${business.type}`,
-  });
+  try {
+    const { data, error } = await client
+      .from("businesses")
+      .insert({
+        player_id: playerId,
+        name: input.name,
+        type: input.type,
+        city_id: input.cityId,
+        entity_type: entityType,
+        value: startupCost,
+      })
+      .select("*")
+      .single();
 
-  if (startupDebitError) throw startupDebitError;
+    if (error) throw error;
 
-  return {
-    ...business,
-    balance: 0,
-    upgrades: [],
-    upgradeProjects: [],
-  };
+    const business = normalizeBusiness(data as Business);
+
+    return {
+      ...business,
+      balance: 0,
+      upgrades: [],
+      upgradeProjects: [],
+    };
+  } catch (error) {
+    const { error: refundError } = await client.from("transactions").insert({
+      account_id: checkingAccountId,
+      amount: startupCost,
+      direction: "credit",
+      transaction_type: "manual_adjustment",
+      description: `Refund for failed business purchase: ${input.name}`,
+    });
+
+    if (refundError) {
+      throw new Error("Business purchase failed and automatic refund could not be completed.");
+    }
+
+    throw error;
+  }
 }
 
 export async function addBusinessAccountEntry(

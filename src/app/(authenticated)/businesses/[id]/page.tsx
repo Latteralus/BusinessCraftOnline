@@ -11,7 +11,7 @@ import { getProductionStatus, getManufacturingStatus } from "@/domains/productio
 import { getBusinessInventory } from "@/domains/inventory";
 import { getStoreShelfItems } from "@/domains/stores";
 import { getUpgradeDefinitionsForBusinessType, type BusinessType } from "@/domains/upgrades";
-import { formatLabel } from "@/lib/formatters";
+import { formatBusinessType } from "@/lib/businesses";
 import { requireAuthedPageContext } from "../../server-data";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -83,7 +83,7 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
           </Link>
           <div>
             <h1>{business.name}</h1>
-            <p>{formatLabel(business.type)} • {city?.name ?? "Unknown City"}</p>
+            <p>{formatBusinessType(business.type)} • {city?.name ?? "Unknown City"}</p>
           </div>
         </div>
       </div>

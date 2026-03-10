@@ -39,18 +39,18 @@ export const BUSINESS_ENTITY_TYPES = [
 export type BusinessEntityType = (typeof BUSINESS_ENTITY_TYPES)[number];
 
 export const STARTUP_COSTS: Record<BusinessType, number> = {
-  mine: 3000,
-  farm: 2200,
-  water_company: 1800,
-  logging_camp: 3000,
-  oil_well: 4500,
-  sawmill: 3500,
-  metalworking_factory: 5000,
-  food_processing_plant: 3500,
-  winery_distillery: 5000,
-  carpentry_workshop: 4500,
-  general_store: 4000,
-  specialty_store: 3500,
+  mine: 140000,
+  farm: 110000,
+  water_company: 100000,
+  logging_camp: 120000,
+  oil_well: 450000,
+  sawmill: 180000,
+  metalworking_factory: 350000,
+  food_processing_plant: 190000,
+  winery_distillery: 320000,
+  carpentry_workshop: 260000,
+  general_store: 125000,
+  specialty_store: 200000,
 };
 
 export const BUSINESS_UPGRADE_KEYS_BY_TYPE: Record<BusinessType, readonly BusinessUpgradeKey[]> =

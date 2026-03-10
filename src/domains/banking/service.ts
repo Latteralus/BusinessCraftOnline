@@ -4,7 +4,7 @@ import {
   LOAN_LIMIT_PER_BUSINESS_LEVEL,
   LOAN_MAX_PRINCIPAL,
   LOAN_MIN_PRINCIPAL,
-  STARTING_POCKET_CASH,
+  STARTING_CHECKING_BALANCE,
   TRANSACTION_HISTORY_DEFAULT_LIMIT,
 } from "@/config/banking";
 import type {
@@ -88,13 +88,13 @@ export async function ensurePersonalAccounts(
     const insertedAccount = inserted as BankAccount;
     insertedRows.push(insertedAccount);
 
-    if (accountType === "pocket_cash") {
+    if (accountType === "checking") {
       const { error: txError } = await client.from("transactions").insert({
         account_id: insertedAccount.id,
-        amount: STARTING_POCKET_CASH,
+        amount: STARTING_CHECKING_BALANCE,
         direction: "credit",
         transaction_type: "account_opening",
-        description: "Starting pocket cash",
+        description: "Starting checking balance",
       });
 
       if (txError) throw txError;

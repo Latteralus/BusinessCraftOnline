@@ -20,7 +20,7 @@ export const TRANSACTION_TYPES = [
 
 export const LOAN_STATUSES = ["active", "paid", "defaulted"] as const;
 
-export const STARTING_POCKET_CASH = 5000;
+export const STARTING_CHECKING_BALANCE = 101000;
 export const LOAN_MIN_PRINCIPAL = 1000;
 export const LOAN_MAX_PRINCIPAL = 50000;
 export const LOAN_DEFAULT_INTEREST_RATE = 8;

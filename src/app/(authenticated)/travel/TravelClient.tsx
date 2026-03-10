@@ -116,9 +116,7 @@ export default function TravelClient({ cities, travelState }: Props) {
       <header className="lc-page-header">
         <div>
           <h1>Travel</h1>
-          <p>
-            Move between cities with route-based travel time and cost.
-          </p>
+          <p>Hit the road.</p>
         </div>
         <div style={{ alignSelf: "center" }}>
           <Link href="/dashboard">Back to Dashboard</Link>

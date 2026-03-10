@@ -225,6 +225,40 @@ async function finalizeExtractionRetools(client: QueryClient, businessId: string
   }
 }
 
+async function reactivateFallbackExtractionSlots(
+  client: QueryClient,
+  businessId: string,
+  businessType: ExtractionBusinessType
+): Promise<void> {
+  const supportsMissingToolOutput =
+    EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[businessType] !== undefined;
+  if (!supportsMissingToolOutput) return;
+
+  const nowIso = new Date().toISOString();
+  const { data, error } = await client
+    .from("extraction_slots")
+    .select("*")
+    .eq("business_id", businessId)
+    .eq("status", "tool_broken")
+    .not("employee_id", "is", null);
+  if (error) throw error;
+
+  const rows = ((data as ExtractionSlot[]) ?? []).map(normalizeSlot);
+  for (const slot of rows) {
+    const nextStatus = resolveExtractionStatus(slot, businessType);
+    if (nextStatus === slot.status) continue;
+
+    const { error: updateError } = await client
+      .from("extraction_slots")
+      .update({
+        status: nextStatus,
+        updated_at: nowIso,
+      })
+      .eq("id", slot.id);
+    if (updateError) throw updateError;
+  }
+}
+
 async function finalizeManufacturingRetools(client: QueryClient, businessId: string): Promise<void> {
   const nowIso = new Date().toISOString();
   const { data, error } = await client
@@ -333,6 +367,7 @@ export async function ensureExtractionSlots(
   }
 
   await finalizeExtractionRetools(client, business.id);
+  await reactivateFallbackExtractionSlots(client, business.id, business.type);
 
   const { data: finalRows, error: finalError } = await client
     .from("extraction_slots")

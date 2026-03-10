@@ -5,6 +5,7 @@ import { NPC_PRICE_CEILINGS } from "@/config/items";
 import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import { fetchInventoryPageData, queryKeys, type InventoryPageData } from "@/lib/client/queries";
+import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import Link from "next/link";
@@ -190,7 +191,7 @@ export default function InventoryClient({ initialData }: Props) {
       businesses.map((business) => ({
         businessId: business.id,
         businessName: business.name,
-        businessType: business.type,
+        businessType: formatBusinessType(business.type),
         cityId: business.city_id,
         balance: business.balance,
       })),
@@ -411,7 +412,7 @@ export default function InventoryClient({ initialData }: Props) {
       <header className="lc-page-header">
         <div>
           <h1>Inventory</h1>
-          <p>Move stock between personal and business holdings, monitor reserves, and keep shipping flows visible.</p>
+          <p>Your stock and shipments.</p>
         </div>
         <div style={{ alignSelf: "center" }}>
           <Link href="/dashboard">Back to Dashboard</Link>
@@ -432,10 +433,10 @@ export default function InventoryClient({ initialData }: Props) {
           <div style={{ maxWidth: 760 }}>
             <div style={{ fontSize: 12, letterSpacing: "0.2em", textTransform: "uppercase", color: "#cbd5e1" }}>Stock Control</div>
             <div style={{ marginTop: 8, fontSize: "1.95rem", fontWeight: 800, color: "#f8fafc" }}>
-              Operational inventory built around availability, routing, and transfer decisions
+              Inventory
             </div>
             <div style={{ marginTop: 8, color: "var(--text-secondary)", fontSize: 13, lineHeight: 1.6 }}>
-              Review personal stock, business-held supply, and active shipments in one workspace. Transfer controls now sit beside the live readiness view so you can act without hunting for context.
+              Check what you are carrying, what your businesses are holding, and what is still on the road.
             </div>
           </div>
           <div style={{ display: "grid", gap: 8, minWidth: 220 }}>

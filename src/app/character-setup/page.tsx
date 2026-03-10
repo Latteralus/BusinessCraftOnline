@@ -596,7 +596,7 @@ export default function CharacterSetupPage() {
                       <path d="M4 8.5l3 3 5.5-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
-                  $5,000 starting capital
+                  $101,000 starting capital
                 </div>
                 <div className="lco-info-item">
                   <div className="lco-info-check">

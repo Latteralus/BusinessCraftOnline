@@ -4,6 +4,7 @@ import { BASE_WAGE_PER_HOUR } from "@/config/employees";
 import type { Business } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
+import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 
 type Props = {
@@ -196,7 +197,7 @@ export default function BusinessEmployeesDashboard({ business, employees }: Prop
         <WorkforceTable
           title="Business Staffing Posture"
           rows={[
-            { label: "Business Type", value: formatLabel(business.type) },
+            { label: "Business Type", value: formatBusinessType(business.type) },
             { label: "Entity Type", value: formatLabel(business.entity_type) },
             { label: "Workers at Site", value: `${thisBusinessEmployees.length}` },
             { label: "Available Bench", value: `${availableCount}` },

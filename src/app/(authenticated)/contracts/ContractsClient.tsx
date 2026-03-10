@@ -212,7 +212,7 @@ export default function ContractsClient({ initialData }: Props) {
       <header className="lc-page-header">
         <div>
           <h1>Contracts</h1>
-          <p>Stage supply agreements, move them through execution, and manage delivery obligations from a single deal room.</p>
+          <p>Your deals and supply orders.</p>
         </div>
         <div style={{ alignSelf: "center" }}>
           <Link href="/dashboard">Back to Dashboard</Link>
@@ -233,10 +233,10 @@ export default function ContractsClient({ initialData }: Props) {
           <div style={{ maxWidth: 760 }}>
             <div style={{ fontSize: 12, letterSpacing: "0.2em", textTransform: "uppercase", color: "#cbd5e1" }}>Deal Room</div>
             <div style={{ marginTop: 8, fontSize: "1.95rem", fontWeight: 800, color: "#f8fafc" }}>
-              Manage commercial obligations like a real contract pipeline
+              Contracts
             </div>
             <div style={{ marginTop: 8, color: "var(--text-secondary)", fontSize: 13, lineHeight: 1.6 }}>
-              Issue supply requests, accept work, and push agreements from offer to fulfillment with a clearer view of pipeline health and remaining exposure.
+              Post supply orders, take jobs, and track what still needs to be delivered.
             </div>
           </div>
           <div style={{ display: "grid", gap: 8, minWidth: 220 }}>

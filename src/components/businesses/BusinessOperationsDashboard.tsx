@@ -1,11 +1,16 @@
 "use client";
 
 import { EXTRACTION_OUTPUT_ITEM_BY_BUSINESS } from "@/config/production";
+import {
+  EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
+  EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
+} from "@/config/production";
 import type { Business } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { ManufacturingStatusView, ProductionStatus } from "@/domains/production";
 import type { StoreShelfItem } from "@/domains/stores";
+import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 
@@ -20,6 +25,23 @@ type Props = {
 
 function formatPercent(value: number) {
   return `${Math.round(value)}%`;
+}
+
+function calculateExtractionThroughput(production: ProductionStatus) {
+  return production.slots.reduce((sum, slot) => {
+    if (slot.status !== "active") return sum;
+
+    const businessType = production.businessType as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS;
+    const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType];
+    const fallbackMultiplier = EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[businessType] ?? 0;
+    const hasOperationalTool =
+      !requiredTool ||
+      (slot.tool_item_key === requiredTool &&
+        slot.tool?.item_type === requiredTool &&
+        (slot.tool?.uses_remaining ?? 0) > 0);
+
+    return sum + (hasOperationalTool ? 1 : fallbackMultiplier || 0);
+  }, 0);
 }
 
 function MiniOpStat(props: { label: string; value: string; sub?: string; tone?: "neutral" | "positive" | "negative" }) {
@@ -108,6 +130,18 @@ export default function BusinessOperationsDashboard(props: Props) {
   if (props.production) {
     const { production } = props;
     const activeSlots = production.summary.active;
+    const throughputPerMinute = calculateExtractionThroughput(production);
+    const degradedSlots = production.slots.filter((slot) => {
+      if (slot.status !== "active") return false;
+      const businessType = production.businessType as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS;
+      const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType];
+      if (!requiredTool) return false;
+      return !(
+        slot.tool_item_key === requiredTool &&
+        slot.tool?.item_type === requiredTool &&
+        (slot.tool?.uses_remaining ?? 0) > 0
+      );
+    }).length;
     const utilization = production.maxSlots > 0 ? (activeSlots / production.maxSlots) * 100 : 0;
     const occupancy = production.maxSlots > 0 ? (production.summary.occupied / production.maxSlots) * 100 : 0;
     const outputItem =
@@ -136,10 +170,10 @@ export default function BusinessOperationsDashboard(props: Props) {
             Extraction Control Room
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-            <MiniOpStat label="Throughput" value={`${activeSlots} ${formatItemKey(outputItem)}/min`} sub={`${production.summary.active} active lanes`} tone="positive" />
+            <MiniOpStat label="Throughput" value={`${throughputPerMinute} ${formatItemKey(outputItem)}/min`} sub={degradedSlots > 0 ? `${production.summary.active} active lanes · ${degradedSlots} degraded` : `${production.summary.active} active lanes`} tone="positive" />
             <MiniOpStat label="Slot Utilization" value={formatPercent(utilization)} sub={`${production.summary.active}/${production.maxSlots} slots running`} />
             <MiniOpStat label="Crew Coverage" value={formatPercent(occupancy)} sub={`${production.summary.occupied} staffed`} />
-            <MiniOpStat label="Tool Health" value={averageToolHealth > 0 ? `${Math.round(averageToolHealth)} uses avg` : "No tools"} sub={production.summary.toolBroken > 0 ? `${production.summary.toolBroken} blocked` : "All lanes serviceable"} tone={production.summary.toolBroken > 0 ? "negative" : "neutral"} />
+            <MiniOpStat label="Tool Health" value={averageToolHealth > 0 ? `${Math.round(averageToolHealth)} uses avg` : "No tools"} sub={degradedSlots > 0 ? `${degradedSlots} lane${degradedSlots === 1 ? "" : "s"} on fallback output` : "All lanes serviceable"} tone={degradedSlots > 0 ? "negative" : "neutral"} />
             <MiniOpStat label="Output Buffer" value={`${availableInventoryUnits} units`} sub={`Ready stock in yard`} />
           </div>
         </div>
@@ -151,13 +185,13 @@ export default function BusinessOperationsDashboard(props: Props) {
               { label: "Active", value: production.summary.active, color: "#22c55e" },
               { label: "Idle", value: production.summary.idle, color: "#60a5fa" },
               { label: "Resting", value: production.summary.resting, color: "#f59e0b" },
-              { label: "Tool Broken", value: production.summary.toolBroken, color: "#ef4444" },
+              { label: "Fallback Rate", value: degradedSlots, color: "#ef4444" },
             ]}
           />
           <OpsTable
             title="Dispatch Notes"
             rows={[
-              { label: "Business Type", value: formatLabel(production.businessType) },
+              { label: "Business Type", value: formatBusinessType(production.businessType) },
               { label: "Output Commodity", value: formatItemKey(outputItem) },
               { label: "Assigned Workers", value: `${production.summary.occupied}/${production.maxSlots}` },
               { label: "Idle Capacity", value: `${Math.max(0, production.maxSlots - production.summary.active)} slots` },
@@ -176,6 +210,14 @@ export default function BusinessOperationsDashboard(props: Props) {
       props.manufacturing.lines[0] ??
       null;
     const recipe = leadLine?.configured_recipe ?? null;
+    const finishedOutputKeys = new Set(
+      props.manufacturing.lines
+        .map((line) => line.configured_recipe?.outputItemKey ?? null)
+        .filter((itemKey): itemKey is string => Boolean(itemKey))
+    );
+    const finishedInventoryUnits = props.inventory
+      .filter((row) => finishedOutputKeys.has(row.item_key))
+      .reduce((sum, row) => sum + Math.max(0, row.quantity - row.reserved_quantity), 0);
     const perMinute = leadLine?.status === "active" && recipe ? recipe.baseOutputQuantity : 0;
     const inputCoverage = recipe
       ? recipe.inputs.map((input: { itemKey: string; quantity: number }) => {
@@ -210,7 +252,7 @@ export default function BusinessOperationsDashboard(props: Props) {
             <MiniOpStat label="Run Rate" value={recipe ? `${perMinute} ${formatItemKey(recipe.outputItemKey)}/min` : "No recipe"} sub={recipe ? recipe.displayName : "Retool a line to begin"} tone={leadLine?.status === "active" ? "positive" : "neutral"} />
             <MiniOpStat label="Cell Status" value={leadLine ? formatLabel(leadLine.status) : "Idle"} sub={workerReady ? "Worker on station" : "Worker missing"} tone={workerReady ? "positive" : "negative"} />
             <MiniOpStat label="Input Coverage" value={bottleneck ? `${bottleneck.coverageMinutes} min` : "N/A"} sub={bottleneck ? `${formatItemKey(bottleneck.itemKey)} is limiting` : "No recipe active"} tone={bottleneck && bottleneck.coverageMinutes === 0 ? "negative" : "neutral"} />
-            <MiniOpStat label="Output Buffer" value={`${availableInventoryUnits} units`} sub="Finished stock on hand" />
+            <MiniOpStat label="Output Buffer" value={`${finishedInventoryUnits} units`} sub="Produced stock on hand" />
             <MiniOpStat label="Crew" value={`${props.manufacturing.summary.occupied}/${props.manufacturing.maxLines}`} sub="Workers on production lines" />
           </div>
         </div>
@@ -234,7 +276,7 @@ export default function BusinessOperationsDashboard(props: Props) {
               { label: "Worker Assigned", value: workerReady ? "Yes" : "No" },
               { label: "Line Status", value: leadLine ? formatLabel(leadLine.status) : "Idle" },
               { label: "Bottleneck", value: bottleneck ? formatItemKey(bottleneck.itemKey) : "None" },
-              { label: "Inventory Ready", value: `${availableInventoryUnits} units` },
+              { label: "Output Stock", value: `${finishedInventoryUnits} units` },
             ]}
           />
         </div>
@@ -282,7 +324,7 @@ export default function BusinessOperationsDashboard(props: Props) {
         <OpsTable
           title="Floor Notes"
           rows={[
-            { label: "Business Type", value: formatLabel(props.business.type) },
+            { label: "Business Type", value: formatBusinessType(props.business.type) },
             { label: "Shelf Items", value: `${props.shelfItems.length}` },
             { label: "Backroom Inventory", value: `${availableInventoryUnits} units` },
             { label: "Crew Attached", value: `${assignedEmployees.length}` },

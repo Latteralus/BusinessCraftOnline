@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import type { PlayerProfilePreview, PublicPlayerBusiness } from "@/domains/auth-character";
+import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatDateTime, formatLabel } from "@/lib/formatters";
 
 type TabType = "overview" | "businesses" | "details";
@@ -176,7 +177,7 @@ export default function PlayerProfileClient({
                       <div>
                         <div style={{ fontSize: "1rem", fontWeight: 700 }}>{business.name}</div>
                         <div style={{ marginTop: 6, color: "var(--text-secondary)", fontSize: "0.92rem" }}>
-                          {formatLabel(business.type)} • {business.city_name ?? "Unknown City"} • {formatLabel(business.entity_type)}
+                          {formatBusinessType(business.type)} • {business.city_name ?? "Unknown City"} • {formatLabel(business.entity_type)}
                         </div>
                         <div style={{ marginTop: 8, color: "var(--text-muted)", fontSize: "0.82rem" }}>
                           Founded {formatDateTime(business.created_at)}

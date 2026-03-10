@@ -304,7 +304,7 @@ export default function MarketClient({ initialData }: Props) {
       <header className="lc-page-header">
         <div>
           <h1>Market</h1>
-          <p>Broker goods between your businesses and other players on the public exchange.</p>
+          <p>The market floor.</p>
         </div>
         <div style={{ alignSelf: "center" }}>
           <Link href="/dashboard">Back to Dashboard</Link>
@@ -325,10 +325,10 @@ export default function MarketClient({ initialData }: Props) {
           <div style={{ maxWidth: 760 }}>
             <div style={{ fontSize: 12, letterSpacing: "0.2em", textTransform: "uppercase", color: "#cbd5e1" }}>Trade Floor</div>
             <div style={{ marginTop: 8, fontSize: "1.95rem", fontWeight: 800, color: "#f8fafc" }}>
-              Open exchange for player-run supply chains
+              Market
             </div>
             <div style={{ marginTop: 8, color: "var(--text-secondary)", fontSize: 13, lineHeight: 1.6 }}>
-              List excess stock, source inputs from other operators, and move goods between businesses without leaving the exchange.
+              Buy, sell, and move goods while the floor stays live around you.
             </div>
           </div>
           <div style={{ display: "grid", gap: 8, minWidth: 220 }}>

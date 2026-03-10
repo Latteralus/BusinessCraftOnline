@@ -313,7 +313,7 @@ export default function BankingClient({ initialData }: Props) {
       <header className="lc-page-header">
         <div>
           <h1>Banking</h1>
-          <p>Manage personal liquidity, business funding transfers, and active loan obligations from one treasury workspace.</p>
+          <p>Your accounts and cash.</p>
         </div>
         <div style={{ alignSelf: "center" }}>
           <Link href="/dashboard">Back to Dashboard</Link>
@@ -334,10 +334,10 @@ export default function BankingClient({ initialData }: Props) {
           <div style={{ maxWidth: 760 }}>
             <div style={{ fontSize: 12, letterSpacing: "0.2em", textTransform: "uppercase", color: "#cbd5e1" }}>Treasury Control</div>
             <div style={{ marginTop: 8, fontSize: "1.95rem", fontWeight: 800, color: "#f8fafc" }}>
-              Banking operations organized around cash position, funding moves, and debt health
+              Banking
             </div>
             <div style={{ marginTop: 8, color: "var(--text-secondary)", fontSize: 13, lineHeight: 1.6 }}>
-              Personal accounts, business funding routes, and loan servicing now sit in a single command view with immediate balance context and recent cash movement.
+              Move money, cover your businesses, and keep your debt in line.
             </div>
           </div>
           <div style={{ display: "grid", gap: 8, minWidth: 220 }}>

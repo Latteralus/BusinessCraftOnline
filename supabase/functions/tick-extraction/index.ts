@@ -263,6 +263,19 @@ async function hasAvailableBusinessTool(
   return parseInventoryRows(data).some((row) => row.quantity - row.reserved_quantity >= 1);
 }
 
+function hasOperationalTool(
+  slot: ExtractionSlotRow,
+  tool: ToolDurabilityRow | null,
+  requiredTool: "pickaxe" | "axe" | "drill_bit"
+): boolean {
+  return Boolean(
+    tool &&
+      tool.item_type === requiredTool &&
+      tool.uses_remaining > 0 &&
+      slot.tool_item_key === requiredTool
+  );
+}
+
 function resolveProducedUnits(
   existingProgress: number,
   outputMultiplier: number
@@ -364,57 +377,60 @@ Deno.serve(async (request) => {
 
     const requiredTool =
       EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[typedBusiness.type as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS] ?? null;
-    const missingToolOutputMultiplier =
-      EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[
-        typedBusiness.type as keyof typeof EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS
-      ] ?? null;
-    let outputMultiplier = 1;
-    if (requiredTool) {
-      const { data: tool } = await supabase
-        .from("tool_durability")
-        .select("id, item_type, uses_remaining")
+      const missingToolOutputMultiplier =
+        EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[
+          typedBusiness.type as keyof typeof EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS
+        ] ?? null;
+      let outputMultiplier = 1;
+      if (requiredTool) {
+        const { data: tool } = await supabase
+          .from("tool_durability")
+          .select("id, item_type, uses_remaining")
         .eq("extraction_slot_id", slot.id)
         .maybeSingle();
 
-      const parsedTool = parseToolDurabilityRow(tool);
+        const parsedTool = parseToolDurabilityRow(tool);
+        const toolOperational = hasOperationalTool(slot, parsedTool, requiredTool);
 
-      const invalidTool =
-        !parsedTool ||
-        parsedTool.item_type !== requiredTool ||
-        parsedTool.uses_remaining <= 0 ||
-        slot.tool_item_key !== requiredTool;
+        if (!toolOperational) {
+          if (missingToolOutputMultiplier !== null) {
+            outputMultiplier = missingToolOutputMultiplier;
+            reducedOutputCount += 1;
+          } else {
+            const hasInventoryTool = await hasAvailableBusinessTool(
+              supabase,
+              typedBusiness.id,
+              typedBusiness.player_id,
+              requiredTool
+            );
 
-      if (invalidTool) {
-        const hasInventoryTool = await hasAvailableBusinessTool(
-          supabase,
-          typedBusiness.id,
-          typedBusiness.player_id,
-          requiredTool
-        );
+            if (!hasInventoryTool) {
+              await failSlot(supabase, slot.id, "tool_broken");
+              brokenTools += 1;
+              continue;
+            }
+          }
+        } else {
+          const operationalTool = parsedTool;
+          const nextUses = operationalTool.uses_remaining - 1;
+          const { error: toolUpdateError } = await supabase
+            .from("tool_durability")
+            .update({ uses_remaining: nextUses, updated_at: new Date().toISOString() })
+            .eq("id", operationalTool.id);
+          if (toolUpdateError) throw toolUpdateError;
 
-        if (!hasInventoryTool && missingToolOutputMultiplier !== null) {
-          outputMultiplier = missingToolOutputMultiplier;
-          reducedOutputCount += 1;
-        } else if (!hasInventoryTool) {
-          await failSlot(supabase, slot.id, "tool_broken");
-          brokenTools += 1;
-          continue;
-        }
-      } else {
-        const nextUses = parsedTool.uses_remaining - 1;
-        const { error: toolUpdateError } = await supabase
-          .from("tool_durability")
-          .update({ uses_remaining: nextUses, updated_at: new Date().toISOString() })
-          .eq("id", parsedTool.id);
-        if (toolUpdateError) throw toolUpdateError;
-
-        if (nextUses <= 0) {
-          await failSlot(supabase, slot.id, "tool_broken");
-          brokenTools += 1;
-          continue;
+          if (nextUses <= 0) {
+            if (missingToolOutputMultiplier !== null) {
+              outputMultiplier = missingToolOutputMultiplier;
+              reducedOutputCount += 1;
+            } else {
+              await failSlot(supabase, slot.id, "tool_broken");
+              brokenTools += 1;
+              continue;
+            }
+          }
         }
       }
-    }
 
     const effects = await getResolvedBusinessUpgradeEffects(
       supabase,

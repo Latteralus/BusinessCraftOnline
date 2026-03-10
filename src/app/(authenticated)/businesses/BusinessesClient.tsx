@@ -10,24 +10,10 @@ import { apiPost } from "@/lib/client/api";
 import { fetchBusinessesPageData, queryKeys, type BusinessesPageData } from "@/lib/client/queries";
 import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency, formatDateTime, formatLabel } from "@/lib/formatters";
+import { BUSINESS_TYPE_LABELS } from "@/lib/businesses";
 
 type Props = {
   initialData: BusinessesPageData;
-};
-
-const TYPE_LABELS: Record<BusinessType, string> = {
-  mine: "Mine",
-  farm: "Farm",
-  water_company: "Water Company",
-  logging_camp: "Logging Camp",
-  oil_well: "Oil Well",
-  sawmill: "Sawmill",
-  metalworking_factory: "Metalworking Factory",
-  food_processing_plant: "Food Processing Plant",
-  winery_distillery: "Winery / Distillery",
-  carpentry_workshop: "Carpentry Workshop",
-  general_store: "General Store",
-  specialty_store: "Specialty Store",
 };
 
 const TYPE_ICONS: Record<BusinessType, string> = {
@@ -262,7 +248,7 @@ export default function BusinessesClient({ initialData }: Props) {
       <header className="lc-page-header">
         <div>
           <h1>Businesses</h1>
-          <p>Review your full operating portfolio, spot cash pressure quickly, and open each business for detailed management.</p>
+          <p>Your businesses.</p>
         </div>
         <div style={{ alignSelf: "center" }}>
           <Link href="/dashboard">Back to Dashboard</Link>
@@ -283,11 +269,10 @@ export default function BusinessesClient({ initialData }: Props) {
           <div style={{ maxWidth: 760 }}>
             <div style={{ fontSize: 12, letterSpacing: "0.2em", textTransform: "uppercase", color: "#cbd5e1" }}>Portfolio Command</div>
             <div style={{ marginTop: 8, fontSize: "1.95rem", fontWeight: 800, color: "#f8fafc" }}>
-              A full overview of every operating business, with cash position and expansion context in one place
+              Businesses
             </div>
             <div style={{ marginTop: 8, color: "var(--text-secondary)", fontSize: 13, lineHeight: 1.6 }}>
-              Use this page as the portfolio layer. It highlights where your capital is concentrated, which businesses need attention,
-              and which locations are currently positioned for expansion before you drill into each business workspace.
+              Check your holdings, watch your cash, and step into any shop, field, or factory you own.
             </div>
           </div>
           <div style={{ display: "grid", gap: 8, minWidth: 220 }}>
@@ -414,7 +399,7 @@ export default function BusinessesClient({ initialData }: Props) {
                             <StatusBadge tone={healthTone}>{healthLabel}</StatusBadge>
                           </div>
                           <div style={{ marginTop: 6, color: "var(--text-secondary)", fontSize: 12 }}>
-                            {TYPE_LABELS[business.type]} | {formatLabel(business.entity_type)} | {cityLabel}
+                            {BUSINESS_TYPE_LABELS[business.type]} | {formatLabel(business.entity_type)} | {cityLabel}
                           </div>
                         </div>
                       </div>
@@ -531,7 +516,7 @@ export default function BusinessesClient({ initialData }: Props) {
                   onChange={(event) => setCreateType(event.target.value as BusinessType)}
                   title="Business type"
                 >
-                  {Object.entries(TYPE_LABELS).map(([value, label]) => (
+                  {Object.entries(BUSINESS_TYPE_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>
                       {label}
                     </option>
@@ -564,7 +549,7 @@ export default function BusinessesClient({ initialData }: Props) {
                 <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>Launch Preview</div>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                   <span style={{ color: "var(--text-secondary)" }}>Selected type</span>
-                  <strong>{TYPE_LABELS[createType]}</strong>
+                  <strong>{BUSINESS_TYPE_LABELS[createType]}</strong>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                   <span style={{ color: "var(--text-secondary)" }}>Startup benchmark</span>

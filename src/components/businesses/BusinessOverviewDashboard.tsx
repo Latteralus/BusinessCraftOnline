@@ -1,12 +1,17 @@
 "use client";
 
 import { isStoreBusinessType } from "@/config/businesses";
-import { EXTRACTION_OUTPUT_ITEM_BY_BUSINESS } from "@/config/production";
+import {
+  EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
+  EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
+  EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
+} from "@/config/production";
 import type { Business, BusinessFinanceDashboard, BusinessUpgrade } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import type { BusinessInventoryItem } from "@/domains/inventory";
 import type { ManufacturingStatusView, ProductionStatus } from "@/domains/production";
 import type { StoreShelfItem } from "@/domains/stores";
+import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 
@@ -102,6 +107,7 @@ function PulseBars(props: { title: string; rows: Array<{ label: string; value: n
 }
 
 export default function BusinessOverviewDashboard(props: Props) {
+  const production = props.production;
   const finance = props.financeDashboard?.periods["30d"] ?? props.financeDashboard?.periods["7d"] ?? null;
   const assignedEmployees = props.employees.filter((employee) => employee.employer_business_id === props.business.id);
   const availableInventoryUnits = props.inventory.reduce((sum, item) => sum + Math.max(0, item.quantity - item.reserved_quantity), 0);
@@ -109,8 +115,40 @@ export default function BusinessOverviewDashboard(props: Props) {
   const inventoryLines = props.inventory.length;
   const isStore = isStoreBusinessType(props.business.type);
 
-  const operationsHeadline = props.production
-    ? `${props.production.summary.active}/${props.production.maxSlots} extraction lanes active`
+  const extractionThroughput = production
+    ? production.slots.reduce((sum, slot) => {
+        if (slot.status !== "active") return sum;
+        const businessType = production.businessType as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS;
+        const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType];
+        const fallbackMultiplier =
+          EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[businessType] ?? 0;
+        const hasOperationalTool =
+          !requiredTool ||
+          (slot.tool_item_key === requiredTool &&
+            slot.tool?.item_type === requiredTool &&
+            (slot.tool?.uses_remaining ?? 0) > 0);
+        return sum + (hasOperationalTool ? 1 : fallbackMultiplier || 0);
+      }, 0)
+    : 0;
+
+  const degradedExtractionSlots = production
+    ? production.slots.filter((slot) => {
+        if (slot.status !== "active") return false;
+        const businessType = production.businessType as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS;
+        const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType];
+        if (!requiredTool) return false;
+        return !(
+          slot.tool_item_key === requiredTool &&
+          slot.tool?.item_type === requiredTool &&
+          (slot.tool?.uses_remaining ?? 0) > 0
+        );
+      }).length
+    : 0;
+
+  const operationsHeadline = production
+    ? degradedExtractionSlots > 0
+      ? `${production.summary.active}/${production.maxSlots} extraction lanes active · ${degradedExtractionSlots} degraded`
+      : `${production.summary.active}/${production.maxSlots} extraction lanes active`
     : props.manufacturing
       ? `${props.manufacturing.summary.active}/${props.manufacturing.maxLines} production lines active`
       : isStore
@@ -118,9 +156,17 @@ export default function BusinessOverviewDashboard(props: Props) {
         : "No live operations";
 
   const activeManufacturingLine = props.manufacturing?.lines.find((line) => line.status === "active") ?? null;
-  const throughputHeadline = props.production
-    ? `${props.production.summary.active} ${formatItemKey(
-        EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[props.production.businessType as keyof typeof EXTRACTION_OUTPUT_ITEM_BY_BUSINESS]
+  const manufacturingOutputKeys = new Set(
+    (props.manufacturing?.lines ?? [])
+      .map((line) => line.configured_recipe?.outputItemKey ?? null)
+      .filter((itemKey): itemKey is string => Boolean(itemKey))
+  );
+  const manufacturingFinishedUnits = props.inventory
+    .filter((row) => manufacturingOutputKeys.has(row.item_key))
+    .reduce((sum, row) => sum + Math.max(0, row.quantity - row.reserved_quantity), 0);
+  const throughputHeadline = production
+    ? `${extractionThroughput} ${formatItemKey(
+        EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[production.businessType as keyof typeof EXTRACTION_OUTPUT_ITEM_BY_BUSINESS]
       )}/min`
     : activeManufacturingLine?.configured_recipe
       ? `${activeManufacturingLine.configured_recipe.baseOutputQuantity} ${formatItemKey(activeManufacturingLine.configured_recipe.outputItemKey)}/min`
@@ -133,8 +179,8 @@ export default function BusinessOverviewDashboard(props: Props) {
     : 0;
 
   const workforceMax = Math.max(1, assignedEmployees.length, props.production?.maxSlots ?? 0, props.shelfItems.length);
-  const activeOps = props.production?.summary.active ?? (props.manufacturing?.summary.active ?? 0);
-  const blockedOps = props.production?.summary.toolBroken ?? (props.manufacturing?.summary.retooling ?? 0);
+  const activeOps = production?.summary.active ?? (props.manufacturing?.summary.active ?? 0);
+  const blockedOps = degradedExtractionSlots || (props.manufacturing?.summary.retooling ?? 0);
 
   return (
     <div style={{ display: "grid", gap: 18 }}>
@@ -151,7 +197,7 @@ export default function BusinessOverviewDashboard(props: Props) {
             <div style={{ fontSize: 12, letterSpacing: "0.2em", textTransform: "uppercase", color: "#cbd5e1" }}>Executive Overview</div>
             <div style={{ marginTop: 8, fontSize: "1.9rem", fontWeight: 800, color: "#f8fafc" }}>{props.business.name}</div>
             <div style={{ marginTop: 6, color: "var(--text-secondary)", fontSize: 13 }}>
-              {formatLabel(props.business.type)} · {formatLabel(props.business.entity_type)} · {operationsHeadline}
+              {formatBusinessType(props.business.type)} · {formatLabel(props.business.entity_type)} · {operationsHeadline}
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
@@ -189,7 +235,7 @@ export default function BusinessOverviewDashboard(props: Props) {
           title="At A Glance"
           rows={[
             { label: "Entity", value: formatLabel(props.business.entity_type) },
-            { label: "Business Type", value: formatLabel(props.business.type) },
+            { label: "Business Type", value: formatBusinessType(props.business.type) },
             { label: "Operating Mode", value: props.production ? "Extraction" : props.manufacturing ? "Manufacturing" : isStore ? "Retail" : "Idle" },
             { label: "Finance Signal", value: finance ? `${formatCurrency(finance.kpis.operatingProfit)} operating profit` : "No recent data" },
             { label: "Inventory Asset", value: props.financeDashboard ? formatCurrency(props.financeDashboard.balanceSheet.find((row) => row.label === "Inventory")?.amount ?? 0) : "$0.00" },
@@ -214,7 +260,10 @@ export default function BusinessOverviewDashboard(props: Props) {
             { label: "Headline", value: operationsHeadline },
             { label: "Throughput", value: throughputHeadline },
             { label: "Assigned Employees", value: `${assignedEmployees.length}` },
-            { label: "Inventory Ready Units", value: `${availableInventoryUnits}` },
+            {
+              label: props.manufacturing ? "Output Stock Units" : "Inventory Ready Units",
+              value: `${props.manufacturing ? manufacturingFinishedUnits : availableInventoryUnits}`,
+            },
             { label: "Reserved / Committed", value: `${reservedInventoryUnits}` },
           ]}
         />

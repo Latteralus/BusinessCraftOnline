@@ -170,7 +170,7 @@ export default function EmployeesClient({ initialData }: Props) {
       <header className="lc-page-header">
         <div>
           <h1>Employees</h1>
-          <p>Hire, assign, re-activate, and manage worker availability.</p>
+          <p>Your crew.</p>
         </div>
         <div style={{ alignSelf: "center" }}>
           <Link href="/dashboard">Back to Dashboard</Link>

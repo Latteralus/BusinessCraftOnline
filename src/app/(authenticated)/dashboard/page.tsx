@@ -19,6 +19,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { DashboardClock } from "@/components/dashboard/DashboardClock";
 import { DashboardGreeting } from "@/components/dashboard/DashboardGreeting";
+import { formatBusinessType } from "@/lib/businesses";
 import { formatItemKey } from "@/lib/items";
 import { requireAuthedPageContext } from "../server-data";
 
@@ -369,7 +370,7 @@ export default async function DashboardPage() {
                     </div>
                     <div className="biz-info">
                       <div className="biz-name">{business.name}</div>
-                      <div className="biz-meta">{business.type.replace(/_/g, " ")}</div>
+                      <div className="biz-meta">{formatBusinessType(business.type)}</div>
                     </div>
                     <div className="biz-status">
                       <span className="status-badge status-producing">Active</span>

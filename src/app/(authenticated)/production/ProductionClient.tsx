@@ -89,7 +89,7 @@ export default function ProductionClient({ initialData }: Props) {
       <header className="lc-page-header">
         <div>
           <h1>Production</h1>
-          <p>Manufacturing controls: choose recipes, start or stop jobs, and monitor status.</p>
+          <p>Your lines and jobs.</p>
         </div>
         <div style={{ alignSelf: "center" }}>
           <Link href="/dashboard">Back to Dashboard</Link>
