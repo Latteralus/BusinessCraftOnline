@@ -62,6 +62,7 @@ export function Topbar() {
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const isChatOpenRef = useRef(false);
   const hasInitializedChatRef = useRef(false);
+  const hasRequestedChatRef = useRef(false);
   const [lastViewedChatAt, setLastViewedChatAt] = useState<string | null>(() => {
     if (typeof window === "undefined") {
       return null;
@@ -115,14 +116,23 @@ export function Topbar() {
   }
 
   useEffect(() => {
-    if (chatMessages.length > 0) {
-      applyIncomingMessages(chatMessages);
-      setIsChatLoading(false);
+    if (chatMessages.length === 0) {
+      return;
+    }
+
+    applyIncomingMessages(chatMessages);
+    setIsChatLoading(false);
+  }, [chatMessages]);
+
+  useEffect(() => {
+    if (!isChatOpen || hasInitializedChatRef.current || hasRequestedChatRef.current) {
       return;
     }
 
     let cancelled = false;
+    hasRequestedChatRef.current = true;
     setIsChatLoading(true);
+
     void fetchChatMessages()
       .then((data) => {
         if (cancelled) {
@@ -147,7 +157,7 @@ export function Topbar() {
     return () => {
       cancelled = true;
     };
-  }, [chatMessages.length, setChat]);
+  }, [isChatOpen, setChat]);
 
   useEffect(() => {
     patchAppShell({ unreadChatCount: chatUnreadCount });
