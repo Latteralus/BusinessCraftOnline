@@ -28,8 +28,10 @@ function getProgressPercent(lastProgressAt: string | null, intervalSeconds: numb
   const startedAtMs = new Date(lastProgressAt).getTime();
   if (!Number.isFinite(startedAtMs)) return 0;
 
+  const intervalMs = intervalSeconds * 1000;
   const elapsedMs = Math.max(0, nowMs - startedAtMs);
-  return clamp((elapsedMs / (intervalSeconds * 1000)) * 100, 0, 100);
+  const cycleElapsedMs = elapsedMs % intervalMs;
+  return clamp((cycleElapsedMs / intervalMs) * 100, 0, 100);
 }
 
 function formatCountdown(lastProgressAt: string | null, intervalSeconds: number, running: boolean, nowMs: number): string {
@@ -38,8 +40,13 @@ function formatCountdown(lastProgressAt: string | null, intervalSeconds: number,
   const startedAtMs = new Date(lastProgressAt).getTime();
   if (!Number.isFinite(startedAtMs)) return "Running";
 
-  const nextTickAtMs = startedAtMs + intervalSeconds * 1000;
-  const remainingSeconds = Math.max(0, Math.ceil((nextTickAtMs - nowMs) / 1000));
+  const intervalMs = intervalSeconds * 1000;
+  const elapsedMs = Math.max(0, nowMs - startedAtMs);
+  const cycleElapsedMs = elapsedMs % intervalMs;
+  const remainingSeconds =
+    cycleElapsedMs === 0 && elapsedMs > 0
+      ? intervalSeconds
+      : Math.max(0, Math.ceil((intervalMs - cycleElapsedMs) / 1000));
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
 

@@ -158,7 +158,7 @@ export default async function DashboardPage() {
           detail: recipe ? recipe.displayName : "Manufacturing",
           running,
           statusLabel: toTitleLabel(String(job.status)),
-          intervalSeconds: 10 * 60,
+          intervalSeconds: 60,
           lastProgressAt: job.last_tick_at ? String(job.last_tick_at) : null,
           createdAt: String(job.updated_at ?? job.last_tick_at ?? new Date(0).toISOString()),
         };
