@@ -316,6 +316,42 @@ export default function BusinessFinanceDashboardPanel({ financeDashboard, initia
         </div>
       </div>
 
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
+        <MiniStat
+          label={<TooltipLabel label="Shopper Traffic" content="NPC shoppers generated for this storefront during the selected period." />}
+          value={`${snapshot.storefront.shoppersGenerated}`}
+          sub={snapshot.storefront.shoppersGenerated > 0 ? "NPC visits recorded" : "No shopper traffic yet"}
+          tone={snapshot.storefront.shoppersGenerated > 0 ? "positive" : "neutral"}
+        />
+        <MiniStat
+          label={<TooltipLabel label="Storefront Sales" content="Completed NPC shelf purchases captured by storefront snapshots." />}
+          value={`${snapshot.storefront.salesCount}`}
+          sub={`${snapshot.storefront.unitsSold} units sold`}
+          tone={snapshot.storefront.salesCount > 0 ? "positive" : "neutral"}
+        />
+        <MiniStat
+          label={<TooltipLabel label="Conversion" content="Storefront sales divided by generated NPC shoppers in this period." />}
+          value={snapshot.storefront.conversionRate === null ? "N/A" : `${snapshot.storefront.conversionRate.toFixed(1)}%`}
+          sub={
+            snapshot.storefront.shoppersGenerated > 0 && snapshot.storefront.salesCount === 0
+              ? "Traffic reached the store but did not convert"
+              : "Sales per shopper"
+          }
+          tone={snapshot.storefront.salesCount > 0 ? "positive" : "neutral"}
+        />
+        <MiniStat
+          label={<TooltipLabel label="Storefront Net" content="Gross storefront revenue after storefront fees and ad spend." />}
+          value={formatCurrency(snapshot.storefront.netRevenue)}
+          sub={`Gross ${formatCurrency(snapshot.storefront.grossRevenue)}`}
+          tone={snapshot.storefront.netRevenue > 0 ? "positive" : snapshot.storefront.netRevenue < 0 ? "negative" : "neutral"}
+        />
+        <MiniStat
+          label={<TooltipLabel label="Average Ticket" content="Average gross sale value per completed storefront purchase." />}
+          value={snapshot.storefront.averageTicket === null ? "N/A" : formatCurrency(snapshot.storefront.averageTicket)}
+          sub={`Ads ${formatCurrency(snapshot.storefront.adSpend)}`}
+        />
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1.2fr)", gap: 18 }}>
         <LineChart title="Revenue / COGS / Gross Profit" series={chartSeries} points={snapshot.series} />
         <LineChart title="Cash Balance" series={cashSeries} points={snapshot.series} />

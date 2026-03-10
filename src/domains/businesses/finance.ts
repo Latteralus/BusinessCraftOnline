@@ -6,6 +6,7 @@ import {
   INVENTORY_BASELINE_UNIT_COSTS,
   type FinancePeriod,
 } from "@/config/finance";
+import { isStoreBusinessType } from "@/config/businesses";
 import { round2, toNumber } from "@/lib/core/number";
 import { addHoursToNowIso, nowIso } from "@/lib/core/time";
 import type { QueryClient } from "@/lib/db/query-client";
@@ -45,6 +46,18 @@ type InventorySnapshotRow = {
   reserved_quantity: number | string;
   unit_cost?: number | string | null;
   total_cost?: number | string | null;
+};
+
+type StorefrontSnapshotRow = {
+  id: string;
+  business_id: string;
+  shoppers_generated: number | string;
+  sales_count: number | string;
+  units_sold: number | string;
+  gross_revenue: number | string;
+  fee_total: number | string;
+  ad_spend: number | string;
+  captured_at: string;
 };
 
 type LedgerEvent = {
@@ -150,6 +163,17 @@ export type BusinessFinancePeriodSnapshot = {
     inventoryAssetValue: number;
     liabilities: number;
     valuation: number;
+  };
+  storefront: {
+    shoppersGenerated: number;
+    salesCount: number;
+    unitsSold: number;
+    grossRevenue: number;
+    feeTotal: number;
+    adSpend: number;
+    netRevenue: number;
+    conversionRate: number | null;
+    averageTicket: number | null;
   };
   incomeStatement: IncomeStatementRow[];
   cashFlow: CashFlowSection[];
@@ -372,6 +396,18 @@ function buildInventorySnapshot(rows: InventorySnapshotRow[]) {
   return {
     inventoryAssetValue: round2(inventoryAssetValue),
     estimatedRows,
+  };
+}
+
+function normalizeStorefrontSnapshotRow(row: StorefrontSnapshotRow) {
+  return {
+    ...row,
+    shoppers_generated: Number(row.shoppers_generated),
+    sales_count: Number(row.sales_count),
+    units_sold: Number(row.units_sold),
+    gross_revenue: toNumber(row.gross_revenue),
+    fee_total: toNumber(row.fee_total),
+    ad_spend: toNumber(row.ad_spend),
   };
 }
 
@@ -598,8 +634,9 @@ export async function getBusinessFinanceDashboard(
   currentPeriod: FinancePeriod = "1h"
 ): Promise<BusinessFinanceDashboard> {
   const ranges = getPeriodRanges();
+  const isStore = isStoreBusinessType(business.type);
 
-  const [ledgerRes, inventoryRes, financialEventsRes, balanceValue] = await Promise.all([
+  const [ledgerRes, inventoryRes, financialEventsRes, balanceValue, storefrontSnapshotsRes] = await Promise.all([
     client
       .from("business_accounts")
       .select("*")
@@ -616,6 +653,13 @@ export async function getBusinessFinanceDashboard(
       .eq("business_id", business.id)
       .order("effective_at", { ascending: true }),
     client.rpc("get_business_account_balance", { p_business_id: business.id }),
+    isStore
+      ? client
+          .from("market_storefront_performance_snapshots")
+          .select("id, business_id, shoppers_generated, sales_count, units_sold, gross_revenue, fee_total, ad_spend, captured_at")
+          .eq("business_id", business.id)
+          .order("captured_at", { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (ledgerRes.error) throw ledgerRes.error;
@@ -626,6 +670,10 @@ export async function getBusinessFinanceDashboard(
   const financialEvents = financialEventsRes.error
     ? []
     : ((financialEventsRes.data as FinancialEventRow[]) ?? []).map(normalizeFinancialEventRow);
+  const storefrontSnapshots =
+    storefrontSnapshotsRes.error || !isStore
+      ? []
+      : ((storefrontSnapshotsRes.data as StorefrontSnapshotRow[]) ?? []).map(normalizeStorefrontSnapshotRow);
   const cashBalance = round2(toNumber(balanceValue.data));
   const { inventoryAssetValue, estimatedRows } = buildInventorySnapshot(
     (inventoryRes.data as InventorySnapshotRow[]) ?? []
@@ -676,6 +724,20 @@ export async function getBusinessFinanceDashboard(
         (row) => row.amount
       );
       const ownerEquity = round2(cashBalance + inventoryAssetValue - liabilities);
+      const storefrontInRange = storefrontSnapshots.filter((row) => !range.since || row.captured_at >= range.since);
+      const shoppersGenerated = storefrontInRange.reduce((sum, row) => sum + row.shoppers_generated, 0);
+      const salesCount = storefrontInRange.reduce((sum, row) => sum + row.sales_count, 0);
+      const unitsSold = storefrontInRange.reduce((sum, row) => sum + row.units_sold, 0);
+      const storefrontGrossRevenue = round2(
+        storefrontInRange.reduce((sum, row) => sum + row.gross_revenue, 0)
+      );
+      const storefrontFeeTotal = round2(
+        storefrontInRange.reduce((sum, row) => sum + row.fee_total, 0)
+      );
+      const storefrontAdSpend = round2(
+        storefrontInRange.reduce((sum, row) => sum + row.ad_spend, 0)
+      );
+      const storefrontNetRevenue = round2(storefrontGrossRevenue - storefrontFeeTotal - storefrontAdSpend);
       const transferRevenueReferenceIds = new Set(
         financialInRange
           .filter(
@@ -714,6 +776,17 @@ export async function getBusinessFinanceDashboard(
           inventoryAssetValue,
           liabilities,
           valuation: 0,
+        },
+        storefront: {
+          shoppersGenerated,
+          salesCount,
+          unitsSold,
+          grossRevenue: storefrontGrossRevenue,
+          feeTotal: storefrontFeeTotal,
+          adSpend: storefrontAdSpend,
+          netRevenue: storefrontNetRevenue,
+          conversionRate: shoppersGenerated > 0 ? round2((salesCount / shoppersGenerated) * 100) : null,
+          averageTicket: salesCount > 0 ? round2(storefrontGrossRevenue / salesCount) : null,
         },
         incomeStatement: [
           { label: "Revenue", amount: revenue, tone: "positive" },
