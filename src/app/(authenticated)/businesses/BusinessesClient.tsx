@@ -131,9 +131,57 @@ function EmptyState(props: { children: ReactNode }) {
   return <div style={{ color: "var(--text-muted)", fontSize: 14 }}>{props.children}</div>;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function formatElapsedShort(targetMs: number) {
+  const totalSeconds = Math.max(0, Math.floor(targetMs / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function MiniSparkline(props: { points: number[]; tone?: string }) {
+  const { path, latestX, latestY } = useMemo(() => {
+    if (props.points.length === 0) {
+      return { path: "", latestX: 92, latestY: 24 };
+    }
+
+    const width = 92;
+    const height = 24;
+    const min = Math.min(...props.points);
+    const max = Math.max(...props.points);
+    const range = Math.max(1, max - min);
+    const coords = props.points.map((point, index) => {
+      const x = props.points.length === 1 ? width : (index / (props.points.length - 1)) * width;
+      const y = height - ((point - min) / range) * height;
+      return { x, y };
+    });
+    return {
+      path: coords.map((coord, index) => `${index === 0 ? "M" : "L"} ${coord.x.toFixed(2)} ${coord.y.toFixed(2)}`).join(" "),
+      latestX: coords.at(-1)?.x ?? width,
+      latestY: coords.at(-1)?.y ?? height / 2,
+    };
+  }, [props.points]);
+
+  return (
+    <svg viewBox="0 0 92 24" width="92" height="24" aria-hidden="true">
+      <path d={path} fill="none" stroke={props.tone ?? "#7dd3fc"} strokeWidth="2" strokeLinecap="round" />
+      <circle cx={latestX} cy={latestY} r="3.5" fill={props.tone ?? "#7dd3fc"} opacity="0.92" />
+      <circle cx={latestX} cy={latestY} r="6" fill={props.tone ?? "#7dd3fc"} opacity="0.18" />
+    </svg>
+  );
+}
+
 export default function BusinessesClient({ initialData }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const businesses = useBusinessesSlice();
   const travelState = useTravelSlice() ?? initialData.travelState;
   const patchBusinesses = useGameStore((state) => state.patchBusinesses);
@@ -143,6 +191,11 @@ export default function BusinessesClient({ initialData }: Props) {
   const [createType, setCreateType] = useState<BusinessType>("farm");
   const [createCityId, setCreateCityId] = useState(initialData.travelState.currentCity?.id ?? "");
   const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (travelState.currentCity?.id) {
@@ -214,6 +267,27 @@ export default function BusinessesClient({ initialData }: Props) {
     [businesses, cityById, portfolioMetrics.summary.totalBusinessBalance]
   );
   const summary = portfolioMetrics.summary;
+  const newestBusinessAgeMs = useMemo(() => {
+    if (businesses.length === 0) return 0;
+    const newestCreatedAt = Math.max(...businesses.map((business) => new Date(business.created_at).getTime()));
+    return Math.max(0, nowMs - newestCreatedAt);
+  }, [businesses, nowMs]);
+
+  const expansionPulse = useMemo(() => {
+    const windowMs = 1000 * 60 * 60 * 24 * 7;
+    const sliceCount = 12;
+    const bucketMs = windowMs / sliceCount;
+    const buckets = Array.from({ length: sliceCount }, () => 0);
+
+    for (const business of businesses) {
+      const ageMs = nowMs - new Date(business.created_at).getTime();
+      if (ageMs < 0 || ageMs > windowMs) continue;
+      const index = clamp(sliceCount - 1 - Math.floor(ageMs / bucketMs), 0, sliceCount - 1);
+      buckets[index] += 1;
+    }
+
+    return buckets;
+  }, [businesses, nowMs]);
 
   async function submitCreateBusiness() {
     if (creating) return;
@@ -375,8 +449,8 @@ export default function BusinessesClient({ initialData }: Props) {
                       display: "grid",
                       gap: 14,
                     }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
                       <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                         <div
                           style={{
@@ -406,9 +480,53 @@ export default function BusinessesClient({ initialData }: Props) {
                         <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "#f8fafc" }}>{formatCurrency(business.balance)}</div>
                         <div style={{ marginTop: 4, color: "var(--text-secondary)", fontSize: 12 }}>Operating balance</div>
                       </div>
-                    </div>
+                      </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.14em" }}>
+                          <span>Capital Pressure</span>
+                          <span>{(capitalCoverage * 100).toFixed(0)}%</span>
+                        </div>
+                        <div
+                          style={{
+                            position: "relative",
+                            height: 10,
+                            borderRadius: 999,
+                            background: "rgba(15, 23, 42, 0.94)",
+                            overflow: "hidden",
+                            border: "1px solid rgba(148, 163, 184, 0.08)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              position: "absolute",
+                              inset: 0,
+                              width: `${clamp(capitalCoverage * 100, 6, 100)}%`,
+                              borderRadius: 999,
+                              background:
+                                healthTone === "good"
+                                  ? "linear-gradient(90deg, rgba(34,197,94,0.9), rgba(74,222,128,0.72))"
+                                  : healthTone === "warn"
+                                    ? "linear-gradient(90deg, rgba(245,158,11,0.92), rgba(251,191,36,0.72))"
+                                    : "linear-gradient(90deg, rgba(248,113,113,0.92), rgba(252,165,165,0.72))",
+                            }}
+                          />
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: `calc(${clamp(capitalCoverage * 100, 6, 100)}% - 7px)`,
+                              top: -2,
+                              width: 14,
+                              height: 14,
+                              borderRadius: 999,
+                              background: "#f8fafc",
+                              boxShadow: "0 0 14px rgba(248,250,252,0.4)",
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
                       <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
                         <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Business Value</div>
                         <div style={{ marginTop: 6, fontWeight: 700 }}>{formatCurrency(business.value)}</div>
@@ -427,14 +545,18 @@ export default function BusinessesClient({ initialData }: Props) {
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                      <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                        <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
                         {valuationDelta >= 0 ? "Value above startup benchmark" : "Value below startup benchmark"} by{" "}
                         <span style={{ color: valuationDelta >= 0 ? "#86efac" : "#fca5a5", fontWeight: 700 }}>
                           {formatCurrency(Math.abs(valuationDelta))}
                         </span>
                         {" "} | Opened {formatDateTime(business.created_at)}
                       </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--text-muted)", fontSize: 12 }}>
+                          <MiniSparkline points={[0, portfolioShare * 30, portfolioShare * 65, portfolioShare * 100]} tone="#7dd3fc" />
+                          <span>Share live {(portfolioShare * 100).toFixed(1)}%</span>
+                        </div>
                       <div style={{ color: "#bfdbfe", fontWeight: 700, fontSize: 13 }}>Open Business</div>
                     </div>
                   </Link>
@@ -491,6 +613,32 @@ export default function BusinessesClient({ initialData }: Props) {
                     : travelState.canPurchaseBusiness
                       ? "You can open another business from this page. Choose a city and type, then fund the next operating entity."
                       : "Expansion is currently restricted. Review location and travel requirements before opening another operation."}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  padding: 14,
+                  borderRadius: 14,
+                  border: "1px solid rgba(148, 163, 184, 0.12)",
+                  background: "rgba(8, 13, 24, 0.7)",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+                    Expansion Tempo
+                  </div>
+                  <MiniSparkline points={expansionPulse} tone="#86efac" />
+                </div>
+                <div style={{ display: "grid", gap: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <span style={{ color: "var(--text-secondary)" }}>Newest operation age</span>
+                    <strong>{businesses.length > 0 ? formatElapsedShort(newestBusinessAgeMs) : "N/A"}</strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <span style={{ color: "var(--text-secondary)" }}>Latest expansion pulse</span>
+                    <strong>{expansionPulse.at(-1) ?? 0} in current slice</strong>
+                  </div>
                 </div>
               </div>
             </div>

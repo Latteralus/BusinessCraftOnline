@@ -12,7 +12,7 @@ import { TooltipLabel } from "@/components/ui/tooltip";
 import type { MarketListing, MarketTransaction } from "@/domains/market";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useGameStore, useMarketSlice } from "@/stores/game-store";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 
@@ -132,6 +132,53 @@ function formatTimestamp(value: string) {
   }).format(new Date(value));
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function formatCountdown(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m ${seconds}s`;
+}
+
+function MiniSparkline(props: { points: number[]; tone?: string }) {
+  const { path, latestX, latestY } = useMemo(() => {
+    if (props.points.length === 0) {
+      return { path: "", latestX: 92, latestY: 24 };
+    }
+
+    const width = 92;
+    const height = 24;
+    const min = Math.min(...props.points);
+    const max = Math.max(...props.points);
+    const range = Math.max(1, max - min);
+    const coords = props.points.map((point, index) => ({
+      x: props.points.length === 1 ? width : (index / (props.points.length - 1)) * width,
+      y: height - ((point - min) / range) * height,
+    }));
+
+    return {
+      path: coords.map((coord, index) => `${index === 0 ? "M" : "L"} ${coord.x.toFixed(2)} ${coord.y.toFixed(2)}`).join(" "),
+      latestX: coords.at(-1)?.x ?? width,
+      latestY: coords.at(-1)?.y ?? height / 2,
+    };
+  }, [props.points]);
+
+  return (
+    <svg viewBox="0 0 92 24" width="92" height="24" aria-hidden="true">
+      <path d={path} fill="none" stroke={props.tone ?? "#fbbf24"} strokeWidth="2" strokeLinecap="round" />
+      <circle cx={latestX} cy={latestY} r="3.5" fill={props.tone ?? "#fbbf24"} opacity="0.92" />
+      <circle cx={latestX} cy={latestY} r="6" fill={props.tone ?? "#fbbf24"} opacity="0.18" />
+    </svg>
+  );
+}
+
 export default function MarketClient({ initialData }: Props) {
   const market = useMarketSlice();
   const patchMarket = useGameStore((state) => state.patchMarket);
@@ -141,6 +188,7 @@ export default function MarketClient({ initialData }: Props) {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const [sourceBusinessId, setSourceBusinessId] = useState(initialData.businesses[0]?.id ?? "");
   const [buyerBusinessId, setBuyerBusinessId] = useState(initialData.businesses[0]?.id ?? "");
@@ -149,6 +197,11 @@ export default function MarketClient({ initialData }: Props) {
   const [quantity, setQuantity] = useState(5);
   const [unitPrice, setUnitPrice] = useState(5);
   const [buyQuantityByListingId, setBuyQuantityByListingId] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const activeListings = useMemo(() => listings.filter((listing) => listing.status === "active"), [listings]);
 
@@ -233,6 +286,20 @@ export default function MarketClient({ initialData }: Props) {
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 5);
   }, [activeListings]);
+
+  const tapePulse = useMemo(() => {
+    const windowMs = 1000 * 60 * 60;
+    const sliceCount = 12;
+    const bucketMs = windowMs / sliceCount;
+    const buckets = Array.from({ length: sliceCount }, () => 0);
+    for (const transaction of transactions) {
+      const ageMs = nowMs - new Date(transaction.created_at).getTime();
+      if (ageMs < 0 || ageMs > windowMs) continue;
+      const index = clamp(sliceCount - 1 - Math.floor(ageMs / bucketMs), 0, sliceCount - 1);
+      buckets[index] += transaction.quantity;
+    }
+    return buckets;
+  }, [nowMs, transactions]);
 
   async function createListing() {
     if (!sourceBusinessId || busy) return;
@@ -556,6 +623,9 @@ export default function MarketClient({ initialData }: Props) {
                   const requestedQty = Math.max(1, Math.min(listing.quantity, buyQuantityByListingId[listing.id] ?? 1));
                   const total = requestedQty * listing.unit_price;
                   const isOwnSource = listing.source_business_id === sourceBusinessId;
+                  const listingAgeMs = Math.max(0, nowMs - new Date(listing.created_at).getTime());
+                  const freshnessRatio = clamp(1 - listingAgeMs / (1000 * 60 * 60), 0.08, 1);
+                  const motionPhase = ((nowMs / 1000) % 3) / 3;
 
                   return (
                     <article
@@ -600,6 +670,54 @@ export default function MarketClient({ initialData }: Props) {
                         <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
                           <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Trade Status</div>
                           <div style={{ marginTop: 6, fontWeight: 700, textTransform: "capitalize" }}>{listing.status}</div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+                          <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+                            Order Book Motion
+                          </div>
+                          <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+                            Fresh on floor {formatCountdown(listingAgeMs)}
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            position: "relative",
+                            height: 12,
+                            borderRadius: 999,
+                            background: "rgba(15, 23, 42, 0.94)",
+                            overflow: "hidden",
+                            border: "1px solid rgba(148, 163, 184, 0.08)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              position: "absolute",
+                              inset: 0,
+                              width: `${(listing.quantity / Math.max(1, listing.quantity + requestedQty)) * 100}%`,
+                              borderRadius: 999,
+                              background: "linear-gradient(90deg, rgba(59,130,246,0.85), rgba(125,211,252,0.72))",
+                            }}
+                          />
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: `${clamp((1 - freshnessRatio + motionPhase * freshnessRatio) * 100, 5, 95)}%`,
+                              top: -2,
+                              width: 16,
+                              height: 16,
+                              marginLeft: -8,
+                              borderRadius: 999,
+                              background: "#fbbf24",
+                              boxShadow: "0 0 16px rgba(251, 191, 36, 0.45)",
+                            }}
+                          />
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, color: "var(--text-secondary)", fontSize: 12 }}>
+                          <span>{listing.quantity} units still open</span>
+                          <span>{Math.round(freshnessRatio * 100)}% freshness</span>
                         </div>
                       </div>
 
@@ -677,6 +795,10 @@ export default function MarketClient({ initialData }: Props) {
               >
                 <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>
                   Trade Flow
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>Rolling 60 minute tape</div>
+                  <MiniSparkline points={tapePulse} tone="#fbbf24" />
                 </div>
                 <div style={{ display: "grid", gap: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
