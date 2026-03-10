@@ -12,6 +12,7 @@ import { apiPost } from "@/lib/client/api";
 import { fetchAppShell, fetchChatMessages, queryKeys, type AppShellData } from "@/lib/client/queries";
 
 const CHAT_MESSAGE_LIMIT = 50;
+const CHAT_LAST_VIEWED_STORAGE_KEY = "lco-chat-last-viewed-at";
 
 function formatChatTimestamp(value: string) {
   const date = new Date(value);
@@ -66,7 +67,6 @@ export function Topbar({
   const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayerPreview[]>(initialAppShell?.onlinePlayers ?? []);
   const [notificationsCount, setNotificationsCount] = useState<number | null>(initialAppShell?.notificationsCount ?? null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [chatInput, setChatInput] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -78,7 +78,14 @@ export function Topbar({
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const isChatOpenRef = useRef(false);
   const hasInitializedChatRef = useRef(false);
-  const lastViewedChatAtRef = useRef<string | null>(null);
+  const [lastViewedChatAt, setLastViewedChatAt] = useState<string | null>(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    return window.localStorage.getItem(CHAT_LAST_VIEWED_STORAGE_KEY);
+  });
+  const lastViewedChatAtRef = useRef<string | null>(lastViewedChatAt);
 
   const appShellQuery = useQuery({
     queryKey: queryKeys.appShell,
@@ -99,31 +106,37 @@ export function Topbar({
     return messages[messages.length - 1]?.created_at ?? null;
   }
 
+  function markChatViewed(timestamp: string | null) {
+    lastViewedChatAtRef.current = timestamp;
+    setLastViewedChatAt(timestamp);
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (timestamp) {
+      window.localStorage.setItem(CHAT_LAST_VIEWED_STORAGE_KEY, timestamp);
+    } else {
+      window.localStorage.removeItem(CHAT_LAST_VIEWED_STORAGE_KEY);
+    }
+  }
+
   function applyIncomingMessages(incoming: ChatMessage[]) {
     setChatMessages((current) => {
       const merged = mergeChatMessages(current, incoming);
-      const currentIds = new Set(current.map((message) => message.id));
-      const newMessages = incoming.filter((message) => !currentIds.has(message.id));
       const latestMergedTimestamp = getLatestChatTimestamp(merged);
 
       if (!hasInitializedChatRef.current) {
         hasInitializedChatRef.current = true;
-        lastViewedChatAtRef.current = latestMergedTimestamp;
-        setChatUnreadCount(0);
+        if (!lastViewedChatAtRef.current) {
+          markChatViewed(latestMergedTimestamp);
+        }
         return merged;
       }
 
       if (isChatOpenRef.current) {
-        lastViewedChatAtRef.current = latestMergedTimestamp;
-        setChatUnreadCount(0);
+        markChatViewed(latestMergedTimestamp);
         return merged;
-      }
-
-      const lastViewedAt = lastViewedChatAtRef.current ? new Date(lastViewedChatAtRef.current).getTime() : Number.POSITIVE_INFINITY;
-      const unreadDelta = newMessages.filter((message) => new Date(message.created_at).getTime() > lastViewedAt).length;
-
-      if (unreadDelta > 0) {
-        setChatUnreadCount((currentUnread) => currentUnread + unreadDelta);
       }
 
       return merged;
@@ -177,10 +190,14 @@ export function Topbar({
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
     if (isChatOpen) {
-      lastViewedChatAtRef.current = getLatestChatTimestamp(chatMessages);
-      setChatUnreadCount(0);
+      markChatViewed(getLatestChatTimestamp(chatMessages));
     }
-  }, [isChatOpen]);
+  }, [chatMessages, isChatOpen]);
+
+  const chatUnreadCount =
+    !isChatOpen && lastViewedChatAt
+      ? chatMessages.filter((message) => new Date(message.created_at).getTime() > new Date(lastViewedChatAt).getTime()).length
+      : 0;
 
   useEffect(() => {
     let isCancelled = false;
