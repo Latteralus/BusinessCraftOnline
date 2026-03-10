@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NPC_PRICE_CEILINGS } from "@/config/items";
 import { formatMarketTransactionLine } from "@/domains/market/feed";
+import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency } from "@/lib/formatters";
 import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
@@ -378,7 +379,7 @@ export default function MarketClient({ initialData }: Props) {
                       <option value="">Select business</option>
                       {businesses.map((business) => (
                         <option key={business.id} value={business.id}>
-                          {business.name} ({business.type})
+                          {business.name} ({formatBusinessType(business.type)})
                         </option>
                       ))}
                     </select>
@@ -389,7 +390,7 @@ export default function MarketClient({ initialData }: Props) {
                       <option value="">Select business</option>
                       {businesses.map((business) => (
                         <option key={business.id} value={business.id}>
-                          {business.name} ({business.type})
+                          {business.name} ({formatBusinessType(business.type)})
                         </option>
                       ))}
                     </select>
