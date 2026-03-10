@@ -1,6 +1,10 @@
 "use client";
 
+import { LOAN_DEFAULT_INTEREST_RATE, LOAN_WEEKLY_MIN_PAYMENT_RATE, LOAN_WEEKLY_PAYMENT_INTERVAL_DAYS } from "@/config/banking";
 import { BANK_ACCOUNT_LABELS } from "@/domains/banking";
+import { getCurrentWeeklyMinimumDue, isLoanPaymentOverdue } from "@/domains/banking";
+import type { BankAccountWithBalance, Loan, LoanSummary, TransactionEntry, TransactionType } from "@/domains/banking";
+import type { BusinessWithBalance } from "@/domains/businesses";
 import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import type { BankingPageData } from "@/lib/client/queries";
@@ -9,7 +13,8 @@ import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { useBankingSlice } from "@/stores/game-store";
+import { useBankingSlice, useGameStore } from "@/stores/game-store";
+import { runOptimisticUpdate } from "@/stores/optimistic";
 
 type Props = {
   initialData: BankingPageData;
@@ -120,6 +125,55 @@ function formatTransactionType(value: string) {
     .join(" ");
 }
 
+function addDays(value: Date, days: number) {
+  const next = new Date(value);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function updateAccountBalance(accounts: BankAccountWithBalance[], accountId: string, delta: number) {
+  return accounts.map((account) =>
+    account.id === accountId ? { ...account, balance: Number((account.balance + delta).toFixed(2)) } : account
+  );
+}
+
+function updateBusinessBalance(businesses: BusinessWithBalance[], businessId: string, delta: number) {
+  return businesses.map((business) =>
+    business.id === businessId ? { ...business, balance: Number((business.balance + delta).toFixed(2)) } : business
+  );
+}
+
+function prependTransaction(entries: TransactionEntry[], entry: TransactionEntry, limit = 30) {
+  return [entry, ...entries].slice(0, Math.max(limit, entries.length));
+}
+
+function createOptimisticTransaction(params: {
+  accountId: string;
+  amount: number;
+  direction: "credit" | "debit";
+  transactionType: TransactionType;
+  description: string;
+}): TransactionEntry {
+  return {
+    id: `optimistic-banking-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    account_id: params.accountId,
+    amount: params.amount,
+    direction: params.direction,
+    transaction_type: params.transactionType,
+    reference_id: null,
+    description: params.description,
+    created_at: new Date().toISOString(),
+  };
+}
+
+function buildLoanSummary(loan: Loan): LoanSummary {
+  return {
+    loan,
+    currentMinimumDue: getCurrentWeeklyMinimumDue(loan),
+    isPaymentOverdue: isLoanPaymentOverdue(loan),
+  };
+}
+
 export default function BankingClient({ initialData }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -147,6 +201,7 @@ export default function BankingClient({ initialData }: Props) {
   const [loanSubmitting, setLoanSubmitting] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+  const patchBanking = useGameStore((state) => state.patchBanking);
 
   const checkingAccount = useMemo(
     () => accounts.find((account) => account.account_type === "checking") ?? null,
@@ -191,10 +246,46 @@ export default function BankingClient({ initialData }: Props) {
 
   async function submitTransfer() {
     if (transferSubmitting) return;
+    const amount = Number(transferAmount);
     setTransferSubmitting(true);
     resetMessages();
     try {
-      await apiPost(apiRoutes.banking.transfer, { fromAccountId, toAccountId, amount: Number(transferAmount) }, { fallbackError: "Transfer failed." });
+      await runOptimisticUpdate(
+        "banking",
+        (state) => {
+          const nextAccounts = updateAccountBalance(
+            updateAccountBalance(state.banking.data.accounts, fromAccountId, -amount),
+            toAccountId,
+            amount
+          );
+          const nextTransactions = prependTransaction(
+            prependTransaction(
+              state.banking.data.transactions,
+              createOptimisticTransaction({
+                accountId: fromAccountId,
+                amount,
+                direction: "debit",
+                transactionType: "transfer_out",
+                description: `Transfer to ${BANK_ACCOUNT_LABELS[toAccount?.account_type ?? "checking"] ?? "account"}.`,
+              })
+            ),
+            createOptimisticTransaction({
+              accountId: toAccountId,
+              amount,
+              direction: "credit",
+              transactionType: "transfer_in",
+              description: `Transfer from ${BANK_ACCOUNT_LABELS[fromAccount?.account_type ?? "checking"] ?? "account"}.`,
+            })
+          );
+          patchBanking({ accounts: nextAccounts, transactions: nextTransactions });
+        },
+        () =>
+          apiPost<{ transferId: string }>(
+            apiRoutes.banking.transfer,
+            { fromAccountId, toAccountId, amount },
+            { fallbackError: "Transfer failed." }
+          )
+      );
       setTransferAmount("");
       setSuccess("Personal account transfer completed.");
     } catch (err) {
@@ -206,18 +297,43 @@ export default function BankingClient({ initialData }: Props) {
 
   async function submitPersonalBusinessTransfer() {
     if (personalBusinessSubmitting) return;
+    const amount = Number(personalBusinessAmount);
     setPersonalBusinessSubmitting(true);
     resetMessages();
     try {
-      await apiPost(
-        apiRoutes.banking.personalBusinessTransfer,
-        {
-          personalAccountId: personalBusinessAccountId,
-          businessId: personalBusinessId,
-          amount: Number(personalBusinessAmount),
-          direction: personalBusinessDirection,
+      await runOptimisticUpdate(
+        "banking",
+        (state) => {
+          const personalDelta = personalBusinessDirection === "to_business" ? -amount : amount;
+          const businessDelta = personalBusinessDirection === "to_business" ? amount : -amount;
+          const nextAccounts = updateAccountBalance(state.banking.data.accounts, personalBusinessAccountId, personalDelta);
+          const nextBusinesses = updateBusinessBalance(state.banking.data.businesses, personalBusinessId, businessDelta);
+          const nextTransactions = prependTransaction(
+            state.banking.data.transactions,
+            createOptimisticTransaction({
+              accountId: personalBusinessAccountId,
+              amount,
+              direction: personalBusinessDirection === "to_business" ? "debit" : "credit",
+              transactionType: personalBusinessDirection === "to_business" ? "transfer_out" : "transfer_in",
+              description:
+                personalBusinessDirection === "to_business"
+                  ? `Treasury transfer into ${selectedBusiness?.name ?? "business"}.`
+                  : `Treasury withdrawal from ${selectedBusiness?.name ?? "business"}.`,
+            })
+          );
+          patchBanking({ accounts: nextAccounts, businesses: nextBusinesses, transactions: nextTransactions });
         },
-        { fallbackError: "Transfer failed." }
+        () =>
+          apiPost<{ transferId: string }>(
+            apiRoutes.banking.personalBusinessTransfer,
+            {
+              personalAccountId: personalBusinessAccountId,
+              businessId: personalBusinessId,
+              amount,
+              direction: personalBusinessDirection,
+            },
+            { fallbackError: "Transfer failed." }
+          )
       );
       setPersonalBusinessAmount("");
       setSuccess(
@@ -234,17 +350,30 @@ export default function BankingClient({ initialData }: Props) {
 
   async function submitOwnedBusinessTransfer() {
     if (ownedBusinessSubmitting) return;
+    const amount = Number(ownedBusinessAmount);
     setOwnedBusinessSubmitting(true);
     resetMessages();
     try {
-      await apiPost(
-        apiRoutes.banking.businessToBusinessTransfer,
-        {
-          fromBusinessId: fromOwnedBusinessId,
-          toBusinessId: toOwnedBusinessId,
-          amount: Number(ownedBusinessAmount),
+      await runOptimisticUpdate(
+        "banking",
+        (state) => {
+          const nextBusinesses = updateBusinessBalance(
+            updateBusinessBalance(state.banking.data.businesses, fromOwnedBusinessId, -amount),
+            toOwnedBusinessId,
+            amount
+          );
+          patchBanking({ businesses: nextBusinesses });
         },
-        { fallbackError: "Transfer failed." }
+        () =>
+          apiPost<{ transferId: string }>(
+            apiRoutes.banking.businessToBusinessTransfer,
+            {
+              fromBusinessId: fromOwnedBusinessId,
+              toBusinessId: toOwnedBusinessId,
+              amount,
+            },
+            { fallbackError: "Transfer failed." }
+          )
       );
       setOwnedBusinessAmount("");
       setSuccess("Funds reallocated between owned businesses.");
@@ -257,10 +386,67 @@ export default function BankingClient({ initialData }: Props) {
 
   async function submitLoanApplication() {
     if (loanSubmitting) return;
+    const principal = Number(loanPrincipal);
     setLoanSubmitting(true);
     resetMessages();
     try {
-      await apiPost(apiRoutes.banking.loan, { principal: Number(loanPrincipal) }, { fallbackError: "Loan application failed." });
+      await runOptimisticUpdate(
+        "banking",
+        (state) => {
+          const now = new Date();
+          const optimisticLoan: Loan = {
+            id: `optimistic-loan-${Date.now()}`,
+            player_id: "optimistic",
+            principal,
+            interest_rate: LOAN_DEFAULT_INTEREST_RATE,
+            balance_remaining: principal,
+            minimum_weekly_payment: Number((principal * LOAN_WEEKLY_MIN_PAYMENT_RATE).toFixed(2)),
+            next_payment_due: addDays(now, LOAN_WEEKLY_PAYMENT_INTERVAL_DAYS).toISOString(),
+            last_payment_at: null,
+            missed_payment_count: 0,
+            status: "active",
+            created_at: now.toISOString(),
+            updated_at: now.toISOString(),
+          };
+          const nextAccounts = checkingAccount
+            ? updateAccountBalance(state.banking.data.accounts, checkingAccount.id, principal)
+            : state.banking.data.accounts;
+          const nextTransactions = checkingAccount
+            ? prependTransaction(
+                state.banking.data.transactions,
+                createOptimisticTransaction({
+                  accountId: checkingAccount.id,
+                  amount: principal,
+                  direction: "credit",
+                  transactionType: "loan_disbursement",
+                  description: "Loan funds deposited into checking.",
+                })
+              )
+            : state.banking.data.transactions;
+          patchBanking({
+            accounts: nextAccounts,
+            transactions: nextTransactions,
+            loanData: {
+              summary: buildLoanSummary(optimisticLoan),
+              maxLoanAvailable: state.banking.data.loanData?.maxLoanAvailable ?? initialData.loanData.maxLoanAvailable,
+            },
+          });
+        },
+        async () => {
+          const payload = await apiPost<{ loan: Loan }>(
+            apiRoutes.banking.loan,
+            { principal },
+            { fallbackError: "Loan application failed." }
+          );
+          patchBanking({
+            loanData: {
+              summary: buildLoanSummary(payload.loan),
+              maxLoanAvailable: initialData.loanData.maxLoanAvailable,
+            },
+          });
+          return payload;
+        }
+      );
       setLoanPrincipal("");
       setSuccess("Loan application approved and deposited.");
     } catch (err) {
@@ -272,13 +458,64 @@ export default function BankingClient({ initialData }: Props) {
 
   async function submitLoanPayment() {
     if (!loanData?.summary?.loan.id || paymentSubmitting) return;
+    const loanId = loanData.summary.loan.id;
+    const amount = Number(paymentAmount);
     setPaymentSubmitting(true);
     resetMessages();
     try {
-      await apiPost(
-        apiRoutes.banking.loanPayment,
-        { loanId: loanData.summary.loan.id, amount: Number(paymentAmount) },
-        { fallbackError: "Loan payment failed." }
+      await runOptimisticUpdate(
+        "banking",
+        (state) => {
+          const activeSummary = state.banking.data.loanData?.summary;
+          if (!activeSummary || !checkingAccount) {
+            return;
+          }
+
+          const nextAccounts = updateAccountBalance(state.banking.data.accounts, checkingAccount.id, -amount);
+          const nextTransactions = prependTransaction(
+            state.banking.data.transactions,
+            createOptimisticTransaction({
+              accountId: checkingAccount.id,
+              amount,
+              direction: "debit",
+              transactionType: "loan_payment",
+              description: "Loan payment drafted from checking.",
+            })
+          );
+          const remainingBalance = Number(Math.max(0, activeSummary.loan.balance_remaining - amount).toFixed(2));
+          const nextLoan =
+            remainingBalance <= 0
+              ? null
+              : {
+                  ...activeSummary.loan,
+                  balance_remaining: remainingBalance,
+                  last_payment_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                };
+
+          patchBanking({
+            accounts: nextAccounts,
+            transactions: nextTransactions,
+            loanData: {
+              summary: nextLoan ? buildLoanSummary(nextLoan) : null,
+              maxLoanAvailable: state.banking.data.loanData?.maxLoanAvailable ?? initialData.loanData.maxLoanAvailable,
+            },
+          });
+        },
+        async () => {
+          const payload = await apiPost<{ paidAmount: number; updatedLoan: Loan }>(
+            apiRoutes.banking.loanPayment,
+            { loanId, amount },
+            { fallbackError: "Loan payment failed." }
+          );
+          patchBanking({
+            loanData: {
+              summary: payload.updatedLoan.status === "active" ? buildLoanSummary(payload.updatedLoan) : null,
+              maxLoanAvailable: initialData.loanData.maxLoanAvailable,
+            },
+          });
+          return payload;
+        }
       );
       setPaymentAmount("");
       setSuccess("Loan payment submitted from checking.");

@@ -2,8 +2,9 @@
 
 import { isStoreBusinessType } from "@/config/businesses";
 import { getExtractionProductOptionsForBusinessType } from "@/config/production";
+import { type FinancePeriod } from "@/config/finance";
 import { useState, useEffect, Fragment } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type {
   Business,
   BusinessFinanceDashboard,
@@ -18,6 +19,7 @@ import type { EmployeeAssignment, Employee } from "@/domains/employees";
 import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import type { UpgradeDefinition } from "@/domains/upgrades";
 import { calculateUpgradePreview, formatInstallTimeMinutes } from "@/domains/upgrades";
+import { getBusinessFinanceDashboard as buildBusinessFinanceDashboard } from "@/domains/businesses/finance";
 import { BASE_WAGE_PER_HOUR } from "@/config/employees";
 import { apiDelete, apiPatch, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
@@ -27,6 +29,7 @@ import { formatItemKey } from "@/lib/items";
 import { useGameStore } from "@/stores/game-store";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 import { makeNpcShopperName } from "../../../shared/core/npc-shopper-names";
+import { createSupabaseBrowserClient } from "@/lib/supabase";
 import BusinessEmployeesDashboard from "./BusinessEmployeesDashboard";
 import BusinessFinanceDashboardPanel from "./BusinessFinanceDashboard";
 import BusinessInventoryDashboard from "./BusinessInventoryDashboard";
@@ -152,6 +155,7 @@ export default function BusinessDetailsClient({
   initialTab,
 }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const businessId = initialBusiness.id;
   const detail = useGameStore((state) => state.businessDetails.data[businessId]);
   const upsertBusinessDetail = useGameStore((state) => state.upsertBusinessDetail);
@@ -186,6 +190,10 @@ export default function BusinessDetailsClient({
   const ownedBusinessesState = Array.isArray(detail?.ownedBusinesses) ? detail.ownedBusinesses : ownedBusinesses;
   const financeDashboardState = detail?.financeDashboard ?? financeDashboard ?? null;
   const upgradeDefinitionsState = detail?.upgradeDefinitions ?? upgradeDefinitions;
+  const selectedFinancePeriod = (() => {
+    const period = searchParams.get("period");
+    return period === "24h" || period === "7d" || period === "30d" ? period : "1h";
+  })() as FinancePeriod;
 
   useEffect(() => {
     if (!detail) {
@@ -295,6 +303,7 @@ export default function BusinessDetailsClient({
     upgrades: BusinessUpgrade[];
     upgradeProjects: BusinessUpgradeProject[];
     employees: LocalEmployee[];
+    financeDashboard: BusinessFinanceDashboard | null;
   }>) {
     upsertBusinessDetail(businessId, {
       business,
@@ -310,6 +319,17 @@ export default function BusinessDetailsClient({
       upgradeDefinitions: upgradeDefinitionsState,
       ...value,
     });
+  }
+
+  async function refreshFinanceDashboard(period: FinancePeriod = selectedFinancePeriod) {
+    const finance = await buildBusinessFinanceDashboard(
+      createSupabaseBrowserClient(),
+      business.player_id,
+      business,
+      period
+    );
+    patchDetail({ financeDashboard: finance });
+    return finance;
   }
 
   function updateEmployeeRecord(nextEmployee: LocalEmployee) {
@@ -498,6 +518,7 @@ export default function BusinessDetailsClient({
       patchDetail({
         upgradeProjects: payload.project ? [payload.project, ...upgradeProjects] : upgradeProjects,
       });
+      await refreshFinanceDashboard();
     }, "Error purchasing upgrade");
   }
 
@@ -805,6 +826,7 @@ export default function BusinessDetailsClient({
             { fallbackError: "Failed to transfer item." }
           );
         }
+        await refreshFinanceDashboard();
       });
     }, "Error performing action");
   }
@@ -857,6 +879,7 @@ export default function BusinessDetailsClient({
             upsertShelfItem(payload.shelfItem);
           }
         }
+        await refreshFinanceDashboard();
         return payload;
       });
     }, "Error saving shelf item");
@@ -884,6 +907,7 @@ export default function BusinessDetailsClient({
         };
       }, async () => {
         await apiDelete(apiRoutes.stores.shelves, { shelfItemId }, { fallbackError: "Failed to remove shelf item." });
+        await refreshFinanceDashboard();
       });
     }, "Error removing shelf item");
   }
