@@ -9,10 +9,12 @@ import { apiRoutes } from "@/lib/client/routes";
 import type { MarketPageData } from "@/lib/client/queries";
 import { formatItemKey } from "@/lib/items";
 import { TooltipLabel } from "@/components/ui/tooltip";
+import type { MarketListing, MarketTransaction } from "@/domains/market";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { useMarketSlice } from "@/stores/game-store";
+import { useGameStore, useMarketSlice } from "@/stores/game-store";
+import { runOptimisticUpdate } from "@/stores/optimistic";
 
 type Props = {
   initialData: MarketPageData;
@@ -132,6 +134,7 @@ function formatTimestamp(value: string) {
 
 export default function MarketClient({ initialData }: Props) {
   const market = useMarketSlice();
+  const patchMarket = useGameStore((state) => state.patchMarket);
   const businesses = market.businesses;
   const listings = market.listings;
   const transactions = market.transactions;
@@ -235,12 +238,44 @@ export default function MarketClient({ initialData }: Props) {
     if (!sourceBusinessId || busy) return;
     setBusy(true);
     setError(null);
+    const optimisticId = `optimistic-listing-${Date.now()}`;
     try {
-      await apiPost(
-        apiRoutes.market.root,
-        { sourceBusinessId, itemKey, quality, quantity, unitPrice },
-        { fallbackError: "Failed to create listing." }
-      );
+      await runOptimisticUpdate("market", () => {
+        const sourceBusinessName = businesses.find((business) => business.id === sourceBusinessId)?.name;
+        const optimisticListing: MarketListing = {
+          id: optimisticId,
+          owner_player_id: "",
+          source_business_id: sourceBusinessId,
+          source_inventory_id: null,
+          city_id: businesses.find((business) => business.id === sourceBusinessId)?.city_id ?? "",
+          item_key: itemKey,
+          quality,
+          quantity,
+          reserved_quantity: quantity,
+          unit_price: unitPrice,
+          listing_type: "sell",
+          status: "active",
+          expires_at: null,
+          filled_at: null,
+          cancelled_at: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          business: sourceBusinessName ? { name: sourceBusinessName } : undefined,
+        };
+        patchMarket({ listings: [optimisticListing, ...listings] });
+      }, async () => {
+        const payload = await apiPost<{ listing?: MarketListing }>(
+          apiRoutes.market.root,
+          { sourceBusinessId, itemKey, quality, quantity, unitPrice },
+          { fallbackError: "Failed to create listing." }
+        );
+        if (payload.listing) {
+          patchMarket({
+            listings: [payload.listing, ...listings.filter((listing) => listing.id !== optimisticId)],
+          });
+        }
+        return payload;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create listing.");
     } finally {
@@ -253,7 +288,32 @@ export default function MarketClient({ initialData }: Props) {
     setBusy(true);
     setError(null);
     try {
-      await apiPost(apiRoutes.market.cancel(listingId), undefined, { fallbackError: "Failed to cancel listing." });
+      await runOptimisticUpdate("market", () => {
+        patchMarket({
+          listings: listings.map((listing) =>
+            listing.id === listingId
+              ? {
+                  ...listing,
+                  status: "cancelled",
+                  cancelled_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                }
+              : listing
+          ),
+        });
+      }, async () => {
+        const payload = await apiPost<{ listing?: MarketListing }>(
+          apiRoutes.market.cancel(listingId),
+          undefined,
+          { fallbackError: "Failed to cancel listing." }
+        );
+        if (payload.listing) {
+          patchMarket({
+            listings: listings.map((listing) => (listing.id === listingId ? payload.listing! : listing)),
+          });
+        }
+        return payload;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to cancel listing.");
     } finally {
@@ -267,14 +327,42 @@ export default function MarketClient({ initialData }: Props) {
     setBusy(true);
     setError(null);
     try {
-      await apiPost(
-        apiRoutes.market.buy(listingId),
-        {
-          quantity: Math.max(1, buyQuantityByListingId[listingId] ?? 1),
-          buyerBusinessId,
-        },
-        { fallbackError: "Failed to buy listing." }
-      );
+      const purchaseQuantity = Math.max(1, buyQuantityByListingId[listingId] ?? 1);
+      const targetListing = listings.find((listing) => listing.id === listingId) ?? null;
+      await runOptimisticUpdate("market", () => {
+        if (!targetListing) return;
+        const nextQuantity = Math.max(0, targetListing.quantity - purchaseQuantity);
+        patchMarket({
+          listings: listings.map((listing) =>
+            listing.id === listingId
+              ? {
+                  ...listing,
+                  quantity: nextQuantity,
+                  reserved_quantity: Math.max(0, listing.reserved_quantity - purchaseQuantity),
+                  status: nextQuantity <= 0 ? "filled" : listing.status,
+                  filled_at: nextQuantity <= 0 ? new Date().toISOString() : listing.filled_at,
+                  updated_at: new Date().toISOString(),
+                }
+              : listing
+          ),
+        });
+      }, async () => {
+        const payload = await apiPost<{ listing?: MarketListing; transaction?: MarketTransaction }>(
+          apiRoutes.market.buy(listingId),
+          {
+            quantity: purchaseQuantity,
+            buyerBusinessId,
+          },
+          { fallbackError: "Failed to buy listing." }
+        );
+        patchMarket({
+          listings: payload.listing
+            ? listings.map((listing) => (listing.id === listingId ? payload.listing! : listing))
+            : listings,
+          transactions: payload.transaction ? [payload.transaction, ...transactions] : transactions,
+        });
+        return payload;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to buy listing.");
     } finally {

@@ -10,7 +10,8 @@ import { TooltipLabel } from "@/components/ui/tooltip";
 import { makeNpcShopperName } from "../../../../shared/core/npc-shopper-names";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useEmployeesSlice } from "@/stores/game-store";
+import { useEmployeesSlice, useGameStore } from "@/stores/game-store";
+import { runOptimisticUpdate } from "@/stores/optimistic";
 
 type Business = { id: string; name: string };
 type Props = {
@@ -30,7 +31,29 @@ function makeHireName() {
 export default function EmployeesClient({ initialData }: Props) {
   const employeesSlice = useEmployeesSlice();
   const employees = employeesSlice.employees;
-  const summary = employeesSlice.summary as EmployeeSummary | null;
+  const patchEmployees = useGameStore((state) => state.patchEmployees);
+  const removeEmployee = useGameStore((state) => state.removeEmployee);
+  const summary = useMemo<EmployeeSummary>(() => {
+    const byStatus = {
+      available: 0,
+      assigned: 0,
+      resting: 0,
+      unpaid: 0,
+      fired: 0,
+    } satisfies EmployeeSummary["byStatus"];
+    for (const employee of employees) {
+      byStatus[employee.status] += 1;
+    }
+    return {
+      totalEmployees: employees.length,
+      byStatus,
+      assignedCount: byStatus.assigned,
+      availableCount: byStatus.available,
+      restingCount: byStatus.resting,
+      unpaidCount: byStatus.unpaid,
+      firedCount: byStatus.fired,
+    };
+  }, [employees]);
   const businesses = employeesSlice.businesses as Business[];
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -80,18 +103,45 @@ export default function EmployeesClient({ initialData }: Props) {
     setError(null);
     setSuccess(null);
     const { firstName, lastName } = makeHireName();
+    const optimisticId = `optimistic-employee-${Date.now()}`;
     try {
-      await apiPost(
-        apiRoutes.employees.root,
-        {
-          firstName,
-          lastName,
-          businessId: hireBusinessId,
-          employeeType,
-          specialtySkillKey: employeeType === "specialist" ? specialtySkillKey || undefined : undefined,
-        },
-        { fallbackError: "Failed to hire employee." }
-      );
+      await runOptimisticUpdate("employees", () => {
+        patchEmployees({
+          id: optimisticId,
+          player_id: "",
+          employer_business_id: hireBusinessId || null,
+          first_name: firstName,
+          last_name: lastName,
+          employee_type: employeeType,
+          status: "available",
+          specialty_skill_key:
+            employeeType === "specialist" ? ((specialtySkillKey || "logistics") as Employee["specialty_skill_key"]) : null,
+          hire_cost: 0,
+          wage_per_hour: 0,
+          unpaid_wage_due: 0,
+          last_wage_charged_at: null,
+          shift_ends_at: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }, async () => {
+        const payload = await apiPost<{ employee?: Employee }>(
+          apiRoutes.employees.root,
+          {
+            firstName,
+            lastName,
+            businessId: hireBusinessId,
+            employeeType,
+            specialtySkillKey: employeeType === "specialist" ? specialtySkillKey || undefined : undefined,
+          },
+          { fallbackError: "Failed to hire employee." }
+        );
+        if (payload.employee) {
+          removeEmployee(optimisticId);
+          patchEmployees(payload.employee);
+        }
+        return payload;
+      });
       setSpecialtySkillKey("");
       setSuccess("Employee hired successfully.");
     } catch (err) {
@@ -107,11 +157,25 @@ export default function EmployeesClient({ initialData }: Props) {
     setError(null);
     setSuccess(null);
     try {
-      await apiPost(
-        apiRoutes.employees.assign,
-        { employeeId: assignEmployeeId, businessId: assignBusinessId, role: assignRole },
-        { fallbackError: "Failed to assign employee." }
-      );
+      await runOptimisticUpdate("employees", () => {
+        patchEmployees({
+          id: assignEmployeeId,
+          employer_business_id:
+            employees.find((employee) => employee.id === assignEmployeeId)?.employer_business_id ?? assignBusinessId,
+          status: "assigned",
+          updated_at: new Date().toISOString(),
+        });
+      }, async () => {
+        const payload = await apiPost<{ employee?: Employee }>(
+          apiRoutes.employees.assign,
+          { employeeId: assignEmployeeId, businessId: assignBusinessId, role: assignRole },
+          { fallbackError: "Failed to assign employee." }
+        );
+        if (payload.employee) {
+          patchEmployees(payload.employee);
+        }
+        return payload;
+      });
       setSuccess("Employee assigned successfully.");
       setAssignEmployeeId("");
       setAssignBusinessId("");
@@ -126,7 +190,23 @@ export default function EmployeesClient({ initialData }: Props) {
     setError(null);
     setSuccess(null);
     try {
-      await apiPost(apiRoutes.employees.reactivate, { employeeId }, { fallbackError: "Failed to reactivate employee." });
+      await runOptimisticUpdate("employees", () => {
+        patchEmployees({
+          id: employeeId,
+          status: "available",
+          updated_at: new Date().toISOString(),
+        });
+      }, async () => {
+        const payload = await apiPost<{ employee?: Employee }>(
+          apiRoutes.employees.reactivate,
+          { employeeId },
+          { fallbackError: "Failed to reactivate employee." }
+        );
+        if (payload.employee) {
+          patchEmployees(payload.employee);
+        }
+        return payload;
+      });
       setSuccess("Employee re-activated.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reactivate employee.");
@@ -137,7 +217,23 @@ export default function EmployeesClient({ initialData }: Props) {
     setError(null);
     setSuccess(null);
     try {
-      await apiPost(apiRoutes.employees.unassign, { employeeId }, { fallbackError: "Failed to unassign employee." });
+      await runOptimisticUpdate("employees", () => {
+        patchEmployees({
+          id: employeeId,
+          status: "available",
+          updated_at: new Date().toISOString(),
+        });
+      }, async () => {
+        const payload = await apiPost<{ employee?: Employee }>(
+          apiRoutes.employees.unassign,
+          { employeeId },
+          { fallbackError: "Failed to unassign employee." }
+        );
+        if (payload.employee) {
+          patchEmployees(payload.employee);
+        }
+        return payload;
+      });
       setSuccess("Employee unassigned.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to unassign employee.");
@@ -148,7 +244,23 @@ export default function EmployeesClient({ initialData }: Props) {
     setError(null);
     setSuccess(null);
     try {
-      await apiDelete(apiRoutes.employees.detail(employeeId), undefined, { fallbackError: "Failed to fire employee." });
+      await runOptimisticUpdate("employees", () => {
+        patchEmployees({
+          id: employeeId,
+          status: "fired",
+          updated_at: new Date().toISOString(),
+        });
+      }, async () => {
+        const payload = await apiDelete<{ employee?: Employee }>(
+          apiRoutes.employees.detail(employeeId),
+          undefined,
+          { fallbackError: "Failed to fire employee." }
+        );
+        if (payload.employee) {
+          patchEmployees(payload.employee);
+        }
+        return payload;
+      });
       setSuccess("Employee fired.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fire employee.");

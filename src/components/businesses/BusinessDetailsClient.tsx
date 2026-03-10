@@ -25,6 +25,7 @@ import { getNpcBuyerPriceRange, getNpcSuggestedBasePrice } from "@/config/items"
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import { useGameStore } from "@/stores/game-store";
+import { runOptimisticUpdate } from "@/stores/optimistic";
 import { makeNpcShopperName } from "../../../shared/core/npc-shopper-names";
 import BusinessEmployeesDashboard from "./BusinessEmployeesDashboard";
 import BusinessFinanceDashboardPanel from "./BusinessFinanceDashboard";
@@ -109,6 +110,20 @@ function normalizeProductionStatus(
   return {
     ...production,
     slots: Array.isArray(production.slots) ? production.slots : [],
+  };
+}
+
+function summarizeProductionSlots(
+  slots: NonNullable<ProductionStatus["slots"]>
+): ProductionStatus["summary"] {
+  return {
+    total: slots.length,
+    active: slots.filter((slot) => slot.status === "active").length,
+    idle: slots.filter((slot) => slot.status === "idle").length,
+    resting: slots.filter((slot) => slot.status === "resting").length,
+    toolBroken: slots.filter((slot) => slot.status === "tool_broken").length,
+    retooling: slots.filter((slot) => slot.status === "retooling").length,
+    occupied: slots.filter((slot) => Boolean(slot.employee_id)).length,
   };
 }
 
@@ -313,22 +328,26 @@ export default function BusinessDetailsClient({
 
   function updateExtractionSlot(slot: ProductionStatus["slots"][number]) {
     if (!production) return;
+    const slots = production.slots.map((entry) => (entry.id === slot.id ? slot : entry));
     patchDetail({
       production: {
         ...production,
-        slots: production.slots.map((entry) => (entry.id === slot.id ? slot : entry)),
+        slots,
+        summary: summarizeProductionSlots(slots),
       },
     });
   }
 
   function updateManufacturingLine(line: ManufacturingStatusView["lines"][number]) {
     if (!manufacturing) return;
+    const lines = manufacturing.lines.map((entry) =>
+      entry.id === line.id ? normalizeManufacturingLine(line, entry) : entry
+    );
     patchDetail({
       manufacturing: {
         ...manufacturing,
-        lines: manufacturing.lines.map((entry) =>
-          entry.id === line.id ? normalizeManufacturingLine(line, entry) : entry
-        ),
+        lines,
+        summary: summarizeManufacturingLines(lines),
       },
     });
   }
@@ -357,6 +376,10 @@ export default function BusinessDetailsClient({
     next[index] = nextShelfItem;
     patchDetail({ shelfItems: next });
   }
+
+  function removeShelfItemFromDetail(shelfItemId: string) {
+    patchDetail({ shelfItems: shelfItems.filter((item) => item.id !== shelfItemId) });
+  }
   async function runBusyAction(action: () => Promise<void>, fallbackMessage: string) {
     if (busy) return;
 
@@ -376,19 +399,38 @@ export default function BusinessDetailsClient({
     if (!employeeId || busy) return;
 
     await runBusyAction(async () => {
-      const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
-        apiRoutes.production.assignSlot,
-        { slotId, employeeId },
-        { fallbackError: "Failed to assign employee to slot." }
-      );
-      if (payload.slot) {
-        updateExtractionSlot(payload.slot);
-      }
-
-      setAssignSelections(prev => {
-        const next = { ...prev };
-        delete next[slotId];
-        return next;
+      const currentSlot = production?.slots.find((slot) => slot.id === slotId) ?? null;
+      const currentEmployee = employees.find((employee) => employee.id === employeeId) ?? null;
+      const previousSelection = assignSelections[slotId] ?? "";
+      await runOptimisticUpdate("businessDetails", () => {
+        if (currentSlot) {
+          updateExtractionSlot({
+            ...currentSlot,
+            employee_id: employeeId,
+            employee_status: currentEmployee
+              ? getWorkerEffectiveStatus(currentEmployee.status, currentEmployee.shift_ends_at)
+              : "assigned",
+            status: currentSlot.status === "retooling" ? "retooling" : "active",
+          });
+        }
+        setAssignSelections((prev) => {
+          const next = { ...prev };
+          delete next[slotId];
+          return next;
+        });
+        return () => {
+          setAssignSelections((prev) => ({ ...prev, [slotId]: previousSelection }));
+        };
+      }, async () => {
+        const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
+          apiRoutes.production.assignSlot,
+          { slotId, employeeId },
+          { fallbackError: "Failed to assign employee to slot." }
+        );
+        if (payload.slot) {
+          updateExtractionSlot(payload.slot);
+        }
+        return payload;
       });
     }, "Error assigning slot");
   }
@@ -396,28 +438,52 @@ export default function BusinessDetailsClient({
   async function unassignSlot(slotId: string) {
     if (busy) return;
     await runBusyAction(async () => {
-      const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
-        apiRoutes.production.unassignSlot,
-        { slotId },
-        { fallbackError: "Failed to unassign slot." }
-      );
-      if (payload.slot) {
-        updateExtractionSlot(payload.slot);
-      }
+      const currentSlot = production?.slots.find((slot) => slot.id === slotId) ?? null;
+      await runOptimisticUpdate("businessDetails", () => {
+        if (currentSlot) {
+          updateExtractionSlot({
+            ...currentSlot,
+            employee_id: null,
+            employee_status: null,
+            status: currentSlot.status === "retooling" ? "retooling" : "idle",
+          });
+        }
+      }, async () => {
+        const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
+          apiRoutes.production.unassignSlot,
+          { slotId },
+          { fallbackError: "Failed to unassign slot." }
+        );
+        if (payload.slot) {
+          updateExtractionSlot(payload.slot);
+        }
+        return payload;
+      });
     }, "Error unassigning slot");
   }
 
   async function setSlotStatus(slotId: string, status: "active" | "idle") {
     if (busy) return;
     await runBusyAction(async () => {
-      const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
-        apiRoutes.production.slotStatus,
-        { slotId, status },
-        { fallbackError: "Failed to set slot status." }
-      );
-      if (payload.slot) {
-        updateExtractionSlot(payload.slot);
-      }
+      const currentSlot = production?.slots.find((slot) => slot.id === slotId) ?? null;
+      await runOptimisticUpdate("businessDetails", () => {
+        if (currentSlot) {
+          updateExtractionSlot({
+            ...currentSlot,
+            status,
+          });
+        }
+      }, async () => {
+        const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
+          apiRoutes.production.slotStatus,
+          { slotId, status },
+          { fallbackError: "Failed to set slot status." }
+        );
+        if (payload.slot) {
+          updateExtractionSlot(payload.slot);
+        }
+        return payload;
+      });
     }, "Error setting slot status");
   }
 
@@ -596,15 +662,38 @@ export default function BusinessDetailsClient({
     const itemKey = slotRetoolSelections[slotId];
     if (!itemKey || busy) return;
     await runBusyAction(async () => {
-      const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
-        apiRoutes.production.retoolSlot,
-        { slotId, itemKey },
-        { fallbackError: "Failed to retool production slot." }
-      );
-      if (payload.slot) {
-        updateExtractionSlot(payload.slot);
-      }
-      setSlotRetoolSelections((prev) => ({ ...prev, [slotId]: "" }));
+      const currentSlot = production?.slots.find((slot) => slot.id === slotId) ?? null;
+      const previousSelection = slotRetoolSelections[slotId] ?? "";
+      const nextOption =
+        currentSlot && production
+          ? getExtractionProductOptionsForBusinessType(production.businessType).find((option) => option.itemKey === itemKey) ?? null
+          : null;
+      await runOptimisticUpdate("businessDetails", () => {
+        if (currentSlot) {
+          updateExtractionSlot({
+            ...currentSlot,
+            pending_item_key: itemKey,
+            pending_output: nextOption,
+            status: "retooling",
+            output_progress: 0,
+            input_progress: 0,
+          });
+        }
+        setSlotRetoolSelections((prev) => ({ ...prev, [slotId]: "" }));
+        return () => {
+          setSlotRetoolSelections((prev) => ({ ...prev, [slotId]: previousSelection }));
+        };
+      }, async () => {
+        const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
+          apiRoutes.production.retoolSlot,
+          { slotId, itemKey },
+          { fallbackError: "Failed to retool production slot." }
+        );
+        if (payload.slot) {
+          updateExtractionSlot(payload.slot);
+        }
+        return payload;
+      });
     }, "Error retooling slot");
   }
 
@@ -659,59 +748,64 @@ export default function BusinessDetailsClient({
   async function handleActionSubmit(item: BusinessInventoryItem) {
     if (!marketActionItem || busy) return;
     await runBusyAction(async () => {
-      if (marketActionItem.type === "market") {
-        await apiPost(
-          apiRoutes.market.root,
-          {
-            sourceBusinessId: business.id,
-            itemKey: item.item_key,
-            quality: item.quality,
-            quantity: actionQuantity,
-            unitPrice: actionPrice,
-          },
-          { fallbackError: "Failed to create market listing." }
-        );
-        patchInventoryItem(item.id, {
-          reserved_quantity: item.reserved_quantity + actionQuantity,
-        });
-      } else if (marketActionItem.type === "personal_transfer") {
-        await apiPost(
-          apiRoutes.inventory.transfer,
-          {
-            sourceType: "business",
-            sourceBusinessId: business.id,
-            destinationType: "personal",
-            itemKey: item.item_key,
-            quality: item.quality,
-            quantity: actionQuantity,
-          },
-          { fallbackError: "Failed to transfer item." }
-        );
-        patchInventoryItem(item.id, {
-          quantity: Math.max(0, item.quantity - actionQuantity),
-        });
-      } else if (marketActionItem.type === "business_transfer") {
+      const previousAction = marketActionItem;
+      await runOptimisticUpdate("businessDetails", () => {
+        if (previousAction.type === "market") {
+          patchInventoryItem(item.id, {
+            reserved_quantity: item.reserved_quantity + actionQuantity,
+          });
+        } else {
+          patchInventoryItem(item.id, {
+            quantity: Math.max(0, item.quantity - actionQuantity),
+          });
+        }
+        setMarketActionItem(null);
+        return () => setMarketActionItem(previousAction);
+      }, async () => {
+        if (marketActionItem.type === "market") {
+          await apiPost(
+            apiRoutes.market.root,
+            {
+              sourceBusinessId: business.id,
+              itemKey: item.item_key,
+              quality: item.quality,
+              quantity: actionQuantity,
+              unitPrice: actionPrice,
+            },
+            { fallbackError: "Failed to create market listing." }
+          );
+        } else if (marketActionItem.type === "personal_transfer") {
+          await apiPost(
+            apiRoutes.inventory.transfer,
+            {
+              sourceType: "business",
+              sourceBusinessId: business.id,
+              destinationType: "personal",
+              itemKey: item.item_key,
+              quality: item.quality,
+              quantity: actionQuantity,
+            },
+            { fallbackError: "Failed to transfer item." }
+          );
+        } else if (marketActionItem.type === "business_transfer") {
         const destinationBusiness = transferBusinesses.find((candidate) => candidate.id === transferBusinessId);
-        await apiPost(
-          apiRoutes.inventory.transfer,
-          {
-            sourceType: "business",
-            sourceBusinessId: business.id,
-            destinationType: "business",
-            destinationBusinessId: transferBusinessId,
-            destinationCityId: destinationBusiness?.city_id,
-            itemKey: item.item_key,
-            quality: item.quality,
-            quantity: actionQuantity,
-            unitPrice: transferUnitPrice,
-          },
-          { fallbackError: "Failed to transfer item." }
-        );
-        patchInventoryItem(item.id, {
-          quantity: Math.max(0, item.quantity - actionQuantity),
-        });
-      }
-      setMarketActionItem(null);
+          await apiPost(
+            apiRoutes.inventory.transfer,
+            {
+              sourceType: "business",
+              sourceBusinessId: business.id,
+              destinationType: "business",
+              destinationBusinessId: transferBusinessId,
+              destinationCityId: destinationBusiness?.city_id,
+              itemKey: item.item_key,
+              quality: item.quality,
+              quantity: actionQuantity,
+              unitPrice: transferUnitPrice,
+            },
+            { fallbackError: "Failed to transfer item." }
+          );
+        }
+      });
     }, "Error performing action");
   }
 
@@ -722,27 +816,49 @@ export default function BusinessDetailsClient({
       const previousShelfItem = shelfItems.find(
         (entry) => entry.business_id === business.id && entry.item_key === item.item_key && entry.quality === item.quality
       );
-      const payload = await apiPost<{ shelfItem: StoreShelfItem }>(
-        apiRoutes.stores.shelves,
-        {
-          businessId: business.id,
-          itemKey: item.item_key,
-          quality: item.quality,
-          quantity: shelfQuantity,
-          unitPrice: shelfPrice,
-        },
-        { fallbackError: "Failed to save shelf item." }
-      );
-      if (payload.shelfItem) {
-        upsertShelfItem(payload.shelfItem);
+      const optimisticShelfItem: StoreShelfItem = {
+        id: previousShelfItem?.id ?? `optimistic-shelf-${item.id}`,
+        owner_player_id: business.player_id,
+        business_id: business.id,
+        item_key: item.item_key,
+        quality: item.quality,
+        quantity: shelfQuantity,
+        unit_price: shelfPrice,
+        created_at: previousShelfItem?.created_at ?? new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      const previousAction = shelfActionItem;
+      await runOptimisticUpdate("businessDetails", () => {
+        upsertShelfItem(optimisticShelfItem);
         const previousQuantity = previousShelfItem?.quantity ?? 0;
         const reservedDelta = shelfQuantity - previousQuantity;
         adjustInventoryByKey(item.item_key, item.quality, (current) => ({
           ...current,
           reserved_quantity: Math.max(0, current.reserved_quantity + reservedDelta),
         }));
-      }
-      setShelfActionItem(null);
+        setShelfActionItem(null);
+        return () => setShelfActionItem(previousAction);
+      }, async () => {
+        const payload = await apiPost<{ shelfItem: StoreShelfItem }>(
+          apiRoutes.stores.shelves,
+          {
+            businessId: business.id,
+            itemKey: item.item_key,
+            quality: item.quality,
+            quantity: shelfQuantity,
+            unitPrice: shelfPrice,
+          },
+          { fallbackError: "Failed to save shelf item." }
+        );
+        if (payload.shelfItem) {
+          upsertShelfItem(payload.shelfItem);
+          if (!previousShelfItem && optimisticShelfItem.id !== payload.shelfItem.id) {
+            removeShelfItemFromDetail(optimisticShelfItem.id);
+            upsertShelfItem(payload.shelfItem);
+          }
+        }
+        return payload;
+      });
     }, "Error saving shelf item");
   }
 
@@ -751,17 +867,24 @@ export default function BusinessDetailsClient({
 
     await runBusyAction(async () => {
       const currentShelfItem = shelfItems.find((item) => item.id === shelfItemId) ?? null;
-      await apiDelete(apiRoutes.stores.shelves, { shelfItemId }, { fallbackError: "Failed to remove shelf item." });
-      patchDetail({ shelfItems: shelfItems.filter((item) => item.id !== shelfItemId) });
-      if (currentShelfItem) {
-        adjustInventoryByKey(currentShelfItem.item_key, currentShelfItem.quality, (current) => ({
-          ...current,
-          reserved_quantity: Math.max(0, current.reserved_quantity - currentShelfItem.quantity),
-        }));
-      }
-      if (shelfActionItem) {
-        setShelfActionItem(null);
-      }
+      const previousAction = shelfActionItem;
+      await runOptimisticUpdate("businessDetails", () => {
+        removeShelfItemFromDetail(shelfItemId);
+        if (currentShelfItem) {
+          adjustInventoryByKey(currentShelfItem.item_key, currentShelfItem.quality, (current) => ({
+            ...current,
+            reserved_quantity: Math.max(0, current.reserved_quantity - currentShelfItem.quantity),
+          }));
+        }
+        if (shelfActionItem) {
+          setShelfActionItem(null);
+        }
+        return () => {
+          if (previousAction) setShelfActionItem(previousAction);
+        };
+      }, async () => {
+        await apiDelete(apiRoutes.stores.shelves, { shelfItemId }, { fallbackError: "Failed to remove shelf item." });
+      });
     }, "Error removing shelf item");
   }
 
