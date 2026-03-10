@@ -60,6 +60,26 @@ function resolveDeterministicQuantity(
   };
 }
 
+function resolveOutputQuality(
+  consumedInputs: Array<{ used: number; quality: number }>,
+  qualityBonus: number
+): number {
+  let totalUnits = 0;
+  let weightedQuality = 0;
+
+  for (const input of consumedInputs) {
+    if (input.used <= 0) continue;
+    totalUnits += input.used;
+    weightedQuality += input.used * input.quality;
+  }
+
+  if (totalUnits <= 0) {
+    return Math.max(1, Math.min(100, Math.round(qualityBonus || 1)));
+  }
+
+  return Math.max(1, Math.min(100, Math.round(weightedQuality / totalUnits + qualityBonus)));
+}
+
 async function consumeInventoryForContract(
   supabase: ReturnType<typeof createClient>,
   playerId: string,
@@ -232,7 +252,10 @@ Deno.serve(async (request) => {
     }
 
     let canProduce = true;
-    const inventoryConsumptionPlan = new Map<string, { id: string; quantity: number; reserved_quantity: number; used: number }>();
+    const inventoryConsumptionPlan = new Map<
+      string,
+      { id: string; quantity: number; reserved_quantity: number; used: number; quality: number }
+    >();
 
     for (const input of recipeInputs) {
       if (input.quantity <= 0) continue;
@@ -260,6 +283,7 @@ Deno.serve(async (request) => {
             quantity,
             reserved_quantity: reservedQuantity,
             used,
+            quality: toNumber(row.quality),
           });
         }
         remainingRequired -= used;
@@ -313,8 +337,13 @@ Deno.serve(async (request) => {
       .eq("skill_key", recipe.skillKey)
       .maybeSingle();
 
-    const skillLevel = skill ? Number(skill.level) : 1;
-    const quality = Math.max(1, Math.min(100, Math.round(skillLevel * 0.8 + effects.manufacturingQualityBonus)));
+    const quality = resolveOutputQuality(
+      Array.from(inventoryConsumptionPlan.values()).map((row) => ({
+        used: row.used,
+        quality: row.quality,
+      })),
+      effects.manufacturingQualityBonus
+    );
 
     if (outputQty > 0) {
       const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
