@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { GameStoreHydrationPayload } from "@/stores/game-store";
 import { useGameStore } from "@/stores/game-store";
@@ -12,12 +12,16 @@ type Props = {
 
 export function GameHydrationProvider({ initialData, children }: Props) {
   const hydrateFromServer = useGameStore((state) => state.hydrateFromServer);
-  const hasHydratedRef = useRef(false);
+  const lastHydratedPayloadRef = useRef<GameStoreHydrationPayload | null>(null);
 
-  if (!hasHydratedRef.current) {
-    hasHydratedRef.current = true;
+  useEffect(() => {
+    if (lastHydratedPayloadRef.current === initialData) {
+      return;
+    }
+
+    lastHydratedPayloadRef.current = initialData;
     hydrateFromServer(initialData);
-  }
+  }, [hydrateFromServer, initialData]);
 
   return children;
 }
