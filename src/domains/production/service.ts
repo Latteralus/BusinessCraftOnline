@@ -107,6 +107,41 @@ function getMaxLines(workerCapacitySlots: number): number {
   return 1 + Math.max(0, Math.trunc(workerCapacitySlots));
 }
 
+async function syncLegacyManufacturingJobForBusiness(
+  client: QueryClient,
+  businessId: string
+): Promise<void> {
+  const { data: lineRows, error: lineError } = await client
+    .from("manufacturing_lines")
+    .select("*")
+    .eq("business_id", businessId)
+    .order("line_number", { ascending: true });
+  if (lineError) throw lineError;
+
+  const lines = ((lineRows as ManufacturingLine[]) ?? []).map(normalizeManufacturingLine);
+  const legacySource =
+    lines.find((line) => line.status === "active") ??
+    lines.find((line) => Boolean(line.configured_recipe_key)) ??
+    lines[0] ??
+    null;
+
+  const payload = {
+    business_id: businessId,
+    active_recipe_key: legacySource?.configured_recipe_key ?? null,
+    status: legacySource?.status === "active" ? "active" : "idle",
+    worker_assigned: Boolean(legacySource?.employee_id) && Boolean(legacySource?.worker_assigned),
+    output_progress: legacySource?.output_progress ?? 0,
+    input_progress: legacySource?.input_progress ?? {},
+    last_tick_at: legacySource?.last_tick_at ?? null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error: upsertError } = await client
+    .from("manufacturing_jobs")
+    .upsert(payload, { onConflict: "business_id" });
+  if (upsertError) throw upsertError;
+}
+
 async function ensureOwnedExtractionBusiness(
   client: QueryClient,
   playerId: string,
@@ -291,6 +326,10 @@ async function finalizeManufacturingRetools(client: QueryClient, businessId: str
       .eq("id", line.id);
     if (updateError) throw updateError;
   }
+
+  if (lines.length > 0) {
+    await syncLegacyManufacturingJobForBusiness(client, businessId);
+  }
 }
 
 async function getSlotByIdForPlayer(
@@ -451,6 +490,8 @@ async function ensureManufacturingLines(
     .eq("business_id", business.id)
     .order("line_number", { ascending: true });
   if (finalError) throw finalError;
+
+  await syncLegacyManufacturingJobForBusiness(client, business.id);
 
   return ((finalRows as ManufacturingLine[]) ?? []).map(normalizeManufacturingLine);
 }
@@ -840,6 +881,7 @@ export async function assignManufacturingLine(
     .select("*")
     .single();
   if (error) throw error;
+  await syncLegacyManufacturingJobForBusiness(client, line.business_id);
   return normalizeManufacturingLine(data as ManufacturingLine);
 }
 
@@ -875,6 +917,7 @@ export async function unassignManufacturingLine(
     .select("*")
     .single();
   if (error) throw error;
+  await syncLegacyManufacturingJobForBusiness(client, line.business_id);
   return normalizeManufacturingLine(data as ManufacturingLine);
 }
 
@@ -934,6 +977,7 @@ export async function retoolManufacturingLine(
     .select("*")
     .single();
   if (error) throw error;
+  await syncLegacyManufacturingJobForBusiness(client, line.business_id);
   return normalizeManufacturingLine(data as ManufacturingLine);
 }
 
@@ -967,6 +1011,7 @@ export async function startManufacturing(
     })
     .eq("id", line.id);
   if (error) throw error;
+  await syncLegacyManufacturingJobForBusiness(client, line.business_id);
   return getManufacturingStatus(client, playerId, line.business_id);
 }
 
@@ -984,6 +1029,7 @@ export async function stopManufacturing(
     })
     .eq("id", line.id);
   if (error) throw error;
+  await syncLegacyManufacturingJobForBusiness(client, line.business_id);
   return getManufacturingStatus(client, playerId, line.business_id);
 }
 
@@ -1012,5 +1058,6 @@ export async function setManufacturingLineStatus(
     .select("*")
     .single();
   if (error) throw error;
+  await syncLegacyManufacturingJobForBusiness(client, line.business_id);
   return normalizeManufacturingLine(data as ManufacturingLine);
 }
