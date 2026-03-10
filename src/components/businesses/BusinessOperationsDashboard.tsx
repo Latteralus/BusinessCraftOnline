@@ -16,6 +16,8 @@ import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { PRODUCTION_RETOOL_DURATION_MINUTES } from "@/config/production";
 
 type Props = {
   business: Business;
@@ -28,6 +30,65 @@ type Props = {
 
 function formatPercent(value: number) {
   return `${Math.round(value)}%`;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function useNowMs() {
+  const [nowMs, setNowMs] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  return nowMs;
+}
+
+function formatCountdown(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getLiveCycleProgress(anchorIso: string | null, baseProgress: number, ratePerMinute: number, nowMs: number) {
+  const normalizedBase = clamp(baseProgress, 0, 0.999);
+  if (!anchorIso || ratePerMinute <= 0) {
+    return normalizedBase;
+  }
+
+  const anchorMs = new Date(anchorIso).getTime();
+  if (!Number.isFinite(anchorMs)) {
+    return normalizedBase;
+  }
+
+  const elapsedMinutes = Math.max(0, (nowMs - anchorMs) / 60_000);
+  const generatedUnits = normalizedBase + elapsedMinutes * ratePerMinute;
+  return generatedUnits - Math.floor(generatedUnits);
+}
+
+function getRetoolProgress(retoolCompleteAt: string | null, nowMs: number) {
+  if (!retoolCompleteAt) {
+    return null;
+  }
+
+  const completeMs = new Date(retoolCompleteAt).getTime();
+  if (!Number.isFinite(completeMs)) {
+    return null;
+  }
+
+  const startedMs = completeMs - PRODUCTION_RETOOL_DURATION_MINUTES * 60_000;
+  const progress = clamp((nowMs - startedMs) / (completeMs - startedMs), 0, 1);
+  return {
+    progress,
+    remainingMs: Math.max(0, completeMs - nowMs),
+  };
 }
 
 function calculateExtractionThroughput(production: ProductionStatus) {
@@ -100,6 +161,67 @@ function HorizontalBarChart(props: { title: string; rows: Array<{ label: string;
   );
 }
 
+function LiveFlowPanel(props: {
+  title: string;
+  rows: Array<{ id: string; label: string; sublabel: string; progress: number; color: string; accent?: string }>;
+}) {
+  return (
+    <div
+      style={{
+        background: "linear-gradient(180deg, rgba(11, 17, 29, 0.98), rgba(6, 10, 19, 0.98))",
+        border: "1px solid rgba(148, 163, 184, 0.16)",
+        borderRadius: 16,
+        padding: 18,
+      }}
+    >
+      <div style={{ fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase", color: "#cbd5e1", marginBottom: 14 }}>
+        {props.title}
+      </div>
+      <div style={{ display: "grid", gap: 12 }}>
+        {props.rows.map((row) => (
+          <div key={row.id} style={{ display: "grid", gap: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+              <div>
+                <div style={{ color: "#f8fafc", fontWeight: 600 }}>{row.label}</div>
+                <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>{row.sublabel}</div>
+              </div>
+              <div style={{ color: row.accent ?? row.color, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                {Math.round(row.progress * 100)}%
+              </div>
+            </div>
+            <div style={{ position: "relative", height: 12, borderRadius: 999, background: "rgba(148, 163, 184, 0.08)", overflow: "hidden" }}>
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background: `linear-gradient(90deg, ${row.color}22, ${row.color}55, ${row.color}22)`,
+                  transform: `translateX(${((Date.now() / 40) % 200) - 100}%)`,
+                  opacity: 0.45,
+                }}
+              />
+              <div style={{ width: `${row.progress * 100}%`, height: "100%", background: row.color, borderRadius: 999, transition: "width 900ms linear" }} />
+              <div
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: `calc(${row.progress * 100}% - 7px)`,
+                  width: 14,
+                  height: 14,
+                  borderRadius: 999,
+                  transform: "translateY(-50%)",
+                  background: row.color,
+                  boxShadow: `0 0 0 4px ${row.color}22, 0 0 18px ${row.color}66`,
+                  transition: "left 900ms linear",
+                }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function OpsTable(props: { title: string; rows: Array<{ label: string; value: string }> }) {
   return (
     <div
@@ -126,6 +248,7 @@ function OpsTable(props: { title: string; rows: Array<{ label: string; value: st
 }
 
 export default function BusinessOperationsDashboard(props: Props) {
+  const nowMs = useNowMs();
   const assignedEmployees = props.employees.filter((employee) => employee.employer_business_id === props.business.id);
   const availableInventoryUnits = props.inventory.reduce((sum, item) => sum + Math.max(0, item.quantity - item.reserved_quantity), 0);
   const shelfUnits = props.shelfItems.reduce((sum, item) => sum + item.quantity, 0);
@@ -202,6 +325,25 @@ export default function BusinessOperationsDashboard(props: Props) {
             ]}
           />
         </div>
+        <LiveFlowPanel
+          title="Live Lane Flow"
+          rows={production.slots.slice(0, 5).map((slot) => {
+            const isActive = slot.status === "active";
+            const retool = getRetoolProgress(slot.retool_complete_at, nowMs);
+            const progress = retool
+              ? retool.progress
+              : getLiveCycleProgress(slot.last_extracted_at, slot.output_progress, isActive ? 1 : 0, nowMs);
+            return {
+              id: slot.id,
+              label: `${slot.line_label} ${slot.slot_number}`,
+              sublabel: retool
+                ? `Retooling · ${formatCountdown(retool.remainingMs)} remaining`
+                : `${formatLabel(slot.status)}${slot.employee_id ? " · staffed" : " · unstaffed"}`,
+              progress,
+              color: retool ? "#c084fc" : isActive ? "#22c55e" : slot.status === "resting" ? "#f59e0b" : "#60a5fa",
+            };
+          })}
+        />
       </div>
     );
   }
@@ -261,6 +403,25 @@ export default function BusinessOperationsDashboard(props: Props) {
             ]}
           />
         </div>
+        <LiveFlowPanel
+          title="Live Cell Pulse"
+          rows={props.manufacturing.lines.slice(0, 5).map((line) => {
+            const retool = getRetoolProgress(line.retool_complete_at, nowMs);
+            const recipeRate = line.configured_recipe?.baseOutputQuantity ?? 0;
+            const progress = retool
+              ? retool.progress
+              : getLiveCycleProgress(line.last_tick_at, line.output_progress, line.status === "active" ? recipeRate : 0, nowMs);
+            return {
+              id: line.id,
+              label: `Line ${line.line_number}`,
+              sublabel: retool
+                ? `Retooling · ${formatCountdown(retool.remainingMs)} remaining`
+                : `${line.configured_recipe?.displayName ?? "No recipe"} · ${formatLabel(line.status)}`,
+              progress,
+              color: retool ? "#c084fc" : line.status === "active" ? "#facc15" : line.status === "resting" ? "#f59e0b" : "#60a5fa",
+            };
+          })}
+        />
       </div>
     );
   }
