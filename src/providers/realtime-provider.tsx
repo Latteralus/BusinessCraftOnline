@@ -81,6 +81,7 @@ export function RealtimeProvider() {
     const supabase = createSupabaseBrowserClient();
     const channels: RealtimeChannel[] = [];
     const businessDetailRefreshes = new Map<string, Promise<void>>();
+    const pendingBusinessDetailRefreshes = new Set<string>();
 
     const stopFallbackPoll = () => {
       if (fallbackDelay !== null) {
@@ -189,6 +190,7 @@ export function RealtimeProvider() {
 
     const refreshBusinessDetail = async (businessId: string) => {
       if (businessDetailRefreshes.has(businessId)) {
+        pendingBusinessDetailRefreshes.add(businessId);
         return businessDetailRefreshes.get(businessId);
       }
 
@@ -247,6 +249,10 @@ export function RealtimeProvider() {
         })
         .finally(() => {
           businessDetailRefreshes.delete(businessId);
+          if (pendingBusinessDetailRefreshes.has(businessId) && !cancelled) {
+            pendingBusinessDetailRefreshes.delete(businessId);
+            void refreshBusinessDetail(businessId);
+          }
         });
 
       businessDetailRefreshes.set(businessId, job);
