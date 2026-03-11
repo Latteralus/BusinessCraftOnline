@@ -1,9 +1,12 @@
+import { getPlayer } from "@/domains/auth-character";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
 import type { z, ZodTypeAny } from "zod";
 
 type AuthedUserResult = Awaited<ReturnType<typeof requireAuthedUser>>;
 type AuthedContext = Extract<AuthedUserResult, { ok: true }>;
+type AdminUserResult = Awaited<ReturnType<typeof requireAdminUser>>;
+type AdminContext = Extract<AdminUserResult, { ok: true }>;
 
 export async function requireAuthedUser() {
   const supabase = await createSupabaseServerClient();
@@ -22,6 +25,35 @@ export async function requireAuthedUser() {
     ok: true as const,
     supabase,
     user,
+  };
+}
+
+export async function requireAdminUser() {
+  const auth = await requireAuthedUser();
+  if (!auth.ok) {
+    return auth;
+  }
+
+  const player = await getPlayer(auth.supabase, auth.user.id).catch(() => null);
+  if (!player) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ error: "Player not found." }, { status: 404 }),
+    };
+  }
+
+  if (player.role !== "admin") {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ error: "Forbidden." }, { status: 403 }),
+    };
+  }
+
+  return {
+    ok: true as const,
+    supabase: auth.supabase,
+    user: auth.user,
+    player,
   };
 }
 
@@ -76,6 +108,27 @@ export async function handleAuthedRequest(
   }
 ) {
   const auth = await requireAuthedUser();
+  if (!auth.ok) return auth.response;
+
+  try {
+    return await handler(auth);
+  } catch (error) {
+    if (!options?.errorMessage) {
+      throw error;
+    }
+
+    return fail(error, options.errorMessage, options.errorStatus);
+  }
+}
+
+export async function handleAdminRequest(
+  handler: (context: AdminContext) => Promise<Response>,
+  options?: {
+    errorMessage?: string;
+    errorStatus?: number;
+  }
+) {
+  const auth = await requireAdminUser();
   if (!auth.ok) return auth.response;
 
   try {
