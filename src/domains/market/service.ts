@@ -3,7 +3,9 @@ import {
   MARKET_TRANSACTION_FEE,
   STOREFRONT_DEFAULT_SETTINGS,
 } from "@/config/market";
+import { appendPersonalTransaction } from "@/domains/banking";
 import { supportsStorefront } from "@/domains/businesses";
+import { addBusinessAccountEntry } from "@/domains/businesses/service";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
 import {
   computeWeightedAverageCost,
@@ -249,28 +251,22 @@ async function settleSaleAccounting(
   const sellerBusinessName = await getBusinessNameSafe(client, listing.source_business_id);
   const buyerBusinessName = buyerType === "player" ? await getBusinessNameSafe(client, buyerBusinessId) : null;
 
-  const { error: ledgerError } = await client.from("business_accounts").insert([
-    {
-      business_id: listing.source_business_id,
-      amount: gross,
-      entry_type: "credit",
-      category: buyerType === "npc" ? "npc_sale" : "market_sale",
-      reference_id: listing.id,
-      description: `${buyerType.toUpperCase()} market sale: ${soldQuantity}x ${listing.item_key}`,
-    },
-    {
-      business_id: listing.source_business_id,
-      amount: fee,
-      entry_type: "debit",
-      category: "market_fee",
-      reference_id: listing.id,
-      description: `Market fee: ${soldQuantity}x ${listing.item_key}`,
-    },
-  ]);
+  await addBusinessAccountEntry(client, listing.owner_player_id, listing.source_business_id, {
+    amount: gross,
+    entryType: "credit",
+    category: buyerType === "npc" ? "npc_sale" : "market_sale",
+    referenceId: listing.id,
+    description: `${buyerType.toUpperCase()} market sale: ${soldQuantity}x ${listing.item_key}`,
+  });
+  await addBusinessAccountEntry(client, listing.owner_player_id, listing.source_business_id, {
+    amount: fee,
+    entryType: "debit",
+    category: "market_fee",
+    referenceId: listing.id,
+    description: `Market fee: ${soldQuantity}x ${listing.item_key}`,
+  });
 
-  if (ledgerError) throw ledgerError;
-
-  await insertBusinessFinancialEvents(client, [
+  await insertBusinessFinancialEvents(client, listing.owner_player_id, [
     {
       business_id: listing.source_business_id,
       account_code: "revenue",
@@ -317,16 +313,14 @@ async function settleSaleAccounting(
   ]);
 
   if (buyerType === "player") {
-    if (buyerBusinessId) {
-      const { error: buyerLedgerError } = await client.from("business_accounts").insert({
-        business_id: buyerBusinessId,
+    if (buyerBusinessId && buyerPlayerId) {
+      await addBusinessAccountEntry(client, buyerPlayerId, buyerBusinessId, {
         amount: gross,
-        entry_type: "debit",
+        entryType: "debit",
         category: "market_purchase",
-        reference_id: listing.id,
+        referenceId: listing.id,
         description: `Market purchase: ${soldQuantity}x ${listing.item_key}`,
       });
-      if (buyerLedgerError) throw buyerLedgerError;
     } else if (buyerPlayerId) {
       const { data: bankAccounts, error: accountsError } = await client
         .from("bank_accounts")
@@ -338,15 +332,14 @@ async function settleSaleAccounting(
       if (accountsError) throw accountsError;
 
       if (bankAccounts) {
-        const { error: personalLedgerError } = await client.from("transactions").insert({
-          account_id: bankAccounts.id,
+        await appendPersonalTransaction(client, buyerPlayerId, {
+          accountId: bankAccounts.id,
           amount: gross,
           direction: "debit",
-          transaction_type: "market_purchase",
-          reference_id: listing.id,
+          transactionType: "market_purchase",
+          referenceId: listing.id,
           description: `Market purchase: ${soldQuantity}x ${listing.item_key}`,
         });
-        if (personalLedgerError) throw personalLedgerError;
       }
     }
   }
@@ -554,7 +547,7 @@ export async function buyMarketListing(
       })
       .eq("id", destinationInventory.id);
 
-    await insertBusinessFinancialEvents(client, [
+    await insertBusinessFinancialEvents(client, playerId, [
       {
         business_id: input.buyerBusinessId,
         account_code: "inventory",

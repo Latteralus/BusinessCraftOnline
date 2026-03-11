@@ -142,28 +142,25 @@ export async function consumeBusinessInventoryCost(
 
 export async function insertBusinessFinancialEvents(
   client: QueryClient,
+  playerId: string,
   rows: NewBusinessFinancialEvent[]
 ): Promise<void> {
   if (rows.length === 0) return;
-  const payload = rows.map((row) => ({
-    business_id: row.business_id,
-    account_code: row.account_code,
-    amount: round2(Math.abs(row.amount)),
-    quantity: row.quantity ?? null,
-    item_key: row.item_key ?? null,
-    reference_type: row.reference_type ?? null,
-    reference_id: row.reference_id ?? null,
-    description: row.description,
-    effective_at: row.effective_at ?? new Date().toISOString(),
-    metadata: row.metadata ?? {},
-  }));
+  for (const row of rows) {
+    const { error } = await client.rpc("append_business_financial_event", {
+      p_player_id: playerId,
+      p_business_id: row.business_id,
+      p_account_code: row.account_code,
+      p_amount: round2(Math.abs(row.amount)),
+      p_quantity: row.quantity ?? null,
+      p_item_key: row.item_key ?? null,
+      p_reference_type: row.reference_type ?? null,
+      p_reference_id: row.reference_id ?? null,
+      p_description: row.description,
+      p_effective_at: row.effective_at ?? new Date().toISOString(),
+      p_metadata: row.metadata ?? {},
+    });
 
-  const { error } = await client.from("business_financial_events").insert(payload);
-  if (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("business_financial_events")) {
-      return;
-    }
-    throw error;
+    if (error) throw error;
   }
 }

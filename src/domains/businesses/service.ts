@@ -6,6 +6,7 @@ import {
   type BusinessUpgradeKey,
 } from "@/config/businesses";
 import { type FinancePeriod } from "@/config/finance";
+import { appendPersonalTransaction } from "@/domains/banking";
 import { canPurchaseBusiness } from "@/domains/cities-travel";
 import {
   createUpgradeProject,
@@ -265,15 +266,13 @@ export async function createBusiness(
     );
   }
 
-  const { error: purchaseDebitError } = await client.from("transactions").insert({
-    account_id: checkingAccountId,
+  await appendPersonalTransaction(client, playerId, {
+    accountId: checkingAccountId,
     amount: startupCost,
     direction: "debit",
-    transaction_type: "manual_adjustment",
+    transactionType: "manual_adjustment",
     description: `Business purchase: ${input.name}`,
   });
-
-  if (purchaseDebitError) throw purchaseDebitError;
 
   try {
     const { data, error } = await client
@@ -300,15 +299,15 @@ export async function createBusiness(
       upgradeProjects: [],
     };
   } catch (error) {
-    const { error: refundError } = await client.from("transactions").insert({
-      account_id: checkingAccountId,
-      amount: startupCost,
-      direction: "credit",
-      transaction_type: "manual_adjustment",
-      description: `Refund for failed business purchase: ${input.name}`,
-    });
-
-    if (refundError) {
+    try {
+      await appendPersonalTransaction(client, playerId, {
+        accountId: checkingAccountId,
+        amount: startupCost,
+        direction: "credit",
+        transactionType: "manual_adjustment",
+        description: `Refund for failed business purchase: ${input.name}`,
+      });
+    } catch {
       throw new Error("Business purchase failed and automatic refund could not be completed.");
     }
 
@@ -331,18 +330,15 @@ export async function addBusinessAccountEntry(
   const business = await getBusinessById(client, playerId, businessId);
   if (!business) throw new Error("Business not found.");
 
-  const { data, error } = await client
-    .from("business_accounts")
-    .insert({
-      business_id: businessId,
-      amount: entry.amount,
-      entry_type: entry.entryType,
-      category: entry.category,
-      description: entry.description,
-      reference_id: entry.referenceId ?? null,
-    })
-    .select("*")
-    .single();
+  const { data, error } = await client.rpc("append_business_account_entry", {
+    p_player_id: playerId,
+    p_business_id: businessId,
+    p_amount: entry.amount,
+    p_entry_type: entry.entryType,
+    p_category: entry.category,
+    p_description: entry.description,
+    p_reference_id: entry.referenceId ?? null,
+  });
 
   if (error) throw error;
   return normalizeAccountEntry(data as BusinessAccountEntry);

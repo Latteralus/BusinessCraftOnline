@@ -432,6 +432,7 @@ export async function transferItems(
 
     await insertBusinessFinancialEvents(
       client,
+      playerId,
       financialEvents.filter(
         (row) => result.transferType === "same_city" || row.business_id !== input.destinationBusinessId
       )

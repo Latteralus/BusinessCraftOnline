@@ -3,6 +3,7 @@ import {
   consumeBusinessInventoryCost,
   insertBusinessFinancialEvents,
 } from "@/domains/businesses/financial-events";
+import { addBusinessAccountEntry } from "@/domains/businesses";
 import type { QueryClient } from "@/lib/db/query-client";
 import type {
   AcceptContractInput,
@@ -257,18 +258,15 @@ export async function fulfillContract(
 
   const payout = Number((remaining * contract.unit_price).toFixed(2));
 
-  const { error: ledgerError } = await client.from("business_accounts").insert({
-    business_id: contract.business_id,
+  await addBusinessAccountEntry(client, playerId, contract.business_id, {
     amount: payout,
-    entry_type: "credit",
+    entryType: "credit",
     category: "contract_payout",
-    reference_id: contract.id,
+    referenceId: contract.id,
     description: `Contract payout: ${remaining}x ${contract.item_key}`,
   });
 
-  if (ledgerError) throw ledgerError;
-
-  await insertBusinessFinancialEvents(client, [
+  await insertBusinessFinancialEvents(client, playerId, [
     {
       business_id: contract.business_id,
       account_code: "revenue",

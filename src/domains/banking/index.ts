@@ -1,4 +1,5 @@
 export {
+  appendPersonalTransaction,
   applyForLoan,
   calculateMaxLoanForBusinessLevel,
   ensurePersonalAccounts,

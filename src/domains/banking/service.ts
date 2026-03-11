@@ -35,6 +35,31 @@ function toNumber(value: number | string | null | undefined) {
   return 0;
 }
 
+export async function appendPersonalTransaction(
+  client: QueryClient,
+  playerId: string,
+  entry: {
+    accountId: string;
+    amount: number;
+    direction: "credit" | "debit";
+    transactionType: string;
+    description: string;
+    referenceId?: string | null;
+  }
+): Promise<void> {
+  const { error } = await client.rpc("append_personal_transaction", {
+    p_player_id: playerId,
+    p_account_id: entry.accountId,
+    p_amount: entry.amount,
+    p_direction: entry.direction,
+    p_transaction_type: entry.transactionType,
+    p_description: entry.description,
+    p_reference_id: entry.referenceId ?? null,
+  });
+
+  if (error) throw error;
+}
+
 export function calculateMaxLoanForBusinessLevel(businessLevel: number): number {
   const scaled = Math.max(LOAN_MIN_PRINCIPAL, businessLevel * LOAN_LIMIT_PER_BUSINESS_LEVEL);
   return Math.min(scaled, LOAN_MAX_PRINCIPAL);
@@ -89,15 +114,13 @@ export async function ensurePersonalAccounts(
     insertedRows.push(insertedAccount);
 
     if (accountType === "checking") {
-      const { error: txError } = await client.from("transactions").insert({
-        account_id: insertedAccount.id,
+      await appendPersonalTransaction(client, playerId, {
+        accountId: insertedAccount.id,
         amount: STARTING_CHECKING_BALANCE,
         direction: "credit",
-        transaction_type: "account_opening",
+        transactionType: "account_opening",
         description: "Starting checking balance",
       });
-
-      if (txError) throw txError;
     }
   }
 
