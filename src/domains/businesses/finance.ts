@@ -308,6 +308,16 @@ function formatLedgerDescription(description: string, category: string): string 
     return `Marketplace transaction fee, ${formatQuantity(Number(feeMatch[1]), feeMatch[2].trim())}`;
   }
 
+  const storefrontSaleMatch = description.match(/^Storefront sale:\s*(\d+)x\s+(.+)$/i);
+  if (storefrontSaleMatch) {
+    return `Storefront sale proceeds, ${formatQuantity(Number(storefrontSaleMatch[1]), storefrontSaleMatch[2].trim())}`;
+  }
+
+  const storefrontFeeMatch = description.match(/^Storefront fee:\s*(\d+)x\s+(.+)$/i);
+  if (storefrontFeeMatch) {
+    return `Storefront transaction fee, ${formatQuantity(Number(storefrontFeeMatch[1]), storefrontFeeMatch[2].trim())}`;
+  }
+
   const purchaseMatch = description.match(/^Market purchase:\s*(\d+)x\s+(.+)$/i);
   if (purchaseMatch) {
     return `Inventory purchase, ${formatQuantity(Number(purchaseMatch[1]), purchaseMatch[2].trim())}`;
@@ -995,12 +1005,12 @@ export async function getBusinessFinanceDashboard(
       );
       const recentEvents = [...recentLedger, ...financialInRange]
         .sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt))
-        .slice(0, 10)
+        .slice(0, 30)
         .map(toRecentEvent);
       const storefrontTransactionEvents = storefrontTransactionsInRange
         .slice()
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
-        .slice(0, 10)
+        .slice(0, 30)
         .map((row) => ({
           id: `storefront-tx-${row.id}`,
           occurredAt: row.created_at,

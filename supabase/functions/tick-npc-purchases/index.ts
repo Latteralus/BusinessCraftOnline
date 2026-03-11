@@ -246,14 +246,45 @@ async function settleStoreInventorySale(
     if (updateShelfError) throw updateShelfError;
   }
 
+  const { data: txRow, error: txError } = await supabase
+    .from("market_transactions")
+    .insert({
+      listing_id: null,
+      seller_player_id: shelfRow.owner_player_id,
+      buyer_player_id: null,
+      buyer_type: "npc",
+      seller_business_id: shelfRow.business_id,
+      seller_business_name: shelfRow.business_name ?? "Unknown Business",
+      buyer_business_id: null,
+      buyer_business_name: null,
+      city_id: shelfRow.city_id,
+      item_key: shelfRow.item_key,
+      quality: Math.max(1, Math.min(100, toNumber(shelfRow.quality))),
+      quantity: soldQty,
+      unit_price: listingPrice,
+      gross_total: gross,
+      market_fee: fee,
+      net_total: net,
+      shopper_name: meta?.shopperName ?? null,
+      shopper_tier: meta?.shopperTier ?? null,
+      shopper_budget: meta?.shopperBudget ?? null,
+      sub_tick_index: meta?.subTickIndex ?? null,
+      tick_window_started_at: meta?.tickWindowStartedAt ?? null,
+    })
+    .select("id")
+    .single();
+  if (txError) throw txError;
+
+  const transactionId = String(txRow.id);
+
   const { error: ledgerError } = await supabase.from("business_accounts").insert([
     {
       business_id: shelfRow.business_id,
       amount: gross,
       entry_type: "credit",
       category: "npc_sale",
-      description: `Storefront purchase: ${soldQty}x ${shelfRow.item_key}`,
-      reference_id: shelfRow.id,
+      description: `Storefront sale: ${soldQty}x ${shelfRow.item_key}`,
+      reference_id: transactionId,
     },
     {
       business_id: shelfRow.business_id,
@@ -261,7 +292,7 @@ async function settleStoreInventorySale(
       entry_type: "debit",
       category: "market_fee",
       description: `Storefront fee: ${soldQty}x ${shelfRow.item_key}`,
-      reference_id: shelfRow.id,
+      reference_id: transactionId,
     },
   ]);
   if (ledgerError) throw ledgerError;
@@ -274,7 +305,7 @@ async function settleStoreInventorySale(
       quantity: soldQty,
       item_key: shelfRow.item_key,
       reference_type: "storefront_sale",
-      reference_id: shelfRow.id,
+      reference_id: transactionId,
       description: `Storefront sale revenue: ${soldQty}x ${shelfRow.item_key}`,
       metadata: { buyerType: "npc" },
     },
@@ -285,7 +316,7 @@ async function settleStoreInventorySale(
       quantity: soldQty,
       item_key: shelfRow.item_key,
       reference_type: "storefront_sale",
-      reference_id: shelfRow.id,
+      reference_id: transactionId,
       description: `Storefront COGS: ${soldQty}x ${shelfRow.item_key}`,
       metadata: { estimatedCost: explicitUnitCost === null && explicitTotalCost === null },
     },
@@ -296,7 +327,7 @@ async function settleStoreInventorySale(
       quantity: soldQty,
       item_key: shelfRow.item_key,
       reference_type: "storefront_sale",
-      reference_id: shelfRow.id,
+      reference_id: transactionId,
       description: `Storefront inventory relief: ${soldQty}x ${shelfRow.item_key}`,
       metadata: {
         direction: "out",
@@ -310,37 +341,12 @@ async function settleStoreInventorySale(
       quantity: soldQty,
       item_key: shelfRow.item_key,
       reference_type: "storefront_sale",
-      reference_id: shelfRow.id,
+      reference_id: transactionId,
       description: `Storefront fee expense: ${soldQty}x ${shelfRow.item_key}`,
       metadata: null,
     },
   ]);
   if (financialEventsError) throw financialEventsError;
-
-  const { error: txError } = await supabase.from("market_transactions").insert({
-    listing_id: null,
-    seller_player_id: shelfRow.owner_player_id,
-    buyer_player_id: null,
-    buyer_type: "npc",
-    seller_business_id: shelfRow.business_id,
-    seller_business_name: shelfRow.business_name ?? "Unknown Business",
-    buyer_business_id: null,
-    buyer_business_name: null,
-    city_id: shelfRow.city_id,
-    item_key: shelfRow.item_key,
-    quality: Math.max(1, Math.min(100, toNumber(shelfRow.quality))),
-    quantity: soldQty,
-    unit_price: listingPrice,
-    gross_total: gross,
-    market_fee: fee,
-    net_total: net,
-    shopper_name: meta?.shopperName ?? null,
-    shopper_tier: meta?.shopperTier ?? null,
-    shopper_budget: meta?.shopperBudget ?? null,
-    sub_tick_index: meta?.subTickIndex ?? null,
-    tick_window_started_at: meta?.tickWindowStartedAt ?? null,
-  });
-  if (txError) throw txError;
 
   return { gross, fee, net };
 }
