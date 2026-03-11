@@ -100,6 +100,7 @@ export type BusinessSummary = {
 export type {
   BalanceSheetSection,
   BusinessFinanceDashboard,
+  BusinessFinanceHealth,
   BusinessFinancePeriodSnapshot,
   BusinessFinanceRecentEvent,
   BusinessFinanceSeriesPoint,

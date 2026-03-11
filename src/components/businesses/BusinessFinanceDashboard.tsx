@@ -1,16 +1,14 @@
 "use client";
 
-import { FINANCE_PERIODS, type FinancePeriod } from "@/config/finance";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import type { BusinessFinanceDashboard } from "@/domains/businesses";
 import { formatCurrency } from "@/lib/formatters";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 type Props = {
   financeDashboard: BusinessFinanceDashboard | null;
-  initialPeriod?: FinancePeriod;
+  initialPeriod?: string;
 };
 
 function formatSignedCurrency(value: number) {
@@ -48,6 +46,20 @@ function MiniStat(props: { label: ReactNode; value: string; sub?: string; tone?:
       {props.sub ? <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-secondary)" }}>{props.sub}</div> : null}
     </div>
   );
+}
+
+function getProfitTone(value: number): "positive" | "negative" | "neutral" {
+  if (value > 0) return "positive";
+  if (value < 0) return "negative";
+  return "neutral";
+}
+
+function formatPercent(value: number | null) {
+  return value === null ? "N/A" : `${value.toFixed(1)}%`;
+}
+
+function formatCompactSigned(value: number) {
+  return `${value >= 0 ? "+" : "-"}${formatCurrency(Math.abs(value))}`;
 }
 
 function StatementTable(props: { title: string; rows: Array<{ label: string; amount: number }> }) {
@@ -225,30 +237,21 @@ function LineChart(props: {
   );
 }
 
-export default function BusinessFinanceDashboardPanel({ financeDashboard, initialPeriod }: Props) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [selectedPeriod, setSelectedPeriod] = useState<FinancePeriod>(
-    initialPeriod ?? financeDashboard?.currentPeriod ?? "1h"
-  );
-
-  useEffect(() => {
-    setSelectedPeriod(initialPeriod ?? financeDashboard?.currentPeriod ?? "1h");
-  }, [financeDashboard?.currentPeriod, initialPeriod]);
-
-  const snapshot = financeDashboard?.periods[selectedPeriod];
+export default function BusinessFinanceDashboardPanel({ financeDashboard }: Props) {
+  const snapshot = financeDashboard?.periods["24h"];
   const changeFromPrevious = financeDashboard
     ? financeDashboard.valuation.currentValue - financeDashboard.valuation.previousValue
     : 0;
-
-  const updatePeriod = (nextPeriod: FinancePeriod) => {
-    setSelectedPeriod(nextPeriod);
-    const nextParams = new URLSearchParams(searchParams.toString());
-    nextParams.set("period", nextPeriod);
-    nextParams.set("tab", "finance");
-    router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
-  };
+  const health = financeDashboard?.health ?? null;
+  const horizonCards = useMemo(() => {
+    if (!financeDashboard) return [];
+    return [
+      { key: "1h", title: "Right Now", snapshot: financeDashboard.periods["1h"] },
+      { key: "24h", title: "Today", snapshot: financeDashboard.periods["24h"] },
+      { key: "7d", title: "This Week", snapshot: financeDashboard.periods["7d"] },
+      { key: "30d", title: "This Month", snapshot: financeDashboard.periods["30d"] },
+    ];
+  }, [financeDashboard]);
 
   const chartSeries = useMemo(() => {
     if (!snapshot) return [];
@@ -263,6 +266,10 @@ export default function BusinessFinanceDashboardPanel({ financeDashboard, initia
     if (!snapshot) return [];
     return [{ label: "cash", value: snapshot.kpis.cash, color: "#facc15" }];
   }, [snapshot]);
+  const profitTrendSeries = useMemo(() => {
+    if (!financeDashboard) return [];
+    return [{ label: "grossProfit", value: financeDashboard.periods["30d"].kpis.grossProfit, color: "#34d399" }];
+  }, [financeDashboard]);
 
   if (!financeDashboard || !snapshot) {
     return <p>Loading finance data...</p>;
@@ -288,36 +295,73 @@ export default function BusinessFinanceDashboardPanel({ financeDashboard, initia
               {changeFromPrevious >= 0 ? "Up" : "Down"} {formatCurrency(Math.abs(changeFromPrevious))} vs stored business value
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {FINANCE_PERIODS.map((period) => (
-              <button
-                key={period}
-                onClick={() => updatePeriod(period)}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 999,
-                  border: selectedPeriod === period ? "1px solid rgba(96,165,250,0.6)" : "1px solid rgba(148,163,184,0.16)",
-                  background: selectedPeriod === period ? "rgba(37, 99, 235, 0.18)" : "rgba(15, 23, 42, 0.65)",
-                  color: selectedPeriod === period ? "#dbeafe" : "var(--text-secondary)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                  fontSize: 11,
-                  fontWeight: 700,
-                }}
-              >
-                {period}
-              </button>
-            ))}
+          <div style={{ minWidth: 260, maxWidth: 420 }}>
+            <div style={{ fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>Business Health</div>
+            <div style={{ marginTop: 8, fontSize: "1.4rem", fontWeight: 800, color: health?.tone === "positive" ? "#86efac" : health?.tone === "negative" ? "#fca5a5" : "#f8fafc" }}>
+              {health?.headline ?? "Loading"}
+            </div>
+            <div style={{ marginTop: 6, color: "var(--text-secondary)", fontSize: 13 }}>
+              {health?.reason}
+            </div>
+            {health?.warnings.length ? (
+              <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-muted)" }}>
+                {health.warnings.slice(0, 2).join(" ")}
+              </div>
+            ) : null}
           </div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-          <MiniStat label={<TooltipLabel label="Cash" content="Liquid business cash available in this reporting period." />} value={formatCurrency(snapshot.kpis.cash)} />
-          <MiniStat label={<TooltipLabel label="Revenue" content="Top-line sales recognized during the selected finance period." />} value={formatCurrency(snapshot.kpis.revenue)} tone="positive" />
-          <MiniStat label={<TooltipLabel label="Gross Margin" content="Gross profit as a percentage of revenue after cost of goods sold." />} value={snapshot.kpis.grossMargin === null ? "N/A" : `${snapshot.kpis.grossMargin.toFixed(1)}%`} sub={formatCurrency(snapshot.kpis.grossProfit)} tone={snapshot.kpis.grossProfit >= 0 ? "positive" : "negative"} />
+          <MiniStat label={<TooltipLabel label="Cash" content="Liquid business cash available right now." />} value={formatCurrency(snapshot.kpis.cash)} sub={health ? `${formatCompactSigned(health.cashDelta24h)} vs last 24h` : undefined} />
+          <MiniStat label={<TooltipLabel label="Making Money" content="Operating profit after cost of goods sold and operating expenses." />} value={formatCurrency(financeDashboard.periods["7d"].kpis.operatingProfit)} sub="Last 7 days" tone={getProfitTone(financeDashboard.periods["7d"].kpis.operatingProfit)} />
+          <MiniStat label={<TooltipLabel label="Gross Margin" content="Gross profit as a percentage of revenue after cost of goods sold." />} value={formatPercent(snapshot.kpis.grossMargin)} sub={formatCurrency(snapshot.kpis.grossProfit)} tone={snapshot.kpis.grossProfit >= 0 ? "positive" : "negative"} />
           <MiniStat label={<TooltipLabel label="Owner Equity" content="Net value attributable to the owner after liabilities are considered." />} value={formatCurrency(snapshot.kpis.ownerEquity)} />
-          <MiniStat label={<TooltipLabel label="Inventory Asset" content="Estimated accounting value of the inventory the business currently holds." />} value={formatCurrency(snapshot.kpis.inventoryAssetValue)} />
+          <MiniStat label={<TooltipLabel label="Runway" content="Estimated days the treasury can support current losses at the recent burn rate." />} value={health?.runwayDays === null || health?.runwayDays === undefined ? "Safe" : `${Math.max(1, Math.floor(health.runwayDays))}d`} sub={health?.runwayDays === null || health?.runwayDays === undefined ? "No sustained burn detected" : "At current burn rate"} tone={health?.runwayDays !== null && health?.runwayDays !== undefined && health.runwayDays < 7 ? "negative" : "neutral"} />
         </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+        {horizonCards.map(({ key, title, snapshot: horizon }) => (
+          <div
+            key={key}
+            style={{
+              background: "linear-gradient(180deg, rgba(9, 14, 25, 0.98), rgba(5, 10, 19, 0.98))",
+              border: key === "24h" ? "1px solid rgba(96, 165, 250, 0.34)" : "1px solid rgba(148, 163, 184, 0.16)",
+              borderRadius: 16,
+              padding: 16,
+            }}
+          >
+            <div style={{ fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase", color: "#cbd5e1", marginBottom: 12 }}>
+              {title}
+            </div>
+            <div style={{ display: "grid", gap: 8, fontVariantNumeric: "tabular-nums" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>Revenue</span>
+                <strong style={{ color: "#f8fafc" }}>{formatCurrency(horizon.kpis.revenue)}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>Operating Profit</span>
+                <strong style={{ color: horizon.kpis.operatingProfit > 0 ? "#86efac" : horizon.kpis.operatingProfit < 0 ? "#fca5a5" : "#f8fafc" }}>
+                  {formatCurrency(horizon.kpis.operatingProfit)}
+                </strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>Margin</span>
+                <strong style={{ color: "#f8fafc" }}>{formatPercent(horizon.kpis.grossMargin)}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>Storefront Net</span>
+                <strong style={{ color: horizon.storefront.netRevenue > 0 ? "#86efac" : horizon.storefront.netRevenue < 0 ? "#fca5a5" : "#f8fafc" }}>
+                  {formatCurrency(horizon.storefront.netRevenue)}
+                </strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>Conversion</span>
+                <strong style={{ color: "#f8fafc" }}>{formatPercent(horizon.storefront.conversionRate)}</strong>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
@@ -357,8 +401,21 @@ export default function BusinessFinanceDashboardPanel({ financeDashboard, initia
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1.2fr)", gap: 18 }}>
-        <LineChart title="Revenue / COGS / Gross Profit" series={chartSeries} points={snapshot.series} />
-        <LineChart title="Cash Balance" series={cashSeries} points={snapshot.series} />
+        <LineChart title="Today: Revenue / COGS / Gross Profit" series={chartSeries} points={snapshot.series} />
+        <LineChart title="Today: Cash Balance" series={cashSeries} points={snapshot.series} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1.2fr)", gap: 18 }}>
+        <LineChart title="Month: Gross Profit Trend" series={profitTrendSeries} points={financeDashboard.periods["30d"].series} />
+        <StatementTable
+          title="Health Signals"
+          rows={[
+            { label: "Today Operating Profit", amount: financeDashboard.periods["24h"].kpis.operatingProfit },
+            { label: "7-Day Operating Profit", amount: financeDashboard.periods["7d"].kpis.operatingProfit },
+            { label: "30-Day Operating Profit", amount: financeDashboard.periods["30d"].kpis.operatingProfit },
+            { label: "24h Cash Change", amount: health?.cashDelta24h ?? 0 },
+          ]}
+        />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 18 }}>

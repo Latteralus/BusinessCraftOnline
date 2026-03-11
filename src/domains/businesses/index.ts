@@ -43,6 +43,7 @@ export type {
   BusinessAccountEntry,
   BusinessDetail,
   BusinessFinanceDashboard,
+  BusinessFinanceHealth,
   BusinessFinancePeriodSnapshot,
   BusinessFinanceRecentEvent,
   BusinessFinanceSeriesPoint,

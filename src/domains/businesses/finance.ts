@@ -9,6 +9,7 @@ import {
 import { round2, toNumber } from "@/lib/core/number";
 import { addHoursToNowIso, nowIso } from "@/lib/core/time";
 import type { QueryClient } from "@/lib/db/query-client";
+import { formatCurrency } from "@/lib/formatters";
 import { supportsStorefront } from "./capabilities";
 import type { Business, BusinessAccountEntry } from "./types";
 
@@ -207,12 +208,23 @@ export type BusinessFinancePeriodSnapshot = {
   recentEvents: BusinessFinanceRecentEvent[];
 };
 
+export type BusinessFinanceHealth = {
+  status: "making_money" | "losing_money" | "break_even";
+  tone: "positive" | "negative" | "neutral";
+  headline: string;
+  reason: string;
+  runwayDays: number | null;
+  cashDelta24h: number;
+  warnings: string[];
+};
+
 export type BusinessFinanceDashboard = {
   generatedAt: string;
   currentPeriod: FinancePeriod;
   periods: Record<FinancePeriod, BusinessFinancePeriodSnapshot>;
   balanceSheet: BalanceSheetSection[];
   valuation: BusinessValuationBreakdown;
+  health: BusinessFinanceHealth;
   assumptions: string[];
 };
 
@@ -666,6 +678,81 @@ function annualize(amount: number, days: number | null): number {
   return round2((amount / days) * 365);
 }
 
+function buildHealth(periods: Record<FinancePeriod, BusinessFinancePeriodSnapshot>): BusinessFinanceHealth {
+  const now = periods["1h"];
+  const today = periods["24h"];
+  const week = periods["7d"];
+  const month = periods["30d"];
+  const currentProfit = today.kpis.operatingProfit;
+  const weekProfit = week.kpis.operatingProfit;
+  const monthProfit = month.kpis.operatingProfit;
+  const cashDelta24h = round2(
+    today.series.length >= 2
+      ? Number(today.series[today.series.length - 1]?.cash ?? 0) - Number(today.series[0]?.cash ?? 0)
+      : 0
+  );
+  const weekDailyProfit = weekProfit / 7;
+  const todayVsWeekPace = weekDailyProfit !== 0 ? currentProfit / weekDailyProfit : null;
+  const dailyBurn = monthProfit < 0 ? Math.abs(monthProfit / 30) : weekProfit < 0 ? Math.abs(weekProfit / 7) : 0;
+  const runwayDays = dailyBurn > 0 ? round2(now.kpis.cash / dailyBurn) : null;
+
+  let status: BusinessFinanceHealth["status"] = "break_even";
+  let tone: BusinessFinanceHealth["tone"] = "neutral";
+  let headline = "Break-even";
+  if (weekProfit > 0 || monthProfit > 0) {
+    status = "making_money";
+    tone = "positive";
+    headline = "Making money";
+  } else if (currentProfit < 0 || weekProfit < 0 || monthProfit < 0) {
+    status = "losing_money";
+    tone = "negative";
+    headline = "Losing money";
+  }
+
+  let reason = `Today is ${currentProfit >= 0 ? "profitable" : "unprofitable"} at ${formatCurrency(currentProfit)} operating profit.`;
+  if (todayVsWeekPace !== null) {
+    if (todayVsWeekPace >= 1.15) {
+      reason = `Today is outperforming the 7-day pace with ${formatCurrency(currentProfit)} operating profit.`;
+    } else if (todayVsWeekPace <= 0.85) {
+      reason = `Today is running below the 7-day pace with ${formatCurrency(currentProfit)} operating profit.`;
+    }
+  } else if (weekProfit > 0) {
+    reason = `The last 7 days produced ${formatCurrency(weekProfit)} operating profit.`;
+  } else if (weekProfit < 0) {
+    reason = `The last 7 days lost ${formatCurrency(Math.abs(weekProfit))} in operating profit.`;
+  }
+
+  const warnings: string[] = [];
+  if (today.kpis.revenue > 0 && today.kpis.grossMargin !== null && today.kpis.grossMargin < 10) {
+    warnings.push("Margins are thin today.");
+  }
+  if (cashDelta24h < 0) {
+    warnings.push(`Cash is down ${formatCurrency(Math.abs(cashDelta24h))} over the last 24 hours.`);
+  }
+  if (runwayDays !== null) {
+    warnings.push(
+      runwayDays < 3
+        ? "Treasury runway is critical."
+        : runwayDays < 7
+          ? "Treasury runway is getting tight."
+          : `Treasury runway is about ${Math.floor(runwayDays)} days.`
+    );
+  }
+  if (today.storefront.shoppersGenerated > 0 && today.storefront.salesCount === 0) {
+    warnings.push("Traffic is reaching the storefront but not converting.");
+  }
+
+  return {
+    status,
+    tone,
+    headline,
+    reason,
+    runwayDays,
+    cashDelta24h,
+    warnings,
+  };
+}
+
 function buildValuation(
   business: Business,
   periods: Record<FinancePeriod, BusinessFinancePeriodSnapshot>,
@@ -983,6 +1070,7 @@ export async function getBusinessFinanceDashboard(
   ) as Record<FinancePeriod, BusinessFinancePeriodSnapshot>;
 
   const valuation = buildValuation(business, periods, cashBalance, inventoryAssetValue, liabilities);
+  const health = buildHealth(periods);
   for (const period of FINANCE_PERIODS) {
     periods[period].kpis.valuation = valuation.currentValue;
   }
@@ -998,6 +1086,7 @@ export async function getBusinessFinanceDashboard(
       { label: "Owner Equity", amount: round2(cashBalance + inventoryAssetValue - liabilities) },
     ],
     valuation,
+    health,
     assumptions: [
       "Weighted-average inventory costing is used when explicit inventory cost exists.",
       estimatedRows > 0
