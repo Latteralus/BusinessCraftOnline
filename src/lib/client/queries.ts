@@ -15,6 +15,8 @@ import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } 
 import type { MarketListing, MarketTransaction } from "@/domains/market";
 import type { ManufacturingStatusView } from "@/domains/production";
 import type { ChatMessage } from "@/domains/chat";
+import type { BusinessDetailsEntry } from "@/stores/game-store";
+import type { FinancePeriod } from "@/config/finance";
 import { apiGet } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 
@@ -70,6 +72,8 @@ export type ProductionPageData = {
   manufacturing: ManufacturingStatusView | null;
 };
 
+export type BusinessDetailsStateData = BusinessDetailsEntry;
+
 export type AppShellData = {
   playerCount: number;
   onlinePlayers: OnlinePlayerPreview[];
@@ -112,6 +116,11 @@ type ListingsResponse = {
 
 type ManufacturingResponse = {
   status: ManufacturingStatusView;
+  error?: string;
+};
+
+type BusinessDetailsStateResponse = {
+  detail?: BusinessDetailsEntry;
   error?: string;
 };
 
@@ -270,4 +279,19 @@ export async function fetchProductionPageData(): Promise<ProductionPageData> {
     selectedBusinessId,
     manufacturing,
   };
+}
+
+export async function fetchBusinessDetailsState(
+  businessId: string,
+  period: FinancePeriod = "1h"
+): Promise<BusinessDetailsStateData> {
+  const payload = await apiGet<BusinessDetailsStateResponse>(apiRoutes.businesses.state(businessId, period), {
+    fallbackError: "Failed to load business state.",
+  });
+
+  if (!payload.detail) {
+    throw new Error("Business state payload missing detail.");
+  }
+
+  return payload.detail;
 }

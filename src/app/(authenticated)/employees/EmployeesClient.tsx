@@ -11,6 +11,7 @@ import { makeNpcShopperName } from "../../../../shared/core/npc-shopper-names";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useEmployeesSlice, useGameStore } from "@/stores/game-store";
+import { detailSyncTarget, syncMutationViews } from "@/stores/mutation-sync";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 
 type Business = { id: string; name: string };
@@ -142,6 +143,12 @@ export default function EmployeesClient({ initialData }: Props) {
         }
         return payload;
       });
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        employees: true,
+        businessDetails: detailSyncTarget(hireBusinessId),
+      });
       setSpecialtySkillKey("");
       setSuccess("Employee hired successfully.");
     } catch (err) {
@@ -176,6 +183,10 @@ export default function EmployeesClient({ initialData }: Props) {
         }
         return payload;
       });
+      await syncMutationViews({
+        employees: true,
+        businessDetails: detailSyncTarget(assignBusinessId),
+      });
       setSuccess("Employee assigned successfully.");
       setAssignEmployeeId("");
       setAssignBusinessId("");
@@ -207,6 +218,11 @@ export default function EmployeesClient({ initialData }: Props) {
         }
         return payload;
       });
+      const businessId = employees.find((employee) => employee.id === employeeId)?.employer_business_id ?? null;
+      await syncMutationViews({
+        employees: true,
+        businessDetails: detailSyncTarget(businessId),
+      });
       setSuccess("Employee re-activated.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reactivate employee.");
@@ -234,6 +250,11 @@ export default function EmployeesClient({ initialData }: Props) {
         }
         return payload;
       });
+      const businessId = employees.find((employee) => employee.id === employeeId)?.employer_business_id ?? null;
+      await syncMutationViews({
+        employees: true,
+        businessDetails: detailSyncTarget(businessId),
+      });
       setSuccess("Employee unassigned.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to unassign employee.");
@@ -260,6 +281,13 @@ export default function EmployeesClient({ initialData }: Props) {
           patchEmployees(payload.employee);
         }
         return payload;
+      });
+      const businessId = employees.find((employee) => employee.id === employeeId)?.employer_business_id ?? null;
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        employees: true,
+        businessDetails: detailSyncTarget(businessId),
       });
       setSuccess("Employee fired.");
     } catch (err) {

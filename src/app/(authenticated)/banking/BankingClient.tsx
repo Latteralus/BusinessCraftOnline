@@ -14,6 +14,7 @@ import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { useBankingSlice, useGameStore } from "@/stores/game-store";
+import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 
 type Props = {
@@ -286,6 +287,7 @@ export default function BankingClient({ initialData }: Props) {
             { fallbackError: "Transfer failed." }
           )
       );
+      await syncMutationViews({ banking: true });
       setTransferAmount("");
       setSuccess("Personal account transfer completed.");
     } catch (err) {
@@ -335,6 +337,11 @@ export default function BankingClient({ initialData }: Props) {
             { fallbackError: "Transfer failed." }
           )
       );
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        businessDetails: detailSyncTarget(personalBusinessId),
+      });
       setPersonalBusinessAmount("");
       setSuccess(
         personalBusinessDirection === "to_business"
@@ -375,6 +382,14 @@ export default function BankingClient({ initialData }: Props) {
             { fallbackError: "Transfer failed." }
           )
       );
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        businessDetails: mergeDetailSyncTargets(
+          detailSyncTarget(fromOwnedBusinessId),
+          detailSyncTarget(toOwnedBusinessId)
+        ),
+      });
       setOwnedBusinessAmount("");
       setSuccess("Funds reallocated between owned businesses.");
     } catch (err) {
@@ -447,6 +462,7 @@ export default function BankingClient({ initialData }: Props) {
           return payload;
         }
       );
+      await syncMutationViews({ banking: true });
       setLoanPrincipal("");
       setSuccess("Loan application approved and deposited.");
     } catch (err) {
@@ -517,6 +533,7 @@ export default function BankingClient({ initialData }: Props) {
           return payload;
         }
       );
+      await syncMutationViews({ banking: true });
       setPaymentAmount("");
       setSuccess("Loan payment submitted from checking.");
     } catch (err) {

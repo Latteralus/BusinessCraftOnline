@@ -18,6 +18,7 @@ import { getNpcBuyerPriceRange, getNpcSuggestedBasePrice } from "@/config/items"
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import { runOptimisticUpdate } from "@/stores/optimistic";
+import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
 import { makeNpcShopperName } from "../../../shared/core/npc-shopper-names";
 import BusinessEmployeesDashboard from "./BusinessEmployeesDashboard";
 import BusinessFinanceDashboardPanel from "./BusinessFinanceDashboard";
@@ -318,7 +319,11 @@ export default function BusinessDetailsClient({
       patchDetail({
         upgradeProjects: payload.project ? [payload.project, ...upgradeProjects] : upgradeProjects,
       });
-      await refreshFinanceDashboard();
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
+      });
     }, "Error purchasing upgrade");
   }
 
@@ -334,6 +339,10 @@ export default function BusinessDetailsClient({
       if (payload.business) {
         patchDetail({ business: payload.business });
       }
+      await syncMutationViews({
+        businesses: true,
+        businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
+      });
     }, "Error renaming business");
   }
 
@@ -403,6 +412,12 @@ export default function BusinessDetailsClient({
         updateEmployeeRecord(hireResponse.employee);
       }
       await assignEmployeeToBusinessAndMaybeSlot(hireResponse.employee.id);
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        employees: true,
+        businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
+      });
     }, "Error hiring employee");
   }
 
@@ -417,6 +432,12 @@ export default function BusinessDetailsClient({
       if (payload.employee) {
         updateEmployeeRecord(payload.employee);
       }
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        employees: true,
+        businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
+      });
     }, "Error firing employee");
   }
 
@@ -431,6 +452,10 @@ export default function BusinessDetailsClient({
       if (payload.employee) {
         updateEmployeeRecord(payload.employee);
       }
+      await syncMutationViews({
+        employees: true,
+        businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
+      });
     }, "Error unassigning employee");
   }
 
@@ -445,6 +470,11 @@ export default function BusinessDetailsClient({
       if (payload.employee) {
         updateEmployeeRecord(payload.employee);
       }
+      await syncMutationViews({
+        banking: true,
+        employees: true,
+        businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
+      });
     }, "Error settling employee wages");
   }
 
@@ -475,6 +505,10 @@ export default function BusinessDetailsClient({
       if (payload.line) {
         updateManufacturingLine(payload.line);
       }
+      await syncMutationViews({
+        employees: true,
+        businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
+      });
       setManufacturingAssignSelections((prev) => ({ ...prev, [lineId]: "" }));
     }, "Error assigning employee");
   }
@@ -583,7 +617,7 @@ export default function BusinessDetailsClient({
         setMarketActionItem(null);
         return () => setMarketActionItem(previousAction);
       }, async () => {
-        if (marketActionItem.type === "market") {
+        if (previousAction.type === "market") {
           await apiPost(
             apiRoutes.market.root,
             {
@@ -595,7 +629,7 @@ export default function BusinessDetailsClient({
             },
             { fallbackError: "Failed to create market listing." }
           );
-        } else if (marketActionItem.type === "personal_transfer") {
+        } else if (previousAction.type === "personal_transfer") {
           await apiPost(
             apiRoutes.inventory.transfer,
             {
@@ -608,8 +642,8 @@ export default function BusinessDetailsClient({
             },
             { fallbackError: "Failed to transfer item." }
           );
-        } else if (marketActionItem.type === "business_transfer") {
-        const destinationBusiness = transferBusinesses.find((candidate) => candidate.id === transferBusinessId);
+        } else if (previousAction.type === "business_transfer") {
+          const destinationBusiness = transferBusinesses.find((candidate) => candidate.id === transferBusinessId);
           await apiPost(
             apiRoutes.inventory.transfer,
             {
@@ -626,7 +660,16 @@ export default function BusinessDetailsClient({
             { fallbackError: "Failed to transfer item." }
           );
         }
-        await refreshFinanceDashboard();
+        await syncMutationViews({
+          businesses: true,
+          banking: previousAction.type !== "market",
+          inventory: true,
+          market: previousAction.type === "market",
+          businessDetails: mergeDetailSyncTargets(
+            detailSyncTarget(business.id, selectedFinancePeriod),
+            detailSyncTarget(previousAction.type === "business_transfer" ? transferBusinessId : null)
+          ),
+        });
       });
     }, "Error performing action");
   }
@@ -679,7 +722,11 @@ export default function BusinessDetailsClient({
             upsertShelfItem(payload.shelfItem);
           }
         }
-        await refreshFinanceDashboard();
+        await syncMutationViews({
+          businesses: true,
+          inventory: true,
+          businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
+        });
         return payload;
       });
     }, "Error saving shelf item");
@@ -707,7 +754,11 @@ export default function BusinessDetailsClient({
         };
       }, async () => {
         await apiDelete(apiRoutes.stores.shelves, { shelfItemId }, { fallbackError: "Failed to remove shelf item." });
-        await refreshFinanceDashboard();
+        await syncMutationViews({
+          businesses: true,
+          inventory: true,
+          businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
+        });
       });
     }, "Error removing shelf item");
   }

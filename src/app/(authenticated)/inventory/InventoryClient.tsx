@@ -8,6 +8,7 @@ import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import { TooltipLabel } from "@/components/ui/tooltip";
+import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -409,6 +410,15 @@ export default function InventoryClient({ initialData }: Props) {
           ? `Transfer queued for shipping (${data.shippingMinutes ?? 0} min, ${formatCurrency(data.shippingCost ?? 0)}).`
           : "Transfer completed instantly."
       );
+      await syncMutationViews({
+        businesses: sourceType === "business" || destinationType === "business",
+        banking: data.transferType === "shipping" || sourceType === "business" || destinationType === "business",
+        inventory: true,
+        businessDetails: mergeDetailSyncTargets(
+          detailSyncTarget(sourceType === "business" ? sourceBusinessId : null),
+          detailSyncTarget(destinationType === "business" ? destinationBusinessId : null)
+        ),
+      });
 
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transfer failed.");

@@ -11,6 +11,7 @@ import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency, formatDateTime, formatLabel } from "@/lib/formatters";
 import { BUSINESS_TYPE_LABELS } from "@/lib/businesses";
 import { useBusinessesSlice, useGameStore, useTravelSlice } from "@/stores/game-store";
+import { syncMutationViews } from "@/stores/mutation-sync";
 
 type Props = {
   initialData: BusinessesPageData;
@@ -309,6 +310,13 @@ export default function BusinessesClient({ initialData }: Props) {
       if (payload.business) {
         patchBusinesses(payload.business);
       }
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        inventory: true,
+        employees: true,
+        production: true,
+      });
       setCreateName("");
       setSuccess("Business created successfully.");
     } catch (err) {

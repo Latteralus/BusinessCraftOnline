@@ -8,6 +8,7 @@ import { apiRoutes } from "@/lib/client/routes";
 import type { ContractsPageData } from "@/lib/client/queries";
 import { formatItemKey } from "@/lib/items";
 import { useBusinessesSlice, useContractsSlice, useGameStore } from "@/stores/game-store";
+import { detailSyncTarget, syncMutationViews } from "@/stores/mutation-sync";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
@@ -195,6 +196,12 @@ export default function ContractsClient({ initialData }: Props) {
         }
         return payload;
       });
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        contracts: true,
+        businessDetails: detailSyncTarget(businessId),
+      });
       setTitle("");
       setRequiredQuantity(1);
       setUnitPrice(0.01);
@@ -256,6 +263,13 @@ export default function ContractsClient({ initialData }: Props) {
           patchContract(payload.contract);
         }
         return payload;
+      });
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        inventory: kind === "fulfill",
+        contracts: true,
+        businessDetails: detailSyncTarget(existing.business_id),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to ${kind} contract.`);

@@ -14,6 +14,7 @@ import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useGameStore, useMarketSlice } from "@/stores/game-store";
+import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 
 type Props = {
@@ -343,6 +344,13 @@ export default function MarketClient({ initialData }: Props) {
         }
         return payload;
       });
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        inventory: true,
+        market: true,
+        businessDetails: detailSyncTarget(sourceBusinessId),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create listing.");
     } finally {
@@ -380,6 +388,14 @@ export default function MarketClient({ initialData }: Props) {
           });
         }
         return payload;
+      });
+      const listing = listings.find((entry) => entry.id === listingId) ?? null;
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        inventory: true,
+        market: true,
+        businessDetails: detailSyncTarget(listing?.source_business_id),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to cancel listing.");
@@ -429,6 +445,17 @@ export default function MarketClient({ initialData }: Props) {
           transactions: payload.transaction ? [payload.transaction, ...transactions] : transactions,
         });
         return payload;
+      });
+      const listing = listings.find((entry) => entry.id === listingId) ?? null;
+      await syncMutationViews({
+        businesses: true,
+        banking: true,
+        inventory: true,
+        market: true,
+        businessDetails: mergeDetailSyncTargets(
+          detailSyncTarget(listing?.source_business_id),
+          detailSyncTarget(buyerBusinessId)
+        ),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to buy listing.");

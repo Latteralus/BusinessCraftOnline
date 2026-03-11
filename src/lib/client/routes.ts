@@ -23,6 +23,8 @@ export const apiRoutes = {
   businesses: {
     root: "/api/businesses",
     detail: (businessId: string) => `/api/businesses/${businessId}`,
+    state: (businessId: string, period?: "1h" | "24h" | "7d" | "30d") =>
+      withSearch(`/api/businesses/${businessId}/state`, { period }),
     upgrade: (businessId: string) => `/api/businesses/${businessId}/upgrade`,
   },
   cities: "/api/cities",
