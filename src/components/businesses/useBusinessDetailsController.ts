@@ -64,7 +64,9 @@ export function useBusinessDetailsController(input: BusinessDetailsClientProps) 
     });
   }
 
-  async function refreshFinanceDashboard(period: FinancePeriod = "1h") {
+  async function refreshFinanceDashboard(
+    period: FinancePeriod = view.financeDashboard?.currentPeriod ?? "1h"
+  ) {
     const finance = await buildBusinessFinanceDashboard(
       createSupabaseBrowserClient(),
       view.business.player_id,

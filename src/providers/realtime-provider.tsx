@@ -457,6 +457,12 @@ export function RealtimeProvider() {
             .on("postgres_changes", { event: "*", schema: "public", table: "business_financial_events", filter: `business_id=eq.${businessId}` }, () => {
               void refreshBusinessDetail(businessId);
             })
+            .on("postgres_changes", { event: "*", schema: "public", table: "market_storefront_performance_snapshots", filter: `business_id=eq.${businessId}` }, () => {
+              void refreshBusinessDetail(businessId);
+            })
+            .on("postgres_changes", { event: "*", schema: "public", table: "market_transactions", filter: `seller_business_id=eq.${businessId}` }, () => {
+              void refreshBusinessDetail(businessId);
+            })
             .on("postgres_changes", { event: "*", schema: "public", table: "business_inventory", filter: `business_id=eq.${businessId}` }, () => {
               void refreshBusinessDetail(businessId);
             })

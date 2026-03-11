@@ -130,6 +130,12 @@ export default function BusinessDetailsClient({
     }
   }, [initialTab]);
 
+  useEffect(() => {
+    if (!financeDashboardState) return;
+    if (financeDashboardState.currentPeriod === selectedFinancePeriod) return;
+    void refreshFinanceDashboard(selectedFinancePeriod).catch(() => null);
+  }, [financeDashboardState, refreshFinanceDashboard, selectedFinancePeriod]);
+
   const getAssignments = (
     employee: Employee & {
       employee_assignments?: (EmployeeAssignment & { business: Business })[] | (EmployeeAssignment & { business: Business }) | null;
@@ -761,7 +767,10 @@ export default function BusinessDetailsClient({
 
         {activeTab === "finance" && (
           <div>
-            <BusinessFinanceDashboardPanel financeDashboard={financeDashboardState} />
+            <BusinessFinanceDashboardPanel
+              financeDashboard={financeDashboardState}
+              initialPeriod={selectedFinancePeriod}
+            />
           </div>
         )}
         

@@ -171,7 +171,7 @@ async function settleStoreInventorySale(
 ) {
   const { data: inventoryRow, error: inventoryError } = await supabase
     .from("business_inventory")
-    .select("id, quantity, reserved_quantity")
+    .select("id, quantity, reserved_quantity, unit_cost, total_cost")
     .eq("owner_player_id", shelfRow.owner_player_id)
     .eq("business_id", shelfRow.business_id)
     .eq("item_key", shelfRow.item_key)
@@ -186,6 +186,17 @@ async function settleStoreInventorySale(
   const shelfQty = toNumber(shelfRow.quantity);
   const listingPrice = Math.max(0.01, toNumber(shelfRow.unit_price));
   const availableBackedQty = Math.max(0, Math.min(shelfQty, inventoryQty, inventoryReserved));
+  const explicitUnitCost = inventoryRow.unit_cost === null || inventoryRow.unit_cost === undefined
+    ? null
+    : toNumber(inventoryRow.unit_cost);
+  const explicitTotalCost = inventoryRow.total_cost === null || inventoryRow.total_cost === undefined
+    ? null
+    : toNumber(inventoryRow.total_cost);
+  const inventoryUnitCost =
+    explicitTotalCost !== null && inventoryQty > 0
+      ? round2(explicitTotalCost / inventoryQty)
+      : explicitUnitCost ?? 0;
+  const soldInventoryCost = round2(Math.max(0, inventoryUnitCost * soldQty));
 
   if (soldQty > availableBackedQty) {
     throw new Error("Shelf sale exceeds reserved inventory backing.");
@@ -198,6 +209,10 @@ async function settleStoreInventorySale(
   const nextQty = inventoryQty - soldQty;
   const nextReserved = Math.max(0, Math.min(nextQty, inventoryReserved - soldQty));
   const nextShelfQty = shelfQty - soldQty;
+  const nextTotalCost =
+    explicitTotalCost !== null
+      ? round2(Math.max(0, explicitTotalCost - soldInventoryCost))
+      : round2(Math.max(0, inventoryUnitCost * nextQty));
   const now = new Date().toISOString();
 
   if (nextQty <= 0) {
@@ -209,6 +224,8 @@ async function settleStoreInventorySale(
       .update({
         quantity: Math.max(0, nextQty),
         reserved_quantity: Math.max(0, nextReserved),
+        unit_cost: nextQty > 0 ? inventoryUnitCost : 0,
+        total_cost: nextQty > 0 ? nextTotalCost : 0,
         updated_at: now,
       })
       .eq("id", inventoryRow.id);
@@ -248,6 +265,57 @@ async function settleStoreInventorySale(
     },
   ]);
   if (ledgerError) throw ledgerError;
+
+  const { error: financialEventsError } = await supabase.from("business_financial_events").insert([
+    {
+      business_id: shelfRow.business_id,
+      account_code: "revenue",
+      amount: gross,
+      quantity: soldQty,
+      item_key: shelfRow.item_key,
+      reference_type: "storefront_sale",
+      reference_id: shelfRow.id,
+      description: `Storefront sale revenue: ${soldQty}x ${shelfRow.item_key}`,
+      metadata: { buyerType: "npc" },
+    },
+    {
+      business_id: shelfRow.business_id,
+      account_code: "cogs",
+      amount: soldInventoryCost,
+      quantity: soldQty,
+      item_key: shelfRow.item_key,
+      reference_type: "storefront_sale",
+      reference_id: shelfRow.id,
+      description: `Storefront COGS: ${soldQty}x ${shelfRow.item_key}`,
+      metadata: { estimatedCost: explicitUnitCost === null && explicitTotalCost === null },
+    },
+    {
+      business_id: shelfRow.business_id,
+      account_code: "inventory",
+      amount: soldInventoryCost,
+      quantity: soldQty,
+      item_key: shelfRow.item_key,
+      reference_type: "storefront_sale",
+      reference_id: shelfRow.id,
+      description: `Storefront inventory relief: ${soldQty}x ${shelfRow.item_key}`,
+      metadata: {
+        direction: "out",
+        estimatedCost: explicitUnitCost === null && explicitTotalCost === null,
+      },
+    },
+    {
+      business_id: shelfRow.business_id,
+      account_code: "operating_expense",
+      amount: fee,
+      quantity: soldQty,
+      item_key: shelfRow.item_key,
+      reference_type: "storefront_sale",
+      reference_id: shelfRow.id,
+      description: `Storefront fee expense: ${soldQty}x ${shelfRow.item_key}`,
+      metadata: null,
+    },
+  ]);
+  if (financialEventsError) throw financialEventsError;
 
   const { error: txError } = await supabase.from("market_transactions").insert({
     listing_id: null,

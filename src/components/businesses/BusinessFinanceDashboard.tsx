@@ -233,6 +233,10 @@ export default function BusinessFinanceDashboardPanel({ financeDashboard, initia
     initialPeriod ?? financeDashboard?.currentPeriod ?? "1h"
   );
 
+  useEffect(() => {
+    setSelectedPeriod(initialPeriod ?? financeDashboard?.currentPeriod ?? "1h");
+  }, [financeDashboard?.currentPeriod, initialPeriod]);
+
   const snapshot = financeDashboard?.periods[selectedPeriod];
   const changeFromPrevious = financeDashboard
     ? financeDashboard.valuation.currentValue - financeDashboard.valuation.previousValue
