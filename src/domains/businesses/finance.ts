@@ -71,6 +71,15 @@ type StorefrontTransactionRow = {
   created_at: string;
 };
 
+type StorefrontPeriodEvidence = {
+  shoppersGenerated: number;
+  salesCount: number;
+  unitsSold: number;
+  grossRevenue: number;
+  feeTotal: number;
+  adSpend: number;
+};
+
 type LedgerEvent = {
   id: string;
   source: "ledger";
@@ -431,6 +440,60 @@ function normalizeStorefrontTransactionRow(row: StorefrontTransactionRow) {
   };
 }
 
+function buildStorefrontEvidence(input: {
+  snapshotShoppersGenerated: number;
+  snapshotSalesCount: number;
+  snapshotUnitsSold: number;
+  snapshotGrossRevenue: number;
+  snapshotFeeTotal: number;
+  snapshotAdSpend: number;
+  transactionSalesCount: number;
+  transactionUnitsSold: number;
+  transactionGrossRevenue: number;
+  transactionFeeTotal: number;
+  ledgerSalesCount: number;
+  ledgerGrossRevenue: number;
+  ledgerFeeTotal: number;
+  eventRevenue: number;
+  eventCogs: number;
+  eventFeeTotal: number;
+}): StorefrontPeriodEvidence {
+  const salesCount = Math.max(
+    input.snapshotSalesCount,
+    input.transactionSalesCount,
+    input.ledgerSalesCount
+  );
+  const unitsSold = Math.max(
+    input.snapshotUnitsSold,
+    input.transactionUnitsSold
+  );
+  const grossRevenue = round2(
+    Math.max(
+      input.snapshotGrossRevenue,
+      input.transactionGrossRevenue,
+      input.ledgerGrossRevenue,
+      input.eventRevenue
+    )
+  );
+  const feeTotal = round2(
+    Math.max(
+      input.snapshotFeeTotal,
+      input.transactionFeeTotal,
+      input.ledgerFeeTotal,
+      input.eventFeeTotal
+    )
+  );
+
+  return {
+    shoppersGenerated: input.snapshotShoppersGenerated,
+    salesCount,
+    unitsSold,
+    grossRevenue,
+    feeTotal,
+    adSpend: input.snapshotAdSpend,
+  };
+}
+
 function groupAmountByDay<T extends { effectiveAt: string }>(
   rows: T[],
   selectAmount: (row: T) => number
@@ -737,16 +800,64 @@ export async function getBusinessFinanceDashboard(
       );
       const storefrontFallbackSalesCount = storefrontTransactionsInRange.length;
       const storefrontFallbackUnitsSold = storefrontTransactionsInRange.reduce((sum, row) => sum + row.quantity, 0);
-      const hasRecognizedRevenue = revenueFromLedger > 0 || revenueFromTransfers > 0;
-      const revenue = round2(
-        revenueFromLedger + revenueFromTransfers + (isStore && !hasRecognizedRevenue ? storefrontFallbackGrossRevenue : 0)
+      const storefrontLedgerInRange = ledgerInRange.filter((row) => row.category === "npc_sale" || row.category === "market_fee");
+      const storefrontLedgerSales = storefrontLedgerInRange.filter((row) => row.category === "npc_sale");
+      const storefrontLedgerFees = storefrontLedgerInRange.filter((row) => row.category === "market_fee");
+      const storefrontRevenueEventsInRange = financialInRange.filter(
+        (row) => row.accountCode === "revenue" && row.referenceType === "storefront_sale"
+      );
+      const storefrontCogsEventsInRange = financialInRange.filter(
+        (row) => row.accountCode === "cogs" && row.referenceType === "storefront_sale"
+      );
+      const storefrontExpenseEventsInRange = financialInRange.filter(
+        (row) => row.accountCode === "operating_expense" && row.referenceType === "storefront_sale"
       );
       const operatingExpense = sumAmounts(
         ledgerInRange,
         (row) => row.accountCode === "operating_expense",
         (row) => row.amount
       );
-      const cogs = sumAmounts(financialInRange, (row) => row.accountCode === "cogs", (row) => row.amount);
+      const storefrontInRange = storefrontSnapshots.filter((row) => !range.since || row.captured_at >= range.since);
+      const snapshotShoppersGenerated = storefrontInRange.reduce((sum, row) => sum + row.shoppers_generated, 0);
+      const snapshotSalesCount = storefrontInRange.reduce((sum, row) => sum + row.sales_count, 0);
+      const snapshotUnitsSold = storefrontInRange.reduce((sum, row) => sum + row.units_sold, 0);
+      const snapshotGrossRevenue = round2(
+        storefrontInRange.reduce((sum, row) => sum + row.gross_revenue, 0)
+      );
+      const snapshotFeeTotal = round2(
+        storefrontInRange.reduce((sum, row) => sum + row.fee_total, 0)
+      );
+      const snapshotAdSpend = round2(
+        storefrontInRange.reduce((sum, row) => sum + row.ad_spend, 0)
+      );
+      const storefrontEvidence = buildStorefrontEvidence({
+        snapshotShoppersGenerated,
+        snapshotSalesCount,
+        snapshotUnitsSold,
+        snapshotGrossRevenue,
+        snapshotFeeTotal,
+        snapshotAdSpend,
+        transactionSalesCount: storefrontFallbackSalesCount,
+        transactionUnitsSold: storefrontFallbackUnitsSold,
+        transactionGrossRevenue: storefrontFallbackGrossRevenue,
+        transactionFeeTotal: storefrontFallbackFeeTotal,
+        ledgerSalesCount: storefrontLedgerSales.length,
+        ledgerGrossRevenue: sumAmounts(storefrontLedgerSales, () => true, (row) => row.amount),
+        ledgerFeeTotal: sumAmounts(storefrontLedgerFees, () => true, (row) => row.amount),
+        eventRevenue: sumAmounts(storefrontRevenueEventsInRange, () => true, (row) => row.amount),
+        eventCogs: sumAmounts(storefrontCogsEventsInRange, () => true, (row) => row.amount),
+        eventFeeTotal: sumAmounts(storefrontExpenseEventsInRange, () => true, (row) => row.amount),
+      });
+      const recognizedStorefrontRevenue = isStore ? storefrontEvidence.grossRevenue : 0;
+      const revenue = round2(
+        Math.max(revenueFromLedger + revenueFromTransfers, revenueFromTransfers + recognizedStorefrontRevenue)
+      );
+      const cogs = round2(
+        Math.max(
+          sumAmounts(financialInRange, (row) => row.accountCode === "cogs", (row) => row.amount),
+          isStore ? sumAmounts(storefrontCogsEventsInRange, () => true, (row) => row.amount) : 0
+        )
+      );
       const grossProfit = round2(revenue - cogs);
       const operatingProfit = round2(grossProfit - operatingExpense);
       const ownerContributions = sumAmounts(
@@ -770,24 +881,12 @@ export async function getBusinessFinanceDashboard(
         (row) => row.amount
       );
       const ownerEquity = round2(cashBalance + inventoryAssetValue - liabilities);
-      const storefrontInRange = storefrontSnapshots.filter((row) => !range.since || row.captured_at >= range.since);
-      const snapshotShoppersGenerated = storefrontInRange.reduce((sum, row) => sum + row.shoppers_generated, 0);
-      const snapshotSalesCount = storefrontInRange.reduce((sum, row) => sum + row.sales_count, 0);
-      const snapshotUnitsSold = storefrontInRange.reduce((sum, row) => sum + row.units_sold, 0);
-      const snapshotGrossRevenue = round2(
-        storefrontInRange.reduce((sum, row) => sum + row.gross_revenue, 0)
-      );
-      const snapshotFeeTotal = round2(
-        storefrontInRange.reduce((sum, row) => sum + row.fee_total, 0)
-      );
-      const storefrontAdSpend = round2(
-        storefrontInRange.reduce((sum, row) => sum + row.ad_spend, 0)
-      );
-      const shoppersGenerated = snapshotShoppersGenerated;
-      const salesCount = snapshotSalesCount > 0 ? snapshotSalesCount : storefrontFallbackSalesCount;
-      const unitsSold = snapshotUnitsSold > 0 ? snapshotUnitsSold : storefrontFallbackUnitsSold;
-      const storefrontGrossRevenue = snapshotGrossRevenue > 0 ? snapshotGrossRevenue : storefrontFallbackGrossRevenue;
-      const storefrontFeeTotal = snapshotFeeTotal > 0 ? snapshotFeeTotal : storefrontFallbackFeeTotal;
+      const shoppersGenerated = storefrontEvidence.shoppersGenerated;
+      const salesCount = storefrontEvidence.salesCount;
+      const unitsSold = storefrontEvidence.unitsSold;
+      const storefrontGrossRevenue = storefrontEvidence.grossRevenue;
+      const storefrontFeeTotal = storefrontEvidence.feeTotal;
+      const storefrontAdSpend = storefrontEvidence.adSpend;
       const storefrontNetRevenue = round2(storefrontGrossRevenue - storefrontFeeTotal - storefrontAdSpend);
       const transferRevenueReferenceIds = new Set(
         financialInRange
@@ -811,24 +910,24 @@ export async function getBusinessFinanceDashboard(
         .sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt))
         .slice(0, 10)
         .map(toRecentEvent);
-      const fallbackRecentEvents =
-        recentEvents.length > 0
-          ? recentEvents
-          : storefrontTransactionsInRange
-              .slice()
-              .sort((a, b) => b.created_at.localeCompare(a.created_at))
-              .slice(0, 10)
-              .map((row) => ({
-                id: `storefront-tx-${row.id}`,
-                occurredAt: row.created_at,
-                label: `Storefront sale cleared, ${formatQuantity(row.quantity, row.item_key)}`,
-                amount: round2(row.gross_total),
-                accountCode: "revenue",
-                source: "ledger" as const,
-                sourceLabel: "Storefront Transaction",
-                accountLabel: "Revenue",
-                postingType: "credit" as const,
-              }));
+      const storefrontTransactionEvents = storefrontTransactionsInRange
+        .slice()
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(0, 10)
+        .map((row) => ({
+          id: `storefront-tx-${row.id}`,
+          occurredAt: row.created_at,
+          label: `Storefront sale cleared, ${formatQuantity(row.quantity, row.item_key)}`,
+          amount: round2(row.gross_total),
+          accountCode: "revenue",
+          source: "ledger" as const,
+          sourceLabel: "Storefront Transaction",
+          accountLabel: "Revenue",
+          postingType: "credit" as const,
+        }));
+      const mergedRecentEvents = [...recentEvents, ...storefrontTransactionEvents]
+        .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
+        .slice(0, 10);
 
       const snapshot: BusinessFinancePeriodSnapshot = {
         period: range.key,
@@ -876,7 +975,7 @@ export async function getBusinessFinanceDashboard(
           intercompanyPurchases,
         },
         series: buildSeries(range, ledgerEvents, financialEvents, cashBalance),
-        recentEvents: fallbackRecentEvents,
+        recentEvents: mergedRecentEvents,
       };
 
       return [range.key, snapshot];
