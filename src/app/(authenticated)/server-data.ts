@@ -12,7 +12,6 @@ import {
 import {
   getBusinessSummary,
   getBusinessesWithBalances,
-  summarizeBusinessesWithBalances,
 } from "@/domains/businesses";
 import {
   type TravelState,
@@ -26,6 +25,15 @@ import { getEmployeeSummary, getPlayerEmployees } from "@/domains/employees";
 import { getBusinessInventory, getPersonalInventory, getShippingQueue } from "@/domains/inventory";
 import { getMarketListings, getMarketStorefrontSettings, getMarketTransactions } from "@/domains/market";
 import { getManufacturingStatus } from "@/domains/production";
+import {
+  buildBankingPageData,
+  buildBusinessesPageData,
+  buildContractsPageData,
+  buildEmployeesPageData,
+  buildInventoryPageData,
+  buildMarketPageData,
+  buildProductionPageData,
+} from "@/lib/page-data";
 import { cache } from "react";
 
 const getAuthedPageContext = cache(async () => {
@@ -118,12 +126,7 @@ export async function loadBusinessesPageData() {
     canPurchaseBusiness: canBuyBusiness,
   };
 
-  return {
-    businesses,
-    summary: summarizeBusinessesWithBalances(businesses),
-    cities,
-    travelState,
-  };
+  return buildBusinessesPageData({ businesses, cities, travelState });
 }
 
 export async function loadBankingPageData() {
@@ -139,12 +142,12 @@ export async function loadBankingPageData() {
     maxLoanAvailable: calculateMaxLoanForBusinessLevel(character.business_level),
   };
 
-  return {
+  return buildBankingPageData({
     accounts: snapshot.accounts ?? [],
     loanData,
     transactions,
     businesses,
-  };
+  });
 }
 
 export async function loadInventoryPageData() {
@@ -159,25 +162,14 @@ export async function loadInventoryPageData() {
       getCitiesCached(supabase),
     ]);
 
-  const businessNamesById: Record<string, string> = {};
-  for (const business of businesses) {
-    businessNamesById[business.id] = business.name;
-  }
-
-  const cityNamesById: Record<string, string> = {};
-  for (const city of cities) {
-    cityNamesById[city.id] = city.name;
-  }
-
-  return {
+  return buildInventoryPageData({
     personalInventory,
     businessInventory,
     shippingQueue,
     accounts: accountsSnapshot.accounts ?? [],
     businesses,
-    businessNamesById,
-    cityNamesById,
-  };
+    cities,
+  });
 }
 
 export async function loadEmployeesPageData() {
@@ -188,11 +180,11 @@ export async function loadEmployeesPageData() {
     getBusinessesWithBalancesCached(supabase, user.id),
   ]);
 
-  return {
+  return buildEmployeesPageData({
     employees,
     summary,
-    businesses: businesses.map((business) => ({ id: business.id, name: business.name })),
-  };
+    businesses,
+  });
 }
 
 export async function loadContractsPageData() {
@@ -202,31 +194,22 @@ export async function loadContractsPageData() {
     getContracts(supabase, user.id).catch(() => []),
   ]);
 
-  return { businesses, contracts };
+  return buildContractsPageData({ businesses, contracts });
 }
 
 export async function loadProductionPageData() {
   const { supabase, user } = await requireAuthedPageContext();
   const businesses = await getBusinessesWithBalancesCached(supabase, user.id);
-  const manufacturingBusinesses = businesses.filter((business) =>
-    [
-      "sawmill",
-      "metalworking_factory",
-      "food_processing_plant",
-      "winery_distillery",
-      "carpentry_workshop",
-    ].includes(business.type)
-  );
-  const selectedBusinessId = manufacturingBusinesses[0]?.id ?? "";
+  const selectedBusinessId = buildProductionPageData({ businesses, manufacturing: null }).selectedBusinessId;
   const manufacturing = selectedBusinessId
     ? await getManufacturingStatus(supabase, user.id, selectedBusinessId).catch(() => null)
     : null;
 
-  return {
+  return buildProductionPageData({
     businesses,
     selectedBusinessId,
     manufacturing,
-  };
+  });
 }
 
 export async function loadMarketPageData() {
@@ -239,14 +222,14 @@ export async function loadMarketPageData() {
     getBusinessInventory(supabase, user.id).catch(() => []),
   ]);
 
-  return {
+  return buildMarketPageData({
     businesses,
     listings,
     transactions,
     personalInventory,
     businessInventory,
     currentCityId: character.current_city_id ?? null,
-  };
+  });
 }
 
 export async function loadDashboardAnalytics(userId: string) {

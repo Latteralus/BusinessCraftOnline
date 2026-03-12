@@ -4,17 +4,10 @@ import { useEffect, useMemo } from "react";
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import {
   getBusinessById,
-  getBusinessFinanceDashboard,
-  getBusinessUpgradeProjects,
-  getBusinessUpgrades,
   getBusinessesWithBalances,
-  supportsExtraction,
 } from "@/domains/businesses";
-import { getBusinessInventory } from "@/domains/inventory";
 import { getManufacturingStatus, getProductionStatus } from "@/domains/production";
-import { getStoreShelfItems } from "@/domains/stores";
-import { getUpgradeDefinitionsForBusinessType } from "@/domains/upgrades";
-import { fetchAppShell, fetchBankingPageData, fetchBusinessesPageData, fetchChatMessages, fetchContractsPageData, fetchEmployeesPageData, fetchInventoryPageData, fetchMarketPageData, fetchTravelState } from "@/lib/client/queries";
+import { fetchAppShell, fetchBankingPageData, fetchBusinessDetailsState, fetchBusinessesPageData, fetchChatMessages, fetchContractsPageData, fetchEmployeesPageData, fetchInventoryPageData, fetchMarketPageData, fetchTravelState } from "@/lib/client/queries";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { BusinessWithBalance } from "@/domains/businesses";
 import type { ChatMessage } from "@/domains/chat";
@@ -200,48 +193,19 @@ export function RealtimeProvider() {
           return;
         }
 
-        const business = await getBusinessById(supabase, playerId, businessId);
-        if (!business) {
+        const refreshedDetail = await fetchBusinessDetailsState(
+          businessId,
+          detail.financeDashboard?.currentPeriod ?? "1h"
+        ).catch(() => null);
+        if (!refreshedDetail) {
           if (!cancelled) {
             removeBusinessDetail(businessId);
           }
           return;
         }
 
-        const isExtraction = supportsExtraction(business.type);
-        const [production, manufacturing, inventory, shelfItems, upgrades, upgradeProjects, employeesRes, upgradeDefinitions, financeDashboard, ownedBusinesses] =
-          await Promise.all([
-            isExtraction ? getProductionStatus(supabase, playerId, business.id).catch(() => null) : Promise.resolve(null),
-            !isExtraction ? getManufacturingStatus(supabase, playerId, business.id).catch(() => null) : Promise.resolve(null),
-            getBusinessInventory(supabase, playerId, business.id).catch(() => []),
-            getStoreShelfItems(supabase, playerId, { businessId: business.id }).catch(() => []),
-            getBusinessUpgrades(supabase, playerId, business.id).catch(() => []),
-            getBusinessUpgradeProjects(supabase, playerId, business.id).catch(() => []),
-            supabase
-              .from("employees")
-              .select("*, employee_assignments(*, business:businesses(*))")
-              .eq("player_id", playerId)
-              .eq("employer_business_id", business.id)
-              .order("created_at", { ascending: false }),
-            getUpgradeDefinitionsForBusinessType(supabase, business.type).catch(() => []),
-            getBusinessFinanceDashboard(supabase, playerId, business.id, detail.financeDashboard?.currentPeriod ?? "1h").catch(() => null),
-            getBusinessesWithBalances(supabase, playerId).catch(() => []),
-          ]);
-
         if (!cancelled) {
-          patchBusinessDetail(businessId, {
-            business,
-            production,
-            manufacturing,
-            inventory,
-            shelfItems,
-            upgrades,
-            upgradeProjects,
-            employees: (employeesRes.data ?? []) as any,
-            financeDashboard,
-            ownedBusinesses,
-            upgradeDefinitions,
-          });
+          patchBusinessDetail(businessId, refreshedDetail);
         }
       })()
         .catch(() => {

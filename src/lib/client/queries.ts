@@ -1,79 +1,47 @@
 import type { OnlinePlayerPreview } from "@/domains/auth-character";
-import type { BusinessesResponse, BusinessSummary, BusinessWithBalance } from "@/domains/businesses";
+import type { BusinessesResponse } from "@/domains/businesses";
 import type {
-  BankAccountWithBalance,
   BankingAccountsResponse,
-  BankingLoanState,
   BankingLoanStateResponse,
   BankingTransactionsResponse,
-  TransactionEntry,
 } from "@/domains/banking";
-import type { CitiesResponse, City, TravelState, TravelStateResponse } from "@/domains/cities-travel";
+import type { CitiesResponse, TravelStateResponse } from "@/domains/cities-travel";
 import type { Contract } from "@/domains/contracts";
+import type { ChatMessage } from "@/domains/chat";
 import type { Employee, EmployeeSummary } from "@/domains/employees";
 import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } from "@/domains/inventory";
 import type { MarketListing, MarketTransaction } from "@/domains/market";
 import type { ManufacturingStatusView } from "@/domains/production";
-import type { ChatMessage } from "@/domains/chat";
 import type { BusinessDetailsEntry } from "@/stores/game-store";
 import type { FinancePeriod } from "@/config/finance";
 import { apiGet } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
+import {
+  buildBankingPageData,
+  buildBusinessesPageData,
+  buildContractsPageData,
+  buildEmployeesPageData,
+  buildInventoryPageData,
+  buildMarketPageData,
+  buildProductionPageData,
+  type BankingPageData,
+  type BusinessesPageData,
+  type ContractsPageData,
+  type EmployeesPageData,
+  type InventoryPageData,
+  type MarketPageData,
+  type ProductionPageData,
+} from "@/lib/page-data";
 
-type BusinessOption = {
-  id: string;
-  name: string;
-};
-
-export type BusinessesPageData = {
-  businesses: BusinessWithBalance[];
-  summary: BusinessSummary | null;
-  cities: City[];
-  travelState: TravelState;
-};
-
-export type BankingPageData = {
-  accounts: BankAccountWithBalance[];
-  loanData: BankingLoanState;
-  transactions: TransactionEntry[];
-  businesses: BusinessWithBalance[];
-};
-
-export type InventoryPageData = {
-  personalInventory: PersonalInventoryItem[];
-  businessInventory: BusinessInventoryItem[];
-  shippingQueue: ShippingQueueItem[];
-  accounts: BankAccountWithBalance[];
-  businesses: BusinessWithBalance[];
-  businessNamesById: Record<string, string>;
-  cityNamesById: Record<string, string>;
-};
-
-export type MarketPageData = {
-  businesses: BusinessWithBalance[];
-  listings: MarketListing[];
-  transactions: MarketTransaction[];
-  personalInventory: PersonalInventoryItem[];
-  businessInventory: BusinessInventoryItem[];
-  currentCityId?: string | null;
-};
-
-export type EmployeesPageData = {
-  employees: Employee[];
-  summary: EmployeeSummary | null;
-  businesses: BusinessOption[];
-};
-
-export type ContractsPageData = {
-  businesses: BusinessWithBalance[];
-  contracts: Contract[];
-};
-
-export type ProductionPageData = {
-  businesses: BusinessWithBalance[];
-  selectedBusinessId: string;
-  manufacturing: ManufacturingStatusView | null;
-};
+export type {
+  BankingPageData,
+  BusinessesPageData,
+  ContractsPageData,
+  EmployeesPageData,
+  InventoryPageData,
+  MarketPageData,
+  ProductionPageData,
+} from "@/lib/page-data";
 
 export type BusinessDetailsStateData = BusinessDetailsEntry;
 
@@ -154,12 +122,11 @@ export async function fetchBusinessesPageData(): Promise<BusinessesPageData> {
     fetchTravelState(),
   ]);
 
-  return {
+  return buildBusinessesPageData({
     businesses: businessesJson.businesses ?? [],
-    summary: businessesJson.summary ?? null,
     cities: citiesJson.cities ?? [],
     travelState: travelJson,
-  };
+  });
 }
 
 export async function fetchBankingPageData(): Promise<BankingPageData> {
@@ -172,12 +139,12 @@ export async function fetchBankingPageData(): Promise<BankingPageData> {
     apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." }),
   ]);
 
-  return {
+  return buildBankingPageData({
     accounts: accountsJson.accounts ?? [],
     loanData: loanJson,
     transactions: txJson.entries ?? [],
     businesses: businessesJson.businesses ?? [],
-  };
+  });
 }
 
 export async function fetchInventoryPageData(): Promise<InventoryPageData> {
@@ -188,20 +155,16 @@ export async function fetchInventoryPageData(): Promise<InventoryPageData> {
     apiGet<CitiesResponse>(apiRoutes.cities, { fallbackError: "Failed to load cities." }),
   ]);
 
-  const cityNamesById: Record<string, string> = { ...(inventoryJson.cityNamesById ?? {}) };
-  for (const city of citiesJson.cities ?? []) {
-    cityNamesById[city.id] = city.name;
-  }
-
-  return {
+  return buildInventoryPageData({
     personalInventory: inventoryJson.personalInventory ?? [],
     businessInventory: inventoryJson.businessInventory ?? [],
     shippingQueue: inventoryJson.shippingQueue ?? [],
-    businessNamesById: inventoryJson.businessNamesById ?? {},
-    cityNamesById,
     accounts: accountsJson.accounts ?? [],
     businesses: businessesJson.businesses ?? [],
-  };
+    cities: citiesJson.cities ?? [],
+    businessNamesById: inventoryJson.businessNamesById ?? {},
+    cityNamesById: inventoryJson.cityNamesById ?? {},
+  });
 }
 
 export async function fetchMarketPageData(): Promise<MarketPageData> {
@@ -213,13 +176,13 @@ export async function fetchMarketPageData(): Promise<MarketPageData> {
     apiGet<InventoryResponse>(apiRoutes.inventory.root, { fallbackError: "Failed to load inventory." }),
   ]);
 
-  return {
+  return buildMarketPageData({
     businesses: businessesJson.businesses ?? [],
     listings: listingsJson.listings ?? [],
     transactions: listingsJson.transactions ?? [],
     personalInventory: inventoryJson.personalInventory ?? [],
     businessInventory: inventoryJson.businessInventory ?? [],
-  };
+  });
 }
 
 export async function fetchEmployeesPageData(): Promise<EmployeesPageData> {
@@ -228,11 +191,11 @@ export async function fetchEmployeesPageData(): Promise<EmployeesPageData> {
     apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to fetch businesses." }),
   ]);
 
-  return {
+  return buildEmployeesPageData({
     employees: employeesJson.employees ?? [],
     summary: employeesJson.summary ?? null,
-    businesses: (businessesJson.businesses ?? []).map((business) => ({ id: business.id, name: business.name })),
-  };
+    businesses: businessesJson.businesses ?? [],
+  });
 }
 
 export async function fetchContractsPageData(): Promise<ContractsPageData> {
@@ -241,10 +204,10 @@ export async function fetchContractsPageData(): Promise<ContractsPageData> {
     apiGet<ContractsResponse>(apiRoutes.contracts.root, { fallbackError: "Failed to load contracts." }),
   ]);
 
-  return {
+  return buildContractsPageData({
     businesses: businessesJson.businesses ?? [],
     contracts: contractsJson.contracts ?? [],
-  };
+  });
 }
 
 export async function fetchProductionStatus(businessId: string) {
@@ -258,19 +221,13 @@ export async function fetchProductionPageData(): Promise<ProductionPageData> {
     fallbackError: "Failed to load businesses.",
   });
   const businesses = businessesJson.businesses ?? [];
-  const manufacturingBusinesses = businesses.filter((business) =>
-    ["sawmill", "metalworking_factory", "food_processing_plant", "winery_distillery", "carpentry_workshop"].includes(
-      business.type
-    )
-  );
-  const selectedBusinessId = manufacturingBusinesses[0]?.id ?? "";
+  const selectedBusinessId = buildProductionPageData({ businesses, manufacturing: null }).selectedBusinessId;
   const manufacturing = selectedBusinessId ? (await fetchProductionStatus(selectedBusinessId)).status : null;
 
-  return {
+  return buildProductionPageData({
     businesses,
-    selectedBusinessId,
     manufacturing,
-  };
+  });
 }
 
 export async function fetchBusinessDetailsState(

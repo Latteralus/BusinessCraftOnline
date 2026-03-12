@@ -1,6 +1,3 @@
 Findings
 
-
 Market optimistic writes also rebuild arrays from render-time closures, which can overwrite fresher store state even on success. In MarketClient.tsx (line 360) and MarketClient.tsx (line 430), patchMarket is fed arrays derived from captured listings/transactions values, not from the latest store state. If a realtime event lands between render and mutation completion, those writes can drop new listings, quantity changes, or transactions. This is the same class of stale-state drift as above, but happening even without rollback.
-
-Data assembly is duplicated in too many places, which is already drifting architecturally and will make updates expensive. The same business-detail payload is built separately in the page loader at [id]/page.tsx (line 41), the API route at state/route.ts (line 39), and the realtime refresh path at realtime-provider.tsx (line 191). The broader page loaders are also duplicated between server loaders in server-data.ts (line 105) and client fetchers in queries.ts (line 164). This is a maintainability issue now, not just style: any schema or business-rule change has to be updated in multiple places.

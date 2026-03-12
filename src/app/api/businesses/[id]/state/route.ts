@@ -1,20 +1,10 @@
 import { type FinancePeriod } from "@/config/finance";
-import {
-  getBusinessById,
-  getBusinessFinanceDashboard,
-  getBusinessUpgradeProjects,
-  getBusinessUpgrades,
-  getBusinessesWithBalances,
-  supportsExtraction,
-} from "@/domains/businesses";
-import { getBusinessInventory } from "@/domains/inventory";
-import { getManufacturingStatus, getProductionStatus } from "@/domains/production";
-import { getStoreShelfItems } from "@/domains/stores";
-import { getUpgradeDefinitionsForBusinessType, type BusinessType } from "@/domains/upgrades";
+import { getBusinessById } from "@/domains/businesses";
 import {
   handleAuthedRequest,
   notFound,
 } from "@/app/api/_shared/route-helpers";
+import { loadBusinessDetailsEntry } from "@/lib/business-details-data";
 import { NextResponse } from "next/server";
 
 type Params = {
@@ -37,50 +27,10 @@ export async function GET(request: Request, { params }: Params) {
       return notFound("Business not found.");
     }
 
-    const isExtraction = supportsExtraction(business.type);
-    const [
-      production,
-      manufacturing,
-      inventory,
-      shelfItems,
-      upgrades,
-      upgradeProjects,
-      employeesRes,
-      upgradeDefinitions,
-      financeDashboard,
-      ownedBusinesses,
-    ] = await Promise.all([
-      isExtraction ? getProductionStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
-      !isExtraction ? getManufacturingStatus(supabase, user.id, business.id).catch(() => null) : Promise.resolve(null),
-      getBusinessInventory(supabase, user.id, business.id).catch(() => []),
-      getStoreShelfItems(supabase, user.id, { businessId: business.id }).catch(() => []),
-      getBusinessUpgrades(supabase, user.id, business.id).catch(() => []),
-      getBusinessUpgradeProjects(supabase, user.id, business.id).catch(() => []),
-      supabase
-        .from("employees")
-        .select("*, employee_assignments(*, business:businesses(*))")
-        .eq("player_id", user.id)
-        .eq("employer_business_id", business.id)
-        .order("created_at", { ascending: false }),
-      getUpgradeDefinitionsForBusinessType(supabase, business.type as BusinessType).catch(() => []),
-      getBusinessFinanceDashboard(supabase, user.id, business.id, period).catch(() => null),
-      getBusinessesWithBalances(supabase, user.id).catch(() => []),
-    ]);
+    const detail = await loadBusinessDetailsEntry(supabase, user.id, business.id, period);
 
     return NextResponse.json({
-      detail: {
-        business,
-        production,
-        manufacturing,
-        inventory,
-        shelfItems,
-        upgrades,
-        upgradeProjects,
-        employees: employeesRes.data ?? [],
-        financeDashboard,
-        ownedBusinesses,
-        upgradeDefinitions,
-      },
+      detail,
     });
   }, { errorMessage: "Failed to fetch business state.", errorStatus: 500 });
 }
