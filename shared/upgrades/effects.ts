@@ -3,13 +3,13 @@ import {
   type BusinessUpgradeDefinition,
   type BusinessUpgradeKey,
   type UpgradeDowntimePolicy,
-} from "../../src/config/business-upgrades";
-import type { BusinessType } from "../../src/config/businesses";
+} from "../../src/config/business-upgrades.ts";
+import type { BusinessType } from "../../src/config/businesses.ts";
 import {
   BUSINESS_UPGRADE_EFFECT_DEFAULTS,
   getDowntimeMultiplier,
   round4,
-} from "./runtime";
+} from "./runtime.ts";
 
 export type BusinessUpgradeLevels = Partial<Record<BusinessUpgradeKey, number>>;
 
@@ -112,9 +112,6 @@ export function resolveBusinessUpgradeEffects(
         break;
       case "equipment_quality":
         effects.manufacturingQualityBonus = value;
-        break;
-      case "input_reduction":
-        effects.manufacturingInputUseMultiplier = value;
         break;
       case "storefront_appeal":
         effects.storefrontTrafficMultiplier = value;

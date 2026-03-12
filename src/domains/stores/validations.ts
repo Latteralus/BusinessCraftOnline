@@ -14,7 +14,7 @@ export const upsertStoreShelfItemSchema = z.object({
   quality: z
     .number({ error: "Quality must be a number." })
     .int("Quality must be an integer.")
-    .min(1, "Quality must be at least 1.")
+    .min(0, "Quality must be at least 0.")
     .max(100, "Quality must be at most 100."),
   quantity: z
     .number({ error: "Quantity must be a number." })

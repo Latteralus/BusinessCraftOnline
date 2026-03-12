@@ -78,6 +78,7 @@ export function getStorefrontShelfPurchaseScore(
     itemKey: string;
     unitPrice: number;
     quality: number;
+    bestAvailableQuality?: number;
     shopperPriceSensitivity: number;
     shopperQualityPreference: number;
     priceToleranceMultiplier: number;
@@ -106,13 +107,26 @@ export function getStorefrontShelfPurchaseScore(
   if (priceScore <= 0) return 0;
 
   const normalizedQuality = clamp(input.quality / 100, 0, 1);
+  const normalizedBestAvailableQuality = clamp(
+    (input.bestAvailableQuality ?? input.quality) / 100,
+    0,
+    1
+  );
+  const relativeQuality = normalizedBestAvailableQuality <= 0
+    ? 1
+    : clamp(normalizedQuality / normalizedBestAvailableQuality, 0, 1);
   const qualityScore = lerp(
-    0.85 + normalizedQuality * 0.3,
-    0.7 + normalizedQuality * 0.8,
+    0.75 + normalizedQuality * 0.35,
+    0.45 + normalizedQuality * 1.35,
+    normalizedQualityPreference
+  );
+  const relativeQualityScore = lerp(
+    1,
+    0.45 + relativeQuality * 1.1,
     normalizedQualityPreference
   );
 
-  return priceScore * qualityScore;
+  return priceScore * qualityScore * relativeQualityScore;
 }
 
 export function getStorefrontMaxUnitsPerPurchaseAttempt(listingCapacityBonus: number): number {

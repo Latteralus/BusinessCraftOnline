@@ -25,7 +25,7 @@ function toNumber(value) {
 }
 
 function clampQuality(value) {
-  return Math.max(1, Math.min(100, Math.round(value)));
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 function weightedAverageQuality(rows) {
@@ -126,7 +126,7 @@ async function main() {
       0,
       ...((upgradeRows ?? []).map((row) => toNumber(row.level)))
     );
-    const qualityBonus = equipmentLevel * 4;
+    const qualityBonus = equipmentLevel * 5;
     const fallbackFlourQuality = Math.max(
       ...business.flourRows.map((row) => toNumber(row.quality))
     );

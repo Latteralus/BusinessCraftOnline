@@ -185,7 +185,7 @@ export default function InventoryClient({ initialData }: Props) {
   const [destinationBusinessId, setDestinationBusinessId] = useState(initialData.businesses[0]?.id ?? "");
   const [itemKey, setItemKey] = useState(availableItemKeys[0] ?? "");
   const [quantity, setQuantity] = useState("1");
-  const [quality, setQuality] = useState("40");
+  const [quality, setQuality] = useState("0");
   const [unitPrice, setUnitPrice] = useState("1");
   const [fundingAccountId, setFundingAccountId] = useState(
     initialData.accounts.find((account) => account.account_type === "checking")?.id ?? ""
@@ -577,7 +577,7 @@ export default function InventoryClient({ initialData }: Props) {
                   </label>
                   <label>
                     <FieldLabel><TooltipLabel label="Quality" content="Transfers only pull from inventory rows with this quality score." /></FieldLabel>
-                    <input type="number" min="1" max="100" value={quality} onChange={(event) => setQuality(event.target.value)} />
+                    <input type="number" min="0" max="100" value={quality} onChange={(event) => setQuality(event.target.value)} />
                   </label>
                   <label>
                     <FieldLabel><TooltipLabel label="Quantity" content="Number of units to transfer from the selected source inventory." /></FieldLabel>

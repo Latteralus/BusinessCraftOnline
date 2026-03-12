@@ -259,7 +259,7 @@ async function settleStoreInventorySale(
       buyer_business_name: null,
       city_id: shelfRow.city_id,
       item_key: shelfRow.item_key,
-      quality: Math.max(1, Math.min(100, toNumber(shelfRow.quality))),
+      quality: Math.max(0, Math.min(100, toNumber(shelfRow.quality))),
       quantity: soldQty,
       unit_price: listingPrice,
       gross_total: gross,
@@ -640,6 +640,7 @@ Deno.serve(async (request) => {
           return unitPrice <= cheapest * (1 + NPC_PRICE_BAND_PERCENT * 6) && unitPrice <= remainingBudget;
         });
         if (withinBand.length === 0) continue;
+        const bestAvailableQuality = Math.max(...withinBand.map((row) => toNumber(row.quality)));
 
         const weightedCandidates = withinBand
           .map((row) => ({
@@ -648,6 +649,7 @@ Deno.serve(async (request) => {
               itemKey: String(row.item_key),
               unitPrice: toNumber(row.unit_price),
               quality: toNumber(row.quality),
+              bestAvailableQuality,
               shopperPriceSensitivity: priceSensitivity,
               shopperQualityPreference: qualityPreference,
               priceToleranceMultiplier,

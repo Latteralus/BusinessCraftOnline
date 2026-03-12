@@ -77,10 +77,10 @@ function resolveOutputQuality(
   }
 
   if (totalUnits <= 0) {
-    return Math.max(1, Math.min(100, Math.round(qualityBonus || 1)));
+    return Math.max(0, Math.min(100, Math.round(qualityBonus || 0)));
   }
 
-  return Math.max(1, Math.min(100, Math.round(weightedQuality / totalUnits + qualityBonus)));
+  return Math.max(0, Math.min(100, Math.round(weightedQuality / totalUnits + qualityBonus)));
 }
 
 function resolveAvailableInputQuality(
@@ -110,7 +110,7 @@ function resolveManufacturingQuality(
     return resolveOutputQuality(consumedInputs, qualityBonus);
   }
 
-  return Math.max(1, Math.min(100, Math.round((fallbackInputQuality ?? 1) + qualityBonus)));
+  return Math.max(0, Math.min(100, Math.round((fallbackInputQuality ?? 0) + qualityBonus)));
 }
 
 async function syncLegacyManufacturingJobForBusiness(

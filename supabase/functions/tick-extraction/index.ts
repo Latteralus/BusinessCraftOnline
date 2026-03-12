@@ -470,7 +470,7 @@ Deno.serve(async (request) => {
       slot.output_progress,
       outputMultiplier * effects.extractionOutputMultiplier
     );
-    const quality = Math.max(1, Math.min(100, Math.round(40 + effects.extractionQualityBonus)));
+    const quality = Math.max(0, Math.min(100, Math.round(effects.extractionQualityBonus)));
 
     if (units > 0) {
       const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {

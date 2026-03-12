@@ -35,12 +35,6 @@ type BusinessUpgradeEffects = {
   downtimeMultiplier: number;
 };
 
-const DEFAULT_EFFECTS: BusinessUpgradeEffects = {
-  ...BUSINESS_UPGRADE_EFFECT_DEFAULTS,
-  downtimePolicy: null,
-  downtimeMultiplier: BUSINESS_UPGRADE_EFFECT_DEFAULTS.downtimeMultiplier,
-};
-
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
   if (typeof value === "string") return Number(value);
@@ -52,7 +46,11 @@ function resolveEffectsFromLevels(
   levels: Record<string, number>,
   activePolicies: UpgradeDowntimePolicy[]
 ): BusinessUpgradeEffects {
-  const effects: BusinessUpgradeEffects = { ...DEFAULT_EFFECTS };
+  const effects: BusinessUpgradeEffects = {
+    ...BUSINESS_UPGRADE_EFFECT_DEFAULTS,
+    downtimePolicy: null,
+    downtimeMultiplier: BUSINESS_UPGRADE_EFFECT_DEFAULTS.downtimeMultiplier,
+  };
 
   const workerCapacityLevel = Math.max(0, levels.worker_capacity ?? 0);
   effects.workerCapacitySlots = workerCapacityLevel;
@@ -72,16 +70,11 @@ function resolveEffectsFromLevels(
     Math.max(0, levels.tool_durability ?? 0)
   );
   effects.manufacturingOutputMultiplier = resolveMultiplier(
-    1.15,
-    1.05,
+    1.5,
+    1.5,
     Math.max(0, levels.production_efficiency ?? 0)
   );
-  effects.manufacturingInputUseMultiplier = resolveReductionMultiplier(
-    0.96,
-    1.08,
-    Math.max(0, levels.input_reduction ?? 0)
-  );
-  effects.manufacturingQualityBonus = Math.max(0, 4 * (levels.equipment_quality ?? 0));
+  effects.manufacturingQualityBonus = Math.max(0, 5 * (levels.equipment_quality ?? 0));
   effects.storefrontTrafficMultiplier = resolveMultiplier(
     1.05,
     1.03,
