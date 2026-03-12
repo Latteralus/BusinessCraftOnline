@@ -50,6 +50,7 @@ export type MarketSliceData = {
   businesses: BusinessWithBalance[];
   listings: MarketListing[];
   transactions: MarketTransaction[];
+  currentCityId: string | null;
 };
 
 export type ContractsSliceData = Contract[];
@@ -188,6 +189,7 @@ const emptyMarket: MarketSliceData = {
   businesses: [],
   listings: [],
   transactions: [],
+  currentCityId: null,
 };
 
 const emptyEmployees: EmployeesSliceData = {

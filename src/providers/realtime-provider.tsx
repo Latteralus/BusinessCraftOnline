@@ -2,12 +2,9 @@
 
 import { useEffect, useMemo } from "react";
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from "@supabase/supabase-js";
-import {
-  getBusinessById,
-  getBusinessesWithBalances,
-} from "@/domains/businesses";
-import { getManufacturingStatus, getProductionStatus } from "@/domains/production";
-import { fetchAppShell, fetchBankingPageData, fetchBusinessDetailsState, fetchBusinessesPageData, fetchChatMessages, fetchContractsPageData, fetchEmployeesPageData, fetchInventoryPageData, fetchMarketPageData, fetchTravelState } from "@/lib/client/queries";
+import { getBusinessesWithBalances } from "@/domains/businesses";
+import { getManufacturingStatus } from "@/domains/production";
+import { fetchAppShell, fetchBankingPageData, fetchBusinessDetailsState, fetchBusinessesPageData, fetchChatMessages, fetchContractsPageData, fetchEmployeesPageData, fetchInventoryPageData, fetchMarketPageData, fetchProductionPageData, fetchTravelState } from "@/lib/client/queries";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { BusinessWithBalance } from "@/domains/businesses";
 import type { ChatMessage } from "@/domains/chat";
@@ -28,6 +25,14 @@ export function RealtimeProvider() {
   const hydrated = useGameStore((state) => state.hydrated);
   const playerId = useGameStore((state) => state.player.data.playerId);
   const bankingAccounts = useGameStore((state) => state.banking.data.accounts);
+  const ownedBusinessIdsKey = useGameStore((state) =>
+    state.businesses.data
+      .map((business) => business.id)
+      .sort()
+      .join("|")
+  );
+  const selectedProductionBusinessId = useGameStore((state) => state.production.data.selectedBusinessId);
+  const trackedBusinessDetails = useGameStore((state) => state.businessDetails.data);
   const trackedBusinessDetailKey = useGameStore((state) =>
     Object.keys(state.businessDetails.data).sort().join("|")
   );
@@ -58,10 +63,25 @@ export function RealtimeProvider() {
     () => bankingAccounts.map((account) => account.id),
     [bankingAccounts]
   );
+  const ownedBusinessIds = useMemo(
+    () => (ownedBusinessIdsKey ? ownedBusinessIdsKey.split("|") : []),
+    [ownedBusinessIdsKey]
+  );
   const trackedBusinessDetailIds = useMemo(
     () => (trackedBusinessDetailKey ? trackedBusinessDetailKey.split("|") : []),
     [trackedBusinessDetailKey]
   );
+  const trackedExtractionSlotIds = useMemo(() => {
+    const slotIds = new Set<string>();
+    for (const detail of Object.values(trackedBusinessDetails)) {
+      for (const slot of detail.production?.slots ?? []) {
+        if (slot.id) {
+          slotIds.add(String(slot.id));
+        }
+      }
+    }
+    return Array.from(slotIds).sort();
+  }, [trackedBusinessDetails]);
 
   useEffect(() => {
     if (!hydrated || !playerId) {
@@ -88,7 +108,7 @@ export function RealtimeProvider() {
     };
 
     const refillStore = async () => {
-      const [appShell, chat, businessesPage, banking, inventory, market, contractsPage, employees, travel] =
+      const [appShell, chat, businessesPage, banking, inventory, market, production, contractsPage, employees, travel] =
         await Promise.all([
           fetchAppShell(),
           fetchChatMessages(),
@@ -96,6 +116,7 @@ export function RealtimeProvider() {
           fetchBankingPageData(),
           fetchInventoryPageData(),
           fetchMarketPageData(),
+          fetchProductionPageData(),
           fetchContractsPageData(),
           fetchEmployeesPageData(),
           fetchTravelState(),
@@ -115,6 +136,7 @@ export function RealtimeProvider() {
       setBanking(banking);
       setInventory(inventory);
       setMarket(market);
+      setProduction(production);
       setContracts(contractsPage.contracts);
       setEmployees(employees);
       setTravel(travel);
@@ -353,59 +375,54 @@ export function RealtimeProvider() {
           .subscribe();
         channels.push(bankingChannel);
 
-        if (bankingAccountIds.length > 0) {
+        for (const accountId of bankingAccountIds) {
           const transactionsChannel = supabase
-            .channel(`transactions-${playerId}`)
-            .on("postgres_changes", { event: "*", schema: "public", table: "transactions" }, (payload) => {
-              const rowAccountId = String((payload.new as { account_id?: string } | null)?.account_id ?? (payload.old as { account_id?: string } | null)?.account_id ?? "");
-              if (bankingAccountIds.includes(rowAccountId)) {
-                void fetchBankingPageData().then((data) => !cancelled && setBanking(data));
-              }
+            .channel(`transactions-${playerId}-${accountId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "transactions", filter: `account_id=eq.${accountId}` }, () => {
+              void fetchBankingPageData().then((data) => !cancelled && setBanking(data));
             })
             .subscribe();
           channels.push(transactionsChannel);
         }
 
-        const businessBalancesChannel = supabase
-          .channel(`business-balances-${playerId}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "business_accounts" }, (payload) => {
-            const businessId = String(
-              (payload.new as { business_id?: string } | null)?.business_id ??
-              (payload.old as { business_id?: string } | null)?.business_id ??
-              ""
-            );
-            if (!businessId) {
-              return;
-            }
+        for (const businessId of ownedBusinessIds) {
+          const businessBalancesChannel = supabase
+            .channel(`business-balances-${playerId}-${businessId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "business_accounts", filter: `business_id=eq.${businessId}` }, () => {
+              void refreshBusinessBalances();
+            })
+            .subscribe();
+          channels.push(businessBalancesChannel);
+        }
 
-            const trackedBusinessIds = new Set(useGameStore.getState().businesses.data.map((business) => business.id));
-            if (!trackedBusinessIds.has(businessId)) {
-              return;
-            }
-
-            void refreshBusinessBalances();
-          })
-          .subscribe();
-        channels.push(businessBalancesChannel);
-
-        const marketChannel = supabase
-          .channel(`market-${playerId}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "market_listings" }, () => {
+        const marketActiveChannel = supabase
+          .channel(`market-active-${playerId}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "market_listings", filter: "status=eq.active" }, () => {
             void fetchMarketPageData().then((data) => !cancelled && setMarket(data));
           })
           .subscribe();
-        channels.push(marketChannel);
+        channels.push(marketActiveChannel);
 
-        const productionChannel = supabase
-          .channel(`production-${playerId}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "manufacturing_jobs" }, () => {
-            void refreshSelectedProduction();
-          })
-          .on("postgres_changes", { event: "*", schema: "public", table: "manufacturing_lines" }, () => {
-            void refreshSelectedProduction();
+        const marketOwnedChannel = supabase
+          .channel(`market-owned-${playerId}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "market_listings", filter: `owner_player_id=eq.${playerId}` }, () => {
+            void fetchMarketPageData().then((data) => !cancelled && setMarket(data));
           })
           .subscribe();
-        channels.push(productionChannel);
+        channels.push(marketOwnedChannel);
+
+        if (selectedProductionBusinessId) {
+          const productionChannel = supabase
+            .channel(`production-${playerId}-${selectedProductionBusinessId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "manufacturing_jobs", filter: `business_id=eq.${selectedProductionBusinessId}` }, () => {
+              void refreshSelectedProduction();
+            })
+            .on("postgres_changes", { event: "*", schema: "public", table: "manufacturing_lines", filter: `business_id=eq.${selectedProductionBusinessId}` }, () => {
+              void refreshSelectedProduction();
+            })
+            .subscribe();
+          channels.push(productionChannel);
+        }
 
         const travelChannel = supabase
           .channel(`travel-${playerId}`)
@@ -461,13 +478,14 @@ export function RealtimeProvider() {
           channels.push(businessDetailChannel);
         }
 
-        if (trackedBusinessDetailIds.length > 0) {
+        for (const slotId of trackedExtractionSlotIds) {
           const extractionToolChannel = supabase
-            .channel(`business-detail-tools-${playerId}`)
-            .on("postgres_changes", { event: "*", schema: "public", table: "tool_durability" }, () => {
+            .channel(`business-detail-tools-${playerId}-${slotId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "tool_durability", filter: `extraction_slot_id=eq.${slotId}` }, () => {
               for (const businessId of trackedBusinessDetailIds) {
                 const detail = useGameStore.getState().businessDetails.data[businessId];
-                if (detail?.production) {
+                const hasTrackedSlot = detail?.production?.slots?.some((slot) => slot.id === slotId);
+                if (hasTrackedSlot) {
                   void refreshBusinessDetail(businessId);
                 }
               }
@@ -494,6 +512,7 @@ export function RealtimeProvider() {
   }, [
     bankingAccountIds,
     hydrated,
+    ownedBusinessIds,
     patchAppShell,
     patchBanking,
     patchBusinesses,
@@ -519,6 +538,8 @@ export function RealtimeProvider() {
     setProduction,
     setTravel,
     trackedBusinessDetailIds,
+    trackedExtractionSlotIds,
+    selectedProductionBusinessId,
   ]);
 
   return null;

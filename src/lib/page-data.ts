@@ -43,7 +43,7 @@ export type MarketPageData = {
   transactions: MarketTransaction[];
   personalInventory: PersonalInventoryItem[];
   businessInventory: BusinessInventoryItem[];
-  currentCityId?: string | null;
+  currentCityId: string | null;
 };
 
 export type EmployeesPageData = {
@@ -130,7 +130,7 @@ export function buildMarketPageData(input: {
   transactions: MarketTransaction[];
   personalInventory: PersonalInventoryItem[];
   businessInventory: BusinessInventoryItem[];
-  currentCityId?: string | null;
+  currentCityId: string | null;
 }): MarketPageData {
   return input;
 }

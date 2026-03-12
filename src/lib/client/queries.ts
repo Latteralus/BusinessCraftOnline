@@ -168,12 +168,13 @@ export async function fetchInventoryPageData(): Promise<InventoryPageData> {
 }
 
 export async function fetchMarketPageData(): Promise<MarketPageData> {
-  const [businessesJson, listingsJson, inventoryJson] = await Promise.all([
+  const [businessesJson, listingsJson, inventoryJson, travelJson] = await Promise.all([
     apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." }),
     apiGet<ListingsResponse>(apiRoutes.market.listings({ includeTransactions: true, transactionsLimit: 40, buyerType: "player" }), {
       fallbackError: "Failed to load market listings.",
     }),
     apiGet<InventoryResponse>(apiRoutes.inventory.root, { fallbackError: "Failed to load inventory." }),
+    apiGet<TravelStateResponse>(apiRoutes.travel, { fallbackError: "Failed to load travel state." }),
   ]);
 
   return buildMarketPageData({
@@ -182,6 +183,7 @@ export async function fetchMarketPageData(): Promise<MarketPageData> {
     transactions: listingsJson.transactions ?? [],
     personalInventory: inventoryJson.personalInventory ?? [],
     businessInventory: inventoryJson.businessInventory ?? [],
+    currentCityId: travelJson.currentCity?.id ?? null,
   });
 }
 

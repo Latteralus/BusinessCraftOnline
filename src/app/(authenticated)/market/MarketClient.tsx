@@ -196,6 +196,7 @@ export default function MarketClient({ initialData }: Props) {
   const businesses = market.businesses;
   const listings = market.listings;
   const transactions = market.transactions;
+  const currentCityId = market.currentCityId ?? initialData.currentCityId ?? null;
   const personalInventory = inventory.personalInventory;
   const businessInventory = inventory.businessInventory;
 
@@ -234,7 +235,7 @@ export default function MarketClient({ initialData }: Props) {
           itemKey: row.item_key,
           quality: row.quality,
           available: row.quantity,
-          cityId: initialData.currentCityId ?? null,
+          cityId: currentCityId,
           sourceLabel: "Personal Inventory",
           optionLabel: `${formatItemKey(row.item_key)} · Q${row.quality} · ${row.quantity} units`,
         }));
@@ -252,7 +253,7 @@ export default function MarketClient({ initialData }: Props) {
         sourceLabel: sourceBusiness?.name ?? "Business Inventory",
         optionLabel: `${formatItemKey(row.item_key)} · Q${row.quality} · ${Math.max(0, row.quantity - row.reserved_quantity)} units`,
       }));
-  }, [businessInventory, initialData.currentCityId, personalInventory, sourceBusiness?.name, sourceBusinessId, sourceType]);
+  }, [businessInventory, currentCityId, personalInventory, sourceBusiness?.name, sourceBusinessId, sourceType]);
 
   const selectedSourceInventory = useMemo(
     () => sourceInventoryOptions.find((row) => row.id === sourceInventoryRowId) ?? sourceInventoryOptions[0] ?? null,
@@ -384,7 +385,7 @@ export default function MarketClient({ initialData }: Props) {
           city_id:
             selectedSourceInventory.cityId ??
             businesses.find((business) => business.id === sourceBusinessId)?.city_id ??
-            initialData.currentCityId ??
+            currentCityId ??
             "",
           item_key: selectedSourceInventory.itemKey,
           quality: selectedSourceInventory.quality,

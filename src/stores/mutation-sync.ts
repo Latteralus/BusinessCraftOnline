@@ -86,6 +86,7 @@ export async function syncMutationViews(options: MutationSyncOptions) {
           businesses: data.businesses,
           listings: data.listings,
           transactions: data.transactions,
+          currentCityId: data.currentCityId ?? null,
         });
       })
     );
