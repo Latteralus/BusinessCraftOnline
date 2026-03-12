@@ -130,6 +130,7 @@ export function RealtimeProvider() {
         playerCount: appShell.playerCount,
         onlinePlayers: appShell.onlinePlayers,
         notificationsCount: appShell.notificationsCount,
+        unreadChatCount: appShell.unreadChatCount,
       });
       setChat(chat.messages);
       setBusinesses(businessesPage.businesses);

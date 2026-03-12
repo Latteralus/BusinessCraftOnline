@@ -1,6 +1,7 @@
 import { getOnlinePlayerPreviews, touchPlayerPresence } from "@/domains/auth-character";
 import { getMarketStorefrontSettings } from "@/domains/market";
 import { requireAuthedUser } from "@/app/api/_shared/route-helpers";
+import { getUnreadChatCount } from "@/domains/chat";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -11,15 +12,17 @@ export async function GET() {
   try {
     await touchPlayerPresence(supabase, user.id).catch(() => null);
 
-    const [onlinePlayers, storefrontSettings] = await Promise.all([
+    const [onlinePlayers, storefrontSettings, unreadChatCount] = await Promise.all([
       getOnlinePlayerPreviews(supabase, 300).catch(() => []),
       getMarketStorefrontSettings(supabase, user.id).catch(() => []),
+      getUnreadChatCount(supabase, user.id).catch(() => 0),
     ]);
 
     return NextResponse.json({
       playerCount: onlinePlayers.length,
       onlinePlayers,
       notificationsCount: storefrontSettings.filter((row) => row.is_ad_enabled).length,
+      unreadChatCount,
     });
   } catch (error) {
     return NextResponse.json(

@@ -28,5 +28,10 @@ export function DashboardGreeting({ firstName }: Props) {
     return () => window.clearInterval(interval);
   }, []);
 
-  return <h1>{greeting}, {firstName}</h1>;
+  const message =
+    greeting === "Working late?"
+      ? `Working late ${firstName}?`
+      : `${greeting}, ${firstName}`;
+
+  return <h1>{message}</h1>;
 }

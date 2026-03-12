@@ -6,13 +6,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { OnlinePlayerPreview } from "@/domains/auth-character";
 import type { ChatMessage } from "@/domains/chat";
 import { formatCurrency } from "@/lib/formatters";
-import { apiPost } from "@/lib/client/api";
+import { apiPatch, apiPost } from "@/lib/client/api";
 import { fetchChatMessages } from "@/lib/client/queries";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 import { useAppShellSlice, useChatSlice, useGameStore, usePlayerSlice } from "@/stores/game-store";
-
-const CHAT_MESSAGE_LIMIT = 50;
-const CHAT_LAST_VIEWED_STORAGE_KEY = "lco-chat-last-viewed-at";
 
 function formatChatTimestamp(value: string) {
   const date = new Date(value);
@@ -26,20 +23,10 @@ function formatChatTimestamp(value: string) {
   });
 }
 
-function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[]) {
-  const merged = new Map<string, ChatMessage>();
-
-  for (const message of current) {
-    merged.set(message.id, message);
-  }
-
-  for (const message of incoming) {
-    merged.set(message.id, message);
-  }
-
-  return Array.from(merged.values())
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-    .slice(-CHAT_MESSAGE_LIMIT);
+function compareTimestamps(left: string | null, right: string | null) {
+  const leftTime = left ? new Date(left).getTime() : Number.NEGATIVE_INFINITY;
+  const rightTime = right ? new Date(right).getTime() : Number.NEGATIVE_INFINITY;
+  return leftTime - rightTime;
 }
 
 export function Topbar() {
@@ -61,76 +48,43 @@ export function Topbar() {
   const chatRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const isChatOpenRef = useRef(false);
-  const hasInitializedChatRef = useRef(false);
-  const hasRequestedChatRef = useRef(false);
-  const [lastViewedChatAt, setLastViewedChatAt] = useState<string | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-
-    return window.localStorage.getItem(CHAT_LAST_VIEWED_STORAGE_KEY);
-  });
-  const lastViewedChatAtRef = useRef<string | null>(lastViewedChatAt);
+  const hasLoadedInitialChatRef = useRef(false);
+  const latestTrackedChatAtRef = useRef<string | null>(null);
+  const markReadRequestRef = useRef<string | null>(null);
   const playerCount = appShell.playerCount;
   const onlinePlayers = appShell.onlinePlayers as OnlinePlayerPreview[];
   const notificationsCount = appShell.notificationsCount;
+  const chatUnreadCount = appShell.unreadChatCount ?? 0;
   const isRealtimeConnected = appShell.connectionStatus === "connected";
   const identityLoaded = Boolean(identity.playerId && identity.firstName && identity.lastName);
-  const chatUnreadCount =
-    !isChatOpen && lastViewedChatAt
-      ? chatMessages.filter((message) => new Date(message.created_at).getTime() > new Date(lastViewedChatAt).getTime()).length
-      : 0;
 
   function getLatestChatTimestamp(messages: ChatMessage[]) {
     return messages[messages.length - 1]?.created_at ?? null;
   }
 
+  function patchUnreadChatCount(nextCount: number) {
+    patchAppShell({ unreadChatCount: Math.max(0, nextCount) });
+  }
+
   function markChatViewed(timestamp: string | null) {
-    lastViewedChatAtRef.current = timestamp;
-    setLastViewedChatAt(timestamp);
-
-    if (typeof window === "undefined") {
+    if (!timestamp || markReadRequestRef.current === timestamp) {
       return;
     }
 
-    if (timestamp) {
-      window.localStorage.setItem(CHAT_LAST_VIEWED_STORAGE_KEY, timestamp);
-    } else {
-      window.localStorage.removeItem(CHAT_LAST_VIEWED_STORAGE_KEY);
-    }
-  }
+    markReadRequestRef.current = timestamp;
+    patchUnreadChatCount(0);
 
-  function applyIncomingMessages(incoming: ChatMessage[]) {
-    const latestMergedTimestamp = getLatestChatTimestamp(incoming);
-    if (!hasInitializedChatRef.current) {
-      hasInitializedChatRef.current = true;
-      if (!lastViewedChatAtRef.current) {
-        markChatViewed(latestMergedTimestamp);
-      }
-      return;
-    }
-
-    if (isChatOpenRef.current) {
-      markChatViewed(latestMergedTimestamp);
-    }
+    void apiPatch<{ ok?: boolean; error?: string }>(
+      "/api/chat",
+      { viewedAt: timestamp },
+      { fallbackError: "Failed to update chat unread state." }
+    ).catch(() => {
+      markReadRequestRef.current = null;
+    });
   }
 
   useEffect(() => {
-    if (chatMessages.length === 0) {
-      return;
-    }
-
-    applyIncomingMessages(chatMessages);
-    setIsChatLoading(false);
-  }, [chatMessages]);
-
-  useEffect(() => {
-    if (!isChatOpen || hasInitializedChatRef.current || hasRequestedChatRef.current) {
-      return;
-    }
-
     let cancelled = false;
-    hasRequestedChatRef.current = true;
     setIsChatLoading(true);
 
     void fetchChatMessages()
@@ -140,8 +94,9 @@ export function Topbar() {
         }
         const messages = data.messages ?? [];
         setChat(messages);
-        applyIncomingMessages(messages);
+        patchUnreadChatCount(data.unreadCount ?? useGameStore.getState().appShell.data.unreadChatCount);
         setChatError(null);
+        hasLoadedInitialChatRef.current = true;
       })
       .catch((error) => {
         if (!cancelled) {
@@ -157,11 +112,7 @@ export function Topbar() {
     return () => {
       cancelled = true;
     };
-  }, [isChatOpen, setChat]);
-
-  useEffect(() => {
-    patchAppShell({ unreadChatCount: chatUnreadCount });
-  }, [chatUnreadCount, patchAppShell]);
+  }, [setChat, patchAppShell]);
 
   useEffect(() => {
     const heartbeat = window.setInterval(() => {
@@ -179,6 +130,41 @@ export function Topbar() {
   }, [chatMessages, isChatOpen]);
 
   useEffect(() => {
+    const latestChatAt = getLatestChatTimestamp(chatMessages);
+    if (chatMessages.length === 0 || !latestChatAt) {
+      return;
+    }
+
+    setIsChatLoading(false);
+
+    const previousLatestChatAt = latestTrackedChatAtRef.current;
+    latestTrackedChatAtRef.current = latestChatAt;
+
+    if (!hasLoadedInitialChatRef.current || !previousLatestChatAt) {
+      hasLoadedInitialChatRef.current = true;
+      return;
+    }
+
+    const newMessages = chatMessages.filter(
+      (message) =>
+        message.player_id !== identity.playerId &&
+        compareTimestamps(message.created_at, previousLatestChatAt) > 0
+    );
+
+    if (newMessages.length === 0) {
+      return;
+    }
+
+    if (isChatOpenRef.current) {
+      markChatViewed(latestChatAt);
+      return;
+    }
+
+    const currentUnreadCount = useGameStore.getState().appShell.data.unreadChatCount ?? 0;
+    patchUnreadChatCount(currentUnreadCount + newMessages.length);
+  }, [chatMessages, identity.playerId, patchAppShell]);
+
+  useEffect(() => {
     if (!isChatOpen) {
       return;
     }
@@ -186,7 +172,7 @@ export function Topbar() {
     chatScrollRef.current?.scrollTo({
       top: chatScrollRef.current.scrollHeight,
       behavior: "smooth",
-    });
+      });
   }, [chatMessages, isChatOpen]);
 
   useEffect(() => {

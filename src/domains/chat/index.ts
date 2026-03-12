@@ -1,4 +1,4 @@
-export { getRecentChatMessages, sendChatMessage } from "./service";
-export { sendChatMessageSchema } from "./validations";
-export type { SendChatMessageInput } from "./validations";
+export { getRecentChatMessages, getUnreadChatCount, markChatRead, sendChatMessage } from "./service";
+export { markChatReadSchema, sendChatMessageSchema } from "./validations";
+export type { MarkChatReadInput, SendChatMessageInput } from "./validations";
 export type { ChatMessage } from "./types";

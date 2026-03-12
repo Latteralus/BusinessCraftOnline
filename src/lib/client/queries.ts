@@ -49,6 +49,7 @@ export type AppShellData = {
   playerCount: number;
   onlinePlayers: OnlinePlayerPreview[];
   notificationsCount: number;
+  unreadChatCount: number;
 };
 
 export type AuthMeData = {
@@ -57,6 +58,7 @@ export type AuthMeData = {
 
 export type ChatMessagesData = {
   messages: ChatMessage[];
+  unreadCount: number;
 };
 
 type InventoryResponse = {
@@ -101,14 +103,18 @@ export async function fetchAppShell() {
     playerCount: payload.playerCount ?? 0,
     onlinePlayers: payload.onlinePlayers ?? [],
     notificationsCount: payload.notificationsCount ?? 0,
+    unreadChatCount: payload.unreadChatCount ?? 0,
   };
 }
 
 export async function fetchChatMessages() {
-  const payload = await apiGet<{ messages?: ChatMessage[]; error?: string }>("/api/chat", {
+  const payload = await apiGet<{ messages?: ChatMessage[]; unreadCount?: number; error?: string }>("/api/chat", {
     fallbackError: "Failed to load chat.",
   });
-  return { messages: payload.messages ?? [] };
+  return {
+    messages: payload.messages ?? [],
+    unreadCount: payload.unreadCount ?? 0,
+  };
 }
 
 export async function fetchTravelState() {
