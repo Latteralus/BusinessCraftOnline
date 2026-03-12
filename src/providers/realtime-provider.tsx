@@ -191,8 +191,32 @@ export function RealtimeProvider() {
       patchContracts(row);
     };
 
+    const refreshTrackedBusinessDetailsForEmployee = (employee: Partial<Employee> & { id?: string | number | null }) => {
+      const employeeId = employee.id ? String(employee.id) : null;
+      const employerBusinessId = employee.employer_business_id ? String(employee.employer_business_id) : null;
+      if (!employeeId && !employerBusinessId) {
+        return;
+      }
+
+      for (const businessId of trackedBusinessDetailIds) {
+        const detail = useGameStore.getState().businessDetails.data[businessId];
+        if (!detail) {
+          continue;
+        }
+
+        const tracksEmployee =
+          (employeeId ? detail.employees.some((entry) => entry.id === employeeId) : false) ||
+          (employerBusinessId ? detail.business.id === employerBusinessId : false);
+
+        if (tracksEmployee) {
+          void refreshBusinessDetail(businessId);
+        }
+      }
+    };
+
     const handleEmployeeChange = (payload: RealtimePostgresChangesPayload<Employee>) => {
       if (payload.eventType === "DELETE") {
+        refreshTrackedBusinessDetailsForEmployee(payload.old as Partial<Employee>);
         removeEmployee(String(payload.old.id));
         return;
       }
@@ -201,6 +225,7 @@ export function RealtimeProvider() {
         return;
       }
       patchEmployees(row);
+      refreshTrackedBusinessDetailsForEmployee(row);
     };
 
     const refreshBusinessDetail = async (businessId: string) => {
@@ -220,9 +245,6 @@ export function RealtimeProvider() {
           detail.financeDashboard?.currentPeriod ?? "1h"
         ).catch(() => null);
         if (!refreshedDetail) {
-          if (!cancelled) {
-            removeBusinessDetail(businessId);
-          }
           return;
         }
 
