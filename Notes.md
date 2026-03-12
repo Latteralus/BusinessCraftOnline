@@ -1,3 +1,0 @@
-Findings
-
-Market optimistic writes also rebuild arrays from render-time closures, which can overwrite fresher store state even on success. In MarketClient.tsx (line 360) and MarketClient.tsx (line 430), patchMarket is fed arrays derived from captured listings/transactions values, not from the latest store state. If a realtime event lands between render and mutation completion, those writes can drop new listings, quantity changes, or transactions. This is the same class of stale-state drift as above, but happening even without rollback.

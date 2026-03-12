@@ -192,7 +192,6 @@ function updateMarketState(updater: (current: MarketSliceData) => MarketSliceDat
 export default function MarketClient({ initialData }: Props) {
   const market = useMarketSlice();
   const inventory = useInventorySlice();
-  const patchMarket = useGameStore((state) => state.patchMarket);
   const playerId = useGameStore((state) => state.player.data.playerId);
   const businesses = market.businesses;
   const listings = market.listings;
@@ -402,7 +401,10 @@ export default function MarketClient({ initialData }: Props) {
           business: sourceType === "business" && sourceBusinessName ? { name: sourceBusinessName } : undefined,
           source_label: selectedSourceInventory.sourceLabel,
         };
-        patchMarket({ listings: [optimisticListing, ...listings] });
+        updateMarketState((current) => ({
+          ...current,
+          listings: [optimisticListing, ...current.listings],
+        }));
         return () => {
           updateMarketState((current) => ({
             ...current,
@@ -451,8 +453,9 @@ export default function MarketClient({ initialData }: Props) {
     try {
       const previousListing = listings.find((listing) => listing.id === listingId) ?? null;
       await runOptimisticUpdate("market", () => {
-        patchMarket({
-          listings: listings.map((listing) =>
+        updateMarketState((current) => ({
+          ...current,
+          listings: current.listings.map((listing) =>
             listing.id === listingId
               ? {
                   ...listing,
@@ -462,7 +465,7 @@ export default function MarketClient({ initialData }: Props) {
                 }
               : listing
           ),
-        });
+        }));
         return () => {
           updateMarketState((current) => ({
             ...current,
@@ -511,8 +514,9 @@ export default function MarketClient({ initialData }: Props) {
       await runOptimisticUpdate("market", () => {
         if (!targetListing) return;
         const nextQuantity = Math.max(0, targetListing.quantity - purchaseQuantity);
-        patchMarket({
-          listings: listings.map((listing) =>
+        updateMarketState((current) => ({
+          ...current,
+          listings: current.listings.map((listing) =>
             listing.id === listingId
               ? {
                   ...listing,
@@ -524,7 +528,7 @@ export default function MarketClient({ initialData }: Props) {
                 }
               : listing
           ),
-        });
+        }));
         return () => {
           updateMarketState((current) => ({
             ...current,
