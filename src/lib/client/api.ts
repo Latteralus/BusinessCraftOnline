@@ -1,3 +1,5 @@
+import { resolveLiveRequestCache } from "./live-request";
+
 type ApiErrorPayload = {
   error?: string;
   message?: string;
@@ -38,7 +40,7 @@ export async function apiRequest<TResponse>(path: string, options: ApiRequestOpt
 
   const response = await fetch(path, {
     ...rest,
-    cache: method === "GET" ? "no-store" : rest.cache,
+    cache: resolveLiveRequestCache(method, rest.cache),
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),

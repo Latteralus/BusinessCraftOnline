@@ -17,6 +17,7 @@ Read this before making changes.
 - Post-mutation resync is handled by [`src/stores/mutation-sync.ts`](/c:/Users/Chris/OneDrive/Desktop/LifeCraftOnline/src/stores/mutation-sync.ts).
 - Optimistic updates are handled by [`src/stores/optimistic.ts`](/c:/Users/Chris/OneDrive/Desktop/LifeCraftOnline/src/stores/optimistic.ts).
 - React Query was intentionally removed. Do not reintroduce it casually.
+- Live client GET requests should go through [`src/lib/client/api.ts`](/c:/Users/Chris/OneDrive/Desktop/LifeCraftOnline/src/lib/client/api.ts) and its shared cache policy helper [`src/lib/client/live-request.ts`](/c:/Users/Chris/OneDrive/Desktop/LifeCraftOnline/src/lib/client/live-request.ts) so realtime-triggered refreshes do not silently serve stale cached state.
 
 ## Non-Negotiable Repo Rules
 - Read `_AI_GUIDE.md` before touching code. It currently says:
@@ -60,6 +61,12 @@ Read this before making changes.
 - corresponding client fetcher in `src/lib/client/queries.ts`
 - hydration payload passed by the page
 - realtime refresh path if that state is kept live
+- If a page is refreshed from realtime and the values still look frozen, inspect both the realtime subscription path and the client fetch cache policy before assuming the DB write failed.
+
+## Current SSOTs
+- Extraction base output per tick lives in [`shared/production/extraction.ts`](/c:/Users/Chris/OneDrive/Desktop/LifeCraftOnline/shared/production/extraction.ts). Do not hardcode extraction output rates in UI components or edge functions.
+- Extraction dashboard/view math lives in [`src/domains/production/view.ts`](/c:/Users/Chris/OneDrive/Desktop/LifeCraftOnline/src/domains/production/view.ts). Prefer reusing helpers like `buildExtractionOperationsView()` and `getExtractionSlotThroughput()` instead of recomputing throughput/degraded-slot logic inside components.
+- Upgrade runtime defaults and multiplier helpers live in [`shared/upgrades/runtime.ts`](/c:/Users/Chris/OneDrive/Desktop/LifeCraftOnline/shared/upgrades/runtime.ts). If app-side and edge-side upgrade math drift, check this file first.
 
 ## Authentication Model
 - This app uses a custom JWT cookie, not default Supabase browser session persistence.
@@ -98,6 +105,7 @@ Read this before making changes.
 - `tick-shipping`
 - `tick-travel`
 - `tick-wages`
+- If you change shared files consumed by an edge function, remember that hosted behavior will not change until the relevant function is redeployed.
 
 ## Supabase CLI Notes
 - Local development expects the Supabase CLI to be available.
@@ -156,15 +164,16 @@ Read this before making changes.
 - hydration payload
 - realtime refresh path
 - mutation resync path
-4. Decide whether logic belongs in:
+4. Check whether the logic already has an SSOT in `shared/*`, `src/config/*`, or `src/domains/*/view.ts` before adding another copy.
+5. Decide whether logic belongs in:
 - domain service
 - config file
 - API route
 - edge function
 - component/store
-5. If changing database behavior, add a migration.
-6. If changing tick behavior, inspect both SQL scheduling and Deno edge function code.
-7. Run the most relevant verification command.
+6. If changing database behavior, add a migration.
+7. If changing tick behavior, inspect both SQL scheduling and Deno edge function code.
+8. Run the most relevant verification command.
 
 ## Useful Commands
 - Install deps: `npm install`

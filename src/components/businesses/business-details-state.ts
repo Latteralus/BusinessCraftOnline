@@ -6,8 +6,7 @@ import type {
 } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import type { BusinessInventoryItem } from "@/domains/inventory";
-import type { ManufacturingStatusView, ProductionStatus } from "@/domains/production";
-import { summarizeManufacturingLines } from "@/domains/production/view";
+import { summarizeManufacturingLines, type ManufacturingStatusView, type ProductionStatus } from "@/domains/production";
 import type { StoreShelfItem } from "@/domains/stores";
 import type { UpgradeDefinition } from "@/domains/upgrades";
 import type { BusinessDetailsEntry } from "@/stores/game-store";

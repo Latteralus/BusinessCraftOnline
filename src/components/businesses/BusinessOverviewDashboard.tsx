@@ -1,11 +1,6 @@
 "use client";
 
 import {
-  EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
-  EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
-  EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
-} from "@/config/production";
-import {
   getBusinessOperationalMode,
   supportsStorefront,
   type Business,
@@ -14,7 +9,12 @@ import {
 } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import type { BusinessInventoryItem } from "@/domains/inventory";
-import type { ManufacturingStatusView, ProductionStatus } from "@/domains/production";
+import {
+  buildExtractionOperationsView,
+  getLeadManufacturingLine,
+  type ManufacturingStatusView,
+  type ProductionStatus,
+} from "@/domains/production";
 import type { StoreShelfItem } from "@/domains/stores";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatLabel } from "@/lib/formatters";
@@ -222,35 +222,9 @@ export default function BusinessOverviewDashboard(props: Props) {
   const isStore = supportsStorefront(props.business.type);
   const operationalMode = getBusinessOperationalMode(props.business.type);
 
-  const extractionThroughput = production
-    ? production.slots.reduce((sum, slot) => {
-        if (slot.status !== "active") return sum;
-        const businessType = production.businessType as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS;
-        const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType];
-        const fallbackMultiplier =
-          EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[businessType] ?? 0;
-        const hasOperationalTool =
-          !requiredTool ||
-          (slot.tool_item_key === requiredTool &&
-            slot.tool?.item_type === requiredTool &&
-            (slot.tool?.uses_remaining ?? 0) > 0);
-        return sum + (hasOperationalTool ? 1 : fallbackMultiplier || 0);
-      }, 0)
-    : 0;
-
-  const degradedExtractionSlots = production
-    ? production.slots.filter((slot) => {
-        if (slot.status !== "active") return false;
-        const businessType = production.businessType as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS;
-        const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType];
-        if (!requiredTool) return false;
-        return !(
-          slot.tool_item_key === requiredTool &&
-          slot.tool?.item_type === requiredTool &&
-          (slot.tool?.uses_remaining ?? 0) > 0
-        );
-      }).length
-    : 0;
+  const extractionView = production ? buildExtractionOperationsView(production) : null;
+  const extractionThroughput = extractionView?.throughputPerMinute ?? 0;
+  const degradedExtractionSlots = extractionView?.degradedSlots ?? 0;
 
   const operationsHeadline = production
     ? degradedExtractionSlots > 0
@@ -262,7 +236,7 @@ export default function BusinessOverviewDashboard(props: Props) {
         ? `${props.shelfItems.length} active shelf rows`
         : "No live operations";
 
-  const activeManufacturingLine = props.manufacturing?.lines.find((line) => line.status === "active") ?? null;
+  const activeManufacturingLine = props.manufacturing ? getLeadManufacturingLine(props.manufacturing) : null;
   const manufacturingOutputKeys = new Set(
     (props.manufacturing?.lines ?? [])
       .map((line) => line.configured_recipe?.outputItemKey ?? null)
@@ -273,7 +247,7 @@ export default function BusinessOverviewDashboard(props: Props) {
     .reduce((sum, row) => sum + Math.max(0, row.quantity - row.reserved_quantity), 0);
   const throughputHeadline = production
     ? `${extractionThroughput} ${formatItemKey(
-        EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[production.businessType as keyof typeof EXTRACTION_OUTPUT_ITEM_BY_BUSINESS]
+        extractionView?.outputItemKey ?? "output"
       )}/min`
     : activeManufacturingLine?.configured_recipe
       ? `${activeManufacturingLine.configured_recipe.baseOutputQuantity} ${formatItemKey(activeManufacturingLine.configured_recipe.outputItemKey)}/min`

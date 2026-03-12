@@ -1,7 +1,14 @@
+import {
+  EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS,
+  EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
+  EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
+  EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
+} from "@/config/production";
 import type { BusinessInventoryItem } from "@/domains/inventory";
-import type { ManufacturingStatusView } from "./types";
+import type { ManufacturingStatusView, ProductionStatus } from "./types";
 
 type ManufacturingLineView = NonNullable<ManufacturingStatusView["lines"]>[number];
+type ExtractionSlotView = NonNullable<ProductionStatus["slots"]>[number];
 
 export function summarizeManufacturingLines(
   lines: ManufacturingLineView[]
@@ -13,6 +20,63 @@ export function summarizeManufacturingLines(
     resting: lines.filter((line) => line.status === "resting").length,
     retooling: lines.filter((line) => line.status === "retooling").length,
     occupied: lines.filter((line) => Boolean(line.employee_id)).length,
+  };
+}
+
+export function hasOperationalExtractionTool(
+  slot: ExtractionSlotView,
+  businessType: ProductionStatus["businessType"]
+) {
+  const requiredTool =
+    EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[
+      businessType as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS
+    ];
+  return (
+    !requiredTool ||
+    (slot.tool_item_key === requiredTool &&
+      slot.tool?.item_type === requiredTool &&
+      (slot.tool?.uses_remaining ?? 0) > 0)
+  );
+}
+
+export function getExtractionSlotThroughput(
+  slot: ExtractionSlotView,
+  businessType: ProductionStatus["businessType"]
+) {
+  if (slot.status !== "active") return 0;
+  if (hasOperationalExtractionTool(slot, businessType)) {
+    return (
+      EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS[
+        businessType as keyof typeof EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS
+      ] ?? 1
+    );
+  }
+  return (
+    EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[
+      businessType as keyof typeof EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS
+    ] ?? 0
+  );
+}
+
+export function buildExtractionOperationsView(production: ProductionStatus) {
+  const throughputPerMinute = production.slots.reduce(
+    (sum, slot) => sum + getExtractionSlotThroughput(slot, production.businessType),
+    0
+  );
+  const degradedSlots = production.slots.filter(
+    (slot) =>
+      slot.status === "active" &&
+      getExtractionSlotThroughput(slot, production.businessType) > 0 &&
+      !hasOperationalExtractionTool(slot, production.businessType)
+  ).length;
+
+  return {
+    throughputPerMinute,
+    degradedSlots,
+    outputItemKey:
+      EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[
+        production.businessType as keyof typeof EXTRACTION_OUTPUT_ITEM_BY_BUSINESS
+      ],
   };
 }
 

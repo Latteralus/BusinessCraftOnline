@@ -5,6 +5,11 @@ import {
   type UpgradeDowntimePolicy,
 } from "../../src/config/business-upgrades";
 import type { BusinessType } from "../../src/config/businesses";
+import {
+  BUSINESS_UPGRADE_EFFECT_DEFAULTS,
+  getDowntimeMultiplier,
+  round4,
+} from "./runtime";
 
 export type BusinessUpgradeLevels = Partial<Record<BusinessUpgradeKey, number>>;
 
@@ -31,25 +36,10 @@ export type BusinessUpgradeEffects = {
 };
 
 export const DEFAULT_BUSINESS_UPGRADE_EFFECTS: BusinessUpgradeEffects = {
-  workerCapacitySlots: 0,
-  extractionOutputMultiplier: 1,
-  extractionQualityBonus: 0,
-  farmWaterUseMultiplier: 1,
-  toolDurabilityMultiplier: 1,
-  manufacturingOutputMultiplier: 1,
-  manufacturingInputUseMultiplier: 1,
-  manufacturingQualityBonus: 0,
-  storefrontTrafficMultiplier: 1,
-  storefrontListingCapacityBonus: 0,
-  storefrontConversionMultiplier: 1,
-  storefrontPriceToleranceMultiplier: 1,
+  ...BUSINESS_UPGRADE_EFFECT_DEFAULTS,
   downtimePolicy: null,
-  downtimeMultiplier: 1,
+  downtimeMultiplier: BUSINESS_UPGRADE_EFFECT_DEFAULTS.downtimeMultiplier,
 };
-
-function round4(value: number): number {
-  return Number(value.toFixed(4));
-}
 
 export function resolveUpgradeEffectValue(
   definition: BusinessUpgradeDefinition,
@@ -82,12 +72,6 @@ export function resolveUpgradeEffectValue(
     default:
       return round4(definition.baseEffect * Math.pow(definition.gainMultiplier, normalizedLevel - 1));
   }
-}
-
-export function getDowntimeMultiplier(policy: UpgradeDowntimePolicy | null): number {
-  if (policy === "full") return 0;
-  if (policy === "partial") return 0.75;
-  return 1;
 }
 
 export function resolveBusinessUpgradeEffects(

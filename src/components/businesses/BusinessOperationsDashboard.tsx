@@ -1,17 +1,16 @@
 "use client";
 
-import { EXTRACTION_OUTPUT_ITEM_BY_BUSINESS } from "@/config/production";
 import { TooltipLabel } from "@/components/ui/tooltip";
-import {
-  EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS,
-  EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
-  EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
-} from "@/config/production";
 import type { Business } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import type { BusinessInventoryItem } from "@/domains/inventory";
-import type { ManufacturingStatusView, ProductionStatus } from "@/domains/production";
-import { buildManufacturingOperationsView } from "@/domains/production/view";
+import {
+  buildExtractionOperationsView,
+  buildManufacturingOperationsView,
+  getExtractionSlotThroughput,
+  type ManufacturingStatusView,
+  type ProductionStatus,
+} from "@/domains/production";
 import type { StoreShelfItem } from "@/domains/stores";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatLabel } from "@/lib/formatters";
@@ -91,27 +90,6 @@ function getRetoolProgress(retoolCompleteAt: string | null, nowMs: number) {
     progress,
     remainingMs: Math.max(0, completeMs - nowMs),
   };
-}
-
-function calculateExtractionThroughput(production: ProductionStatus) {
-  return production.slots.reduce((sum, slot) => {
-    if (slot.status !== "active") return sum;
-
-    const businessType = production.businessType as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS;
-    const baseOutput =
-      EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS[
-        production.businessType as keyof typeof EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS
-      ] ?? 1;
-    const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType];
-    const fallbackMultiplier = EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[businessType] ?? 0;
-    const hasOperationalTool =
-      !requiredTool ||
-      (slot.tool_item_key === requiredTool &&
-        slot.tool?.item_type === requiredTool &&
-        (slot.tool?.uses_remaining ?? 0) > 0);
-
-    return sum + (hasOperationalTool ? baseOutput : fallbackMultiplier || 0);
-  }, 0);
 }
 
 function MiniOpStat(props: { label: ReactNode; value: string; sub?: string; tone?: "neutral" | "positive" | "negative" }) {
@@ -263,24 +241,9 @@ export default function BusinessOperationsDashboard(props: Props) {
   if (props.production) {
     const { production } = props;
     const activeSlots = production.summary.active;
-    const throughputPerMinute = calculateExtractionThroughput(production);
-    const degradedSlots = production.slots.filter((slot) => {
-      if (slot.status !== "active") return false;
-      const businessType = production.businessType as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS;
-      const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType];
-      if (!requiredTool) return false;
-      return !(
-        slot.tool_item_key === requiredTool &&
-        slot.tool?.item_type === requiredTool &&
-        (slot.tool?.uses_remaining ?? 0) > 0
-      );
-    }).length;
+    const { throughputPerMinute, degradedSlots, outputItemKey } = buildExtractionOperationsView(production);
     const utilization = production.maxSlots > 0 ? (activeSlots / production.maxSlots) * 100 : 0;
     const occupancy = production.maxSlots > 0 ? (production.summary.occupied / production.maxSlots) * 100 : 0;
-    const outputItem =
-      EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[
-        production.businessType as keyof typeof EXTRACTION_OUTPUT_ITEM_BY_BUSINESS
-      ];
     const averageToolHealth =
       production.slots.filter((slot) => slot.tool).length > 0
         ? production.slots
@@ -303,7 +266,7 @@ export default function BusinessOperationsDashboard(props: Props) {
             Extraction Control Room
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-            <MiniOpStat label={<TooltipLabel label="Throughput" content="Expected per-minute extraction output from all active slots, including degraded fallback output when tools are missing." />} value={`${throughputPerMinute} ${formatItemKey(outputItem)}/min`} sub={degradedSlots > 0 ? `${production.summary.active} active lanes · ${degradedSlots} degraded` : `${production.summary.active} active lanes`} tone="positive" />
+            <MiniOpStat label={<TooltipLabel label="Throughput" content="Expected per-minute extraction output from all active slots, including degraded fallback output when tools are missing." />} value={`${throughputPerMinute} ${formatItemKey(outputItemKey)}/min`} sub={degradedSlots > 0 ? `${production.summary.active} active lanes · ${degradedSlots} degraded` : `${production.summary.active} active lanes`} tone="positive" />
             <MiniOpStat label={<TooltipLabel label="Slot Utilization" content="Share of total extraction slots that are actively running." />} value={formatPercent(utilization)} sub={`${production.summary.active}/${production.maxSlots} slots running`} />
             <MiniOpStat label={<TooltipLabel label="Crew Coverage" content="Share of slots that currently have a worker assigned." />} value={formatPercent(occupancy)} sub={`${production.summary.occupied} staffed`} />
             <MiniOpStat label={<TooltipLabel label="Tool Health" content="Average remaining tool uses across equipped slots. Missing or depleted tools can degrade output." />} value={averageToolHealth > 0 ? `${Math.round(averageToolHealth)} uses avg` : "No tools"} sub={degradedSlots > 0 ? `${degradedSlots} lane${degradedSlots === 1 ? "" : "s"} on fallback output` : "All lanes serviceable"} tone={degradedSlots > 0 ? "negative" : "neutral"} />
@@ -325,7 +288,7 @@ export default function BusinessOperationsDashboard(props: Props) {
             title="Dispatch Notes"
             rows={[
               { label: "Business Type", value: formatBusinessType(production.businessType) },
-              { label: "Output Commodity", value: formatItemKey(outputItem) },
+              { label: "Output Commodity", value: formatItemKey(outputItemKey) },
               { label: "Assigned Workers", value: `${production.summary.occupied}/${production.maxSlots}` },
               { label: "Idle Capacity", value: `${Math.max(0, production.maxSlots - production.summary.active)} slots` },
               { label: "Inventory Ready", value: `${availableInventoryUnits} units` },
@@ -343,11 +306,7 @@ export default function BusinessOperationsDashboard(props: Props) {
               : getLiveCycleProgress(
                   slot.last_extracted_at,
                   slot.output_progress,
-                  isActive
-                    ? EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS[
-                        production.businessType as keyof typeof EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS
-                      ] ?? 1
-                    : 0,
+                  isActive ? getExtractionSlotThroughput(slot, production.businessType) : 0,
                   nowMs
                 );
             return {

@@ -1,4 +1,11 @@
 import type { EdgeSupabaseClient } from "./tick-runtime.ts";
+import {
+  BUSINESS_UPGRADE_EFFECT_DEFAULTS,
+  getDowntimeMultiplier,
+  resolveMultiplier,
+  resolveReductionMultiplier,
+  round4,
+} from "../../../shared/upgrades/runtime.ts";
 
 type UpgradeDowntimePolicy = "none" | "partial" | "full";
 
@@ -29,48 +36,15 @@ type BusinessUpgradeEffects = {
 };
 
 const DEFAULT_EFFECTS: BusinessUpgradeEffects = {
-  workerCapacitySlots: 0,
-  extractionOutputMultiplier: 1,
-  extractionQualityBonus: 0,
-  farmWaterUseMultiplier: 1,
-  toolDurabilityMultiplier: 1,
-  manufacturingOutputMultiplier: 1,
-  manufacturingInputUseMultiplier: 1,
-  manufacturingQualityBonus: 0,
-  storefrontTrafficMultiplier: 1,
-  storefrontListingCapacityBonus: 0,
-  storefrontConversionMultiplier: 1,
-  storefrontPriceToleranceMultiplier: 1,
+  ...BUSINESS_UPGRADE_EFFECT_DEFAULTS,
   downtimePolicy: null,
-  downtimeMultiplier: 1,
+  downtimeMultiplier: BUSINESS_UPGRADE_EFFECT_DEFAULTS.downtimeMultiplier,
 };
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
   if (typeof value === "string") return Number(value);
   return 0;
-}
-
-function round4(value: number): number {
-  return Number(value.toFixed(4));
-}
-
-function resolveMultiplier(baseEffect: number, gainMultiplier: number, level: number): number {
-  if (level <= 0) return 1;
-  return round4(baseEffect * Math.pow(gainMultiplier, level - 1));
-}
-
-function resolveReductionMultiplier(baseEffect: number, gainMultiplier: number, level: number): number {
-  if (level <= 0) return 1;
-  const baseReduction = Math.max(0, 1 - baseEffect);
-  const reduction = baseReduction * Math.pow(gainMultiplier, level - 1);
-  return round4(Math.max(0.1, 1 - reduction));
-}
-
-function getDowntimeMultiplier(policy: UpgradeDowntimePolicy | null): number {
-  if (policy === "full") return 0;
-  if (policy === "partial") return 0.75;
-  return 1;
 }
 
 function resolveEffectsFromLevels(

@@ -17,6 +17,15 @@ export {
 } from "./service";
 
 export {
+  buildExtractionOperationsView,
+  buildManufacturingOperationsView,
+  getExtractionSlotThroughput,
+  getLeadManufacturingLine,
+  hasOperationalExtractionTool,
+  summarizeManufacturingLines,
+} from "./view";
+
+export {
   assignExtractionSlotSchema,
   assignManufacturingLineSchema,
   installToolSchema,
