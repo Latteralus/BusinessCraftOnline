@@ -28,6 +28,11 @@ type SliceKey = Exclude<keyof ReturnType<typeof useGameStore.getState>, keyof {
   setChat: true;
   patchChat: true;
   removeChatMessage: true;
+  setMail: true;
+  patchMailThreads: true;
+  setActiveMailThread: true;
+  removeMailThread: true;
+  setMailRecipientSearchResults: true;
   setAppShell: true;
   patchAppShell: true;
 }>;

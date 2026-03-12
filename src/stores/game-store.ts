@@ -6,6 +6,7 @@ import type { ChatMessage } from "@/domains/chat";
 import type { Contract } from "@/domains/contracts";
 import type { Employee, EmployeeSummary } from "@/domains/employees";
 import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } from "@/domains/inventory";
+import type { MailRecipientPreview, MailThreadDetail, MailThreadPreview } from "@/domains/mail";
 import type { MarketListing, MarketTransaction } from "@/domains/market";
 import type { ManufacturingStatusView, ProductionStatus } from "@/domains/production";
 import type { Business, BusinessFinanceDashboard, BusinessUpgrade, BusinessUpgradeProject, BusinessWithBalance } from "@/domains/businesses";
@@ -55,6 +56,12 @@ export type MarketSliceData = {
 
 export type ContractsSliceData = Contract[];
 
+export type MailSliceData = {
+  threads: MailThreadPreview[];
+  activeThread: MailThreadDetail | null;
+  recipientSearchResults: MailRecipientPreview[];
+};
+
 export type EmployeesSliceData = {
   employees: Employee[];
   summary: EmployeeSummary | null;
@@ -92,6 +99,7 @@ export type AppShellSliceData = {
   onlinePlayers: OnlinePlayerPreview[];
   notificationsCount: number;
   unreadChatCount: number;
+  unreadMailCount: number;
   connectionStatus: RealtimeConnectionStatus;
 };
 
@@ -107,6 +115,7 @@ export type GameStoreHydrationPayload = {
   businessDetails?: BusinessDetailsSliceData;
   travel?: TravelState | null;
   chat?: ChatMessage[];
+  mail?: Partial<MailSliceData>;
   appShell?: Partial<AppShellSliceData>;
   hydrated?: boolean;
 };
@@ -124,6 +133,7 @@ type GameStoreState = {
   businessDetails: SliceState<BusinessDetailsSliceData>;
   travel: SliceState<TravelState | null>;
   chat: SliceState<ChatMessage[]>;
+  mail: SliceState<MailSliceData>;
   appShell: SliceState<AppShellSliceData>;
   setHydrated: (hydrated: boolean) => void;
   hydrateFromServer: (payload: GameStoreHydrationPayload) => void;
@@ -155,6 +165,11 @@ type GameStoreState = {
   setChat: (value: ChatMessage[]) => void;
   patchChat: (value: ChatMessage | ChatMessage[]) => void;
   removeChatMessage: (messageId: string) => void;
+  setMail: (value: MailSliceData) => void;
+  patchMailThreads: (value: MailThreadPreview | MailThreadPreview[]) => void;
+  setActiveMailThread: (value: MailThreadDetail | null) => void;
+  removeMailThread: (threadId: string) => void;
+  setMailRecipientSearchResults: (value: MailRecipientPreview[]) => void;
   setAppShell: (value: AppShellSliceData) => void;
   patchAppShell: (value: Partial<AppShellSliceData>) => void;
 };
@@ -204,11 +219,18 @@ const emptyProduction: ProductionSliceData = {
   manufacturing: null,
 };
 
+const emptyMail: MailSliceData = {
+  threads: [],
+  activeThread: null,
+  recipientSearchResults: [],
+};
+
 const emptyAppShell: AppShellSliceData = {
   playerCount: 0,
   onlinePlayers: [],
   notificationsCount: 0,
   unreadChatCount: 0,
+  unreadMailCount: 0,
   connectionStatus: "connecting",
 };
 
@@ -240,6 +262,19 @@ function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   );
 }
 
+function upsertMailThreads(current: MailThreadPreview[], incoming: MailThreadPreview[]) {
+  const merged = new Map<string, MailThreadPreview>();
+  for (const thread of current) {
+    merged.set(thread.id, thread);
+  }
+  for (const thread of incoming) {
+    merged.set(thread.id, thread);
+  }
+  return Array.from(merged.values()).sort(
+    (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+  );
+}
+
 export const useGameStore = create<GameStoreState>((set) => ({
   hydrated: false,
   player: { data: emptyPlayer, lastUpdated: null },
@@ -253,6 +288,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
   businessDetails: { data: {}, lastUpdated: null },
   travel: { data: null, lastUpdated: null },
   chat: { data: [], lastUpdated: null },
+  mail: { data: emptyMail, lastUpdated: null },
   appShell: { data: emptyAppShell, lastUpdated: null },
   setHydrated: (hydrated) => set({ hydrated }),
   hydrateFromServer: (payload) =>
@@ -313,6 +349,12 @@ export const useGameStore = create<GameStoreState>((set) => ({
       }
       if (payload.chat) {
         next.chat = { data: payload.chat, lastUpdated: timestamp };
+      }
+      if (payload.mail) {
+        next.mail = {
+          data: { ...state.mail.data, ...payload.mail },
+          lastUpdated: timestamp,
+        };
       }
       if (payload.appShell) {
         next.appShell = {
@@ -469,6 +511,61 @@ export const useGameStore = create<GameStoreState>((set) => ({
         lastUpdated: now(),
       },
     })),
+  setMail: (value) => set({ mail: { data: value, lastUpdated: now() } }),
+  patchMailThreads: (value) =>
+    set((state) => ({
+      mail: {
+        data: {
+          ...state.mail.data,
+          threads: upsertMailThreads(state.mail.data.threads, Array.isArray(value) ? value : [value]),
+        },
+        lastUpdated: now(),
+      },
+    })),
+  setActiveMailThread: (value) =>
+    set((state) => ({
+      mail: {
+        data: {
+          ...state.mail.data,
+          activeThread: value,
+          threads: value
+            ? upsertMailThreads(state.mail.data.threads, [{
+                id: value.id,
+                kind: value.kind,
+                subject: value.subject,
+                systemKey: value.systemKey,
+                counterpart: value.counterpart,
+                latestMessage: value.latestMessage,
+                unread: value.unread,
+                createdAt: value.createdAt,
+                updatedAt: value.updatedAt,
+              }])
+            : state.mail.data.threads,
+        },
+        lastUpdated: now(),
+      },
+    })),
+  removeMailThread: (threadId) =>
+    set((state) => ({
+      mail: {
+        data: {
+          ...state.mail.data,
+          threads: removeById(state.mail.data.threads, threadId),
+          activeThread: state.mail.data.activeThread?.id === threadId ? null : state.mail.data.activeThread,
+        },
+        lastUpdated: now(),
+      },
+    })),
+  setMailRecipientSearchResults: (value) =>
+    set((state) => ({
+      mail: {
+        data: {
+          ...state.mail.data,
+          recipientSearchResults: value,
+        },
+        lastUpdated: now(),
+      },
+    })),
   setAppShell: (value) => set({ appShell: { data: value, lastUpdated: now() } }),
   patchAppShell: (value) =>
     set((state) => ({
@@ -492,6 +589,7 @@ export const gameStoreSelectors = {
   businessDetails: (state: GameStoreState) => state.businessDetails.data,
   travel: (state: GameStoreState) => state.travel.data,
   chat: (state: GameStoreState) => state.chat.data,
+  mail: (state: GameStoreState) => state.mail.data,
   appShell: (state: GameStoreState) => state.appShell.data,
   connectionStatus: (state: GameStoreState) => state.appShell.data.connectionStatus,
 };
@@ -542,6 +640,10 @@ export function useTravelSlice() {
 
 export function useChatSlice() {
   return useGameStore(gameStoreSelectors.chat);
+}
+
+export function useMailSlice() {
+  return useGameStore(gameStoreSelectors.mail);
 }
 
 export function useAppShellSlice() {

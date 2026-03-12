@@ -4,7 +4,7 @@ import { useEffect, useMemo } from "react";
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { getBusinessesWithBalances } from "@/domains/businesses";
 import { getManufacturingStatus } from "@/domains/production";
-import { fetchAppShell, fetchBankingPageData, fetchBusinessDetailsState, fetchBusinessesPageData, fetchChatMessages, fetchContractsPageData, fetchEmployeesPageData, fetchInventoryPageData, fetchMarketPageData, fetchProductionPageData, fetchTravelState } from "@/lib/client/queries";
+import { fetchAppShell, fetchBankingPageData, fetchBusinessDetailsState, fetchBusinessesPageData, fetchChatMessages, fetchContractsPageData, fetchEmployeesPageData, fetchInventoryPageData, fetchMailbox, fetchMarketPageData, fetchProductionPageData, fetchTravelState } from "@/lib/client/queries";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { BusinessWithBalance } from "@/domains/businesses";
 import type { ChatMessage } from "@/domains/chat";
@@ -36,6 +36,8 @@ export function RealtimeProvider() {
   const trackedBusinessDetailKey = useGameStore((state) =>
     Object.keys(state.businessDetails.data).sort().join("|")
   );
+  const activeMailThreadId = useGameStore((state) => state.mail.data.activeThread?.id ?? null);
+  const mailLoadedAt = useGameStore((state) => state.mail.lastUpdated);
   const setBusinesses = useGameStore((state) => state.setBusinesses);
   const patchBusinesses = useGameStore((state) => state.patchBusinesses);
   const patchBusinessDetail = useGameStore((state) => state.patchBusinessDetail);
@@ -58,6 +60,7 @@ export function RealtimeProvider() {
   const setTravel = useGameStore((state) => state.setTravel);
   const patchChat = useGameStore((state) => state.patchChat);
   const setChat = useGameStore((state) => state.setChat);
+  const setMail = useGameStore((state) => state.setMail);
   const patchAppShell = useGameStore((state) => state.patchAppShell);
   const bankingAccountIds = useMemo(
     () => bankingAccounts.map((account) => account.id),
@@ -108,10 +111,11 @@ export function RealtimeProvider() {
     };
 
     const refillStore = async () => {
-      const [appShell, chat, businessesPage, banking, inventory, market, production, contractsPage, employees, travel] =
+      const [appShell, chat, mailbox, businessesPage, banking, inventory, market, production, contractsPage, employees, travel] =
         await Promise.all([
           fetchAppShell(),
           fetchChatMessages(),
+          mailLoadedAt !== null ? fetchMailbox(activeMailThreadId ?? undefined) : Promise.resolve(null),
           fetchBusinessesPageData(),
           fetchBankingPageData(),
           fetchInventoryPageData(),
@@ -131,8 +135,16 @@ export function RealtimeProvider() {
         onlinePlayers: appShell.onlinePlayers,
         notificationsCount: appShell.notificationsCount,
         unreadChatCount: appShell.unreadChatCount,
+        unreadMailCount: appShell.unreadMailCount,
       });
       setChat(chat.messages);
+      if (mailbox) {
+        setMail({
+          threads: mailbox.threads,
+          activeThread: mailbox.activeThread,
+          recipientSearchResults: useGameStore.getState().mail.data.recipientSearchResults,
+        });
+      }
       setBusinesses(businessesPage.businesses);
       setBanking(banking);
       setInventory(inventory);
@@ -310,6 +322,35 @@ export function RealtimeProvider() {
       patchProduction({ businesses });
     };
 
+    const refreshMail = async () => {
+      const currentActiveThreadId = useGameStore.getState().mail.data.activeThread?.id ?? undefined;
+      const currentRecipientSearchResults = useGameStore.getState().mail.data.recipientSearchResults;
+      const [appShell, mailbox] = await Promise.all([
+        fetchAppShell().catch(() => null),
+        useGameStore.getState().mail.lastUpdated !== null
+          ? fetchMailbox(currentActiveThreadId).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (appShell) {
+        patchAppShell({
+          unreadMailCount: appShell.unreadMailCount,
+        });
+      }
+
+      if (mailbox) {
+        setMail({
+          threads: mailbox.threads,
+          activeThread: mailbox.activeThread,
+          recipientSearchResults: currentRecipientSearchResults,
+        });
+      }
+    };
+
     async function connect() {
       setConnectionStatus("connecting");
       try {
@@ -372,6 +413,30 @@ export function RealtimeProvider() {
           })
           .subscribe();
         channels.push(appShellChannel);
+
+        const mailParticipantsChannel = supabase
+          .channel(`mail-participants-${playerId}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "mail_thread_participants", filter: `player_id=eq.${playerId}` }, () => {
+            void refreshMail();
+          })
+          .subscribe();
+        channels.push(mailParticipantsChannel);
+
+        const mailThreadsChannel = supabase
+          .channel(`mail-threads-${playerId}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "mail_threads" }, () => {
+            void refreshMail();
+          })
+          .subscribe();
+        channels.push(mailThreadsChannel);
+
+        const mailMessagesChannel = supabase
+          .channel(`mail-messages-${playerId}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "mail_messages" }, () => {
+            void refreshMail();
+          })
+          .subscribe();
+        channels.push(mailMessagesChannel);
 
         const inventoryChannel = supabase
           .channel(`inventory-${playerId}`)
@@ -546,6 +611,8 @@ export function RealtimeProvider() {
     patchInventory,
     patchMarket,
     playerId,
+    activeMailThreadId,
+    mailLoadedAt,
     removeBusiness,
     removeBusinessDetail,
     removeContract,
@@ -553,6 +620,7 @@ export function RealtimeProvider() {
     setBanking,
     setBusinesses,
     setChat,
+    setMail,
     setContracts,
     setEmployees,
     setInventory,

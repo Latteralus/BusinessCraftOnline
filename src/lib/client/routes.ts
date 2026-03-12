@@ -55,6 +55,14 @@ export const apiRoutes = {
     buy: (listingId: string) => `/api/market/${listingId}/buy`,
     storefront: "/api/market/storefront",
   },
+  mail: {
+    root: "/api/mail",
+    detail: (threadId?: string) => withSearch("/api/mail", { threadId }),
+    reply: (threadId: string) => `/api/mail/${threadId}/reply`,
+    read: (threadId: string) => `/api/mail/${threadId}/read`,
+    delete: (threadId: string) => `/api/mail/${threadId}`,
+    recipients: (q: string) => withSearch("/api/mail/recipients", { q }),
+  },
   production: {
     assignSlot: "/api/production/slots/assign",
     retoolSlot: "/api/production/slots/retool",

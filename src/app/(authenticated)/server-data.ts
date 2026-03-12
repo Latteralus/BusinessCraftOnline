@@ -22,6 +22,7 @@ import {
 } from "@/domains/cities-travel";
 import { getContracts } from "@/domains/contracts";
 import { getUnreadChatCount } from "@/domains/chat";
+import { getUnreadMailCount } from "@/domains/mail";
 import { getEmployeeSummary, getPlayerEmployees } from "@/domains/employees";
 import { getBusinessInventory, getPersonalInventory, getShippingQueue } from "@/domains/inventory";
 import { getMarketListings, getMarketStorefrontSettings, getMarketTransactions } from "@/domains/market";
@@ -87,15 +88,17 @@ export type AuthenticatedShellInitialData = {
     onlinePlayers: OnlinePlayerPreview[];
     notificationsCount: number;
     unreadChatCount: number;
+    unreadMailCount: number;
   };
 };
 
 export async function loadAuthenticatedShellInitialData(): Promise<AuthenticatedShellInitialData> {
   const { supabase, user, character } = await requireAuthedPageContext();
-  const [onlinePlayers, storefrontSettings, unreadChatCount] = await Promise.all([
+  const [onlinePlayers, storefrontSettings, unreadChatCount, unreadMailCount] = await Promise.all([
     getOnlinePlayerPreviews(supabase, 300).catch(() => []),
     getStorefrontSettingsCached(supabase, user.id),
     getUnreadChatCount(supabase, user.id).catch(() => 0),
+    getUnreadMailCount(supabase, user.id).catch(() => 0),
   ]);
 
   return {
@@ -110,6 +113,7 @@ export async function loadAuthenticatedShellInitialData(): Promise<Authenticated
       onlinePlayers,
       notificationsCount: storefrontSettings.filter((row: { is_ad_enabled: boolean }) => row.is_ad_enabled).length,
       unreadChatCount,
+      unreadMailCount,
     },
   };
 }

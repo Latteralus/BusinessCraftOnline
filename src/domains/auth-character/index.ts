@@ -6,6 +6,7 @@ export {
   getPlayer,
   getPublicPlayerBusinesses,
   getPlayerCount,
+  searchCharacterRecipients,
   touchPlayerPresence,
   updateCharacterCity,
   upsertPlayerFromAuthUser,
@@ -19,6 +20,7 @@ export {
 
 export type {
   Character,
+  CharacterRecipientPreview,
   CreateCharacterInput,
   Gender,
   LoginInput,

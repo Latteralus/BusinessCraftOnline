@@ -1,6 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import type {
   Character,
+  CharacterRecipientPreview,
   CreateCharacterInput,
   OnlinePlayerPreview,
   Player,
@@ -113,6 +114,30 @@ export async function getCharacter(
 
   if (error) throw error;
   return (data as Character | null) ?? null;
+}
+
+export async function searchCharacterRecipients(
+  client: QueryClient,
+  query: string,
+  excludePlayerId?: string
+): Promise<CharacterRecipientPreview[]> {
+  let request = client
+    .from("characters")
+    .select("player_id, first_name, last_name")
+    .or(`first_name.ilike.%${query}%,last_name.ilike.%${query}%`)
+    .limit(10);
+
+  if (excludePlayerId) {
+    request = request.neq("player_id", excludePlayerId);
+  }
+
+  const { data, error } = await request;
+  if (error) throw error;
+
+  return (((data as Array<{ player_id: string; first_name: string; last_name: string }>) ?? []).map((row) => ({
+    player_id: row.player_id,
+    character_name: `${row.first_name} ${row.last_name}`.trim(),
+  })));
 }
 
 export async function upsertPlayerFromAuthUser(

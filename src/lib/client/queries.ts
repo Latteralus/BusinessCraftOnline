@@ -10,6 +10,7 @@ import type { Contract } from "@/domains/contracts";
 import type { ChatMessage } from "@/domains/chat";
 import type { Employee, EmployeeSummary } from "@/domains/employees";
 import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } from "@/domains/inventory";
+import type { MailRecipientPreview, MailThreadDetail, MailThreadPreview } from "@/domains/mail";
 import type { MarketListing, MarketTransaction } from "@/domains/market";
 import type { ManufacturingStatusView } from "@/domains/production";
 import type { BusinessDetailsEntry } from "@/stores/game-store";
@@ -50,6 +51,7 @@ export type AppShellData = {
   onlinePlayers: OnlinePlayerPreview[];
   notificationsCount: number;
   unreadChatCount: number;
+  unreadMailCount: number;
 };
 
 export type AuthMeData = {
@@ -59,6 +61,11 @@ export type AuthMeData = {
 export type ChatMessagesData = {
   messages: ChatMessage[];
   unreadCount: number;
+};
+
+export type MailboxData = {
+  threads: MailThreadPreview[];
+  activeThread: MailThreadDetail | null;
 };
 
 type InventoryResponse = {
@@ -104,6 +111,7 @@ export async function fetchAppShell() {
     onlinePlayers: payload.onlinePlayers ?? [],
     notificationsCount: payload.notificationsCount ?? 0,
     unreadChatCount: payload.unreadChatCount ?? 0,
+    unreadMailCount: payload.unreadMailCount ?? 0,
   };
 }
 
@@ -115,6 +123,22 @@ export async function fetchChatMessages() {
     messages: payload.messages ?? [],
     unreadCount: payload.unreadCount ?? 0,
   };
+}
+
+export async function fetchMailbox(threadId?: string) {
+  return apiGet<{ threads?: MailThreadPreview[]; activeThread?: MailThreadDetail | null; error?: string }>(
+    apiRoutes.mail.detail(threadId),
+    { fallbackError: "Failed to load mail." }
+  ).then((payload) => ({
+    threads: payload.threads ?? [],
+    activeThread: payload.activeThread ?? null,
+  }));
+}
+
+export async function searchMailRecipients(query: string) {
+  return apiGet<{ recipients?: MailRecipientPreview[]; error?: string }>(apiRoutes.mail.recipients(query), {
+    fallbackError: "Failed to search recipients.",
+  }).then((payload) => payload.recipients ?? []);
 }
 
 export async function fetchTravelState() {

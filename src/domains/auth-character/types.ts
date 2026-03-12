@@ -54,6 +54,11 @@ export type PublicPlayerBusiness = {
   created_at: string;
 };
 
+export type CharacterRecipientPreview = {
+  player_id: string;
+  character_name: string;
+};
+
 export type RegisterInput = {
   password: string;
   username: string;

@@ -2,6 +2,7 @@ import { getOnlinePlayerPreviews, touchPlayerPresence } from "@/domains/auth-cha
 import { getMarketStorefrontSettings } from "@/domains/market";
 import { requireAuthedUser } from "@/app/api/_shared/route-helpers";
 import { getUnreadChatCount } from "@/domains/chat";
+import { getUnreadMailCount } from "@/domains/mail";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -12,10 +13,11 @@ export async function GET() {
   try {
     await touchPlayerPresence(supabase, user.id).catch(() => null);
 
-    const [onlinePlayers, storefrontSettings, unreadChatCount] = await Promise.all([
+    const [onlinePlayers, storefrontSettings, unreadChatCount, unreadMailCount] = await Promise.all([
       getOnlinePlayerPreviews(supabase, 300).catch(() => []),
       getMarketStorefrontSettings(supabase, user.id).catch(() => []),
       getUnreadChatCount(supabase, user.id).catch(() => 0),
+      getUnreadMailCount(supabase, user.id).catch(() => 0),
     ]);
 
     return NextResponse.json({
@@ -23,6 +25,7 @@ export async function GET() {
       onlinePlayers,
       notificationsCount: storefrontSettings.filter((row) => row.is_ad_enabled).length,
       unreadChatCount,
+      unreadMailCount,
     });
   } catch (error) {
     return NextResponse.json(
