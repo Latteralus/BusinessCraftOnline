@@ -14,7 +14,8 @@ import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useGameStore, useInventorySlice, useMarketSlice } from "@/stores/game-store";
 import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
-import { runOptimisticUpdate } from "@/stores/optimistic";
+import { removeEntityById, restoreEntityById, runOptimisticUpdate, upsertEntityById } from "@/stores/optimistic";
+import type { MarketSliceData } from "@/stores/game-store";
 
 type Props = {
   initialData: MarketPageData;
@@ -177,6 +178,15 @@ function MiniSparkline(props: { points: number[]; tone?: string }) {
       <circle cx={latestX} cy={latestY} r="6" fill={props.tone ?? "#fbbf24"} opacity="0.18" />
     </svg>
   );
+}
+
+function updateMarketState(updater: (current: MarketSliceData) => MarketSliceData) {
+  useGameStore.setState((state) => ({
+    market: {
+      data: updater(state.market.data),
+      lastUpdated: Date.now(),
+    },
+  }));
 }
 
 export default function MarketClient({ initialData }: Props) {
@@ -393,6 +403,12 @@ export default function MarketClient({ initialData }: Props) {
           source_label: selectedSourceInventory.sourceLabel,
         };
         patchMarket({ listings: [optimisticListing, ...listings] });
+        return () => {
+          updateMarketState((current) => ({
+            ...current,
+            listings: removeEntityById(current.listings, optimisticId),
+          }));
+        };
       }, async () => {
         const payload = await apiPost<{ listing?: MarketListing }>(
           apiRoutes.market.root,
@@ -407,9 +423,10 @@ export default function MarketClient({ initialData }: Props) {
           { fallbackError: "Failed to create listing." }
         );
         if (payload.listing) {
-          patchMarket({
-            listings: [payload.listing, ...listings.filter((listing) => listing.id !== optimisticId)],
-          });
+          updateMarketState((current) => ({
+            ...current,
+            listings: upsertEntityById(removeEntityById(current.listings, optimisticId), payload.listing!),
+          }));
         }
         return payload;
       });
@@ -432,6 +449,7 @@ export default function MarketClient({ initialData }: Props) {
     setBusy(true);
     setError(null);
     try {
+      const previousListing = listings.find((listing) => listing.id === listingId) ?? null;
       await runOptimisticUpdate("market", () => {
         patchMarket({
           listings: listings.map((listing) =>
@@ -445,6 +463,14 @@ export default function MarketClient({ initialData }: Props) {
               : listing
           ),
         });
+        return () => {
+          updateMarketState((current) => ({
+            ...current,
+            listings: previousListing
+              ? restoreEntityById(current.listings, previousListing)
+              : current.listings,
+          }));
+        };
       }, async () => {
         const payload = await apiPost<{ listing?: MarketListing }>(
           apiRoutes.market.cancel(listingId),
@@ -452,9 +478,10 @@ export default function MarketClient({ initialData }: Props) {
           { fallbackError: "Failed to cancel listing." }
         );
         if (payload.listing) {
-          patchMarket({
-            listings: listings.map((listing) => (listing.id === listingId ? payload.listing! : listing)),
-          });
+          updateMarketState((current) => ({
+            ...current,
+            listings: upsertEntityById(current.listings, payload.listing!),
+          }));
         }
         return payload;
       });
@@ -498,6 +525,12 @@ export default function MarketClient({ initialData }: Props) {
               : listing
           ),
         });
+        return () => {
+          updateMarketState((current) => ({
+            ...current,
+            listings: restoreEntityById(current.listings, targetListing),
+          }));
+        };
       }, async () => {
         const payload = await apiPost<{ listing?: MarketListing; transaction?: MarketTransaction }>(
           apiRoutes.market.buy(listingId),
@@ -507,12 +540,11 @@ export default function MarketClient({ initialData }: Props) {
           },
           { fallbackError: "Failed to buy listing." }
         );
-        patchMarket({
-          listings: payload.listing
-            ? listings.map((listing) => (listing.id === listingId ? payload.listing! : listing))
-            : listings,
-          transactions: payload.transaction ? [payload.transaction, ...transactions] : transactions,
-        });
+        updateMarketState((current) => ({
+          ...current,
+          listings: payload.listing ? upsertEntityById(current.listings, payload.listing) : current.listings,
+          transactions: payload.transaction ? upsertEntityById(current.transactions, payload.transaction) : current.transactions,
+        }));
         return payload;
       });
       const listing = listings.find((entry) => entry.id === listingId) ?? null;

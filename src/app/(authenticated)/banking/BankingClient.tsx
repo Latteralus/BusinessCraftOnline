@@ -14,8 +14,9 @@ import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { useBankingSlice, useGameStore } from "@/stores/game-store";
+import type { BankingSliceData } from "@/stores/game-store";
 import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
-import { runOptimisticUpdate } from "@/stores/optimistic";
+import { removeEntityById, restoreEntityById, runOptimisticUpdate } from "@/stores/optimistic";
 
 type Props = {
   initialData: BankingPageData;
@@ -175,6 +176,17 @@ function buildLoanSummary(loan: Loan): LoanSummary {
   };
 }
 
+function updateBankingState(
+  updater: (current: BankingSliceData) => BankingSliceData
+) {
+  useGameStore.setState((state) => ({
+    banking: {
+      data: updater(state.banking.data),
+      lastUpdated: Date.now(),
+    },
+  }));
+}
+
 export default function BankingClient({ initialData }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -254,6 +266,24 @@ export default function BankingClient({ initialData }: Props) {
       await runOptimisticUpdate(
         "banking",
         (state) => {
+          const previousFromAccount =
+            state.banking.data.accounts.find((account) => account.id === fromAccountId) ?? null;
+          const previousToAccount =
+            state.banking.data.accounts.find((account) => account.id === toAccountId) ?? null;
+          const debitTransaction = createOptimisticTransaction({
+            accountId: fromAccountId,
+            amount,
+            direction: "debit",
+            transactionType: "transfer_out",
+            description: `Transfer to ${BANK_ACCOUNT_LABELS[toAccount?.account_type ?? "checking"] ?? "account"}.`,
+          });
+          const creditTransaction = createOptimisticTransaction({
+            accountId: toAccountId,
+            amount,
+            direction: "credit",
+            transactionType: "transfer_in",
+            description: `Transfer from ${BANK_ACCOUNT_LABELS[fromAccount?.account_type ?? "checking"] ?? "account"}.`,
+          });
           const nextAccounts = updateAccountBalance(
             updateAccountBalance(state.banking.data.accounts, fromAccountId, -amount),
             toAccountId,
@@ -262,23 +292,24 @@ export default function BankingClient({ initialData }: Props) {
           const nextTransactions = prependTransaction(
             prependTransaction(
               state.banking.data.transactions,
-              createOptimisticTransaction({
-                accountId: fromAccountId,
-                amount,
-                direction: "debit",
-                transactionType: "transfer_out",
-                description: `Transfer to ${BANK_ACCOUNT_LABELS[toAccount?.account_type ?? "checking"] ?? "account"}.`,
-              })
+              debitTransaction
             ),
-            createOptimisticTransaction({
-              accountId: toAccountId,
-              amount,
-              direction: "credit",
-              transactionType: "transfer_in",
-              description: `Transfer from ${BANK_ACCOUNT_LABELS[fromAccount?.account_type ?? "checking"] ?? "account"}.`,
-            })
+            creditTransaction
           );
           patchBanking({ accounts: nextAccounts, transactions: nextTransactions });
+          return () => {
+            updateBankingState((current) => ({
+              ...current,
+              accounts: [previousFromAccount, previousToAccount].reduce(
+                (collection, account) => restoreEntityById(collection, account),
+                current.accounts
+              ),
+              transactions: removeEntityById(
+                removeEntityById(current.transactions, debitTransaction.id),
+                creditTransaction.id
+              ),
+            }));
+          };
         },
         () =>
           apiPost<{ transferId: string }>(
@@ -306,24 +337,37 @@ export default function BankingClient({ initialData }: Props) {
       await runOptimisticUpdate(
         "banking",
         (state) => {
+          const previousPersonalAccount =
+            state.banking.data.accounts.find((account) => account.id === personalBusinessAccountId) ?? null;
+          const previousBusiness =
+            state.banking.data.businesses.find((business) => business.id === personalBusinessId) ?? null;
+          const optimisticTransaction = createOptimisticTransaction({
+            accountId: personalBusinessAccountId,
+            amount,
+            direction: personalBusinessDirection === "to_business" ? "debit" : "credit",
+            transactionType: personalBusinessDirection === "to_business" ? "transfer_out" : "transfer_in",
+            description:
+              personalBusinessDirection === "to_business"
+                ? `Treasury transfer into ${selectedBusiness?.name ?? "business"}.`
+                : `Treasury withdrawal from ${selectedBusiness?.name ?? "business"}.`,
+          });
           const personalDelta = personalBusinessDirection === "to_business" ? -amount : amount;
           const businessDelta = personalBusinessDirection === "to_business" ? amount : -amount;
           const nextAccounts = updateAccountBalance(state.banking.data.accounts, personalBusinessAccountId, personalDelta);
           const nextBusinesses = updateBusinessBalance(state.banking.data.businesses, personalBusinessId, businessDelta);
           const nextTransactions = prependTransaction(
             state.banking.data.transactions,
-            createOptimisticTransaction({
-              accountId: personalBusinessAccountId,
-              amount,
-              direction: personalBusinessDirection === "to_business" ? "debit" : "credit",
-              transactionType: personalBusinessDirection === "to_business" ? "transfer_out" : "transfer_in",
-              description:
-                personalBusinessDirection === "to_business"
-                  ? `Treasury transfer into ${selectedBusiness?.name ?? "business"}.`
-                  : `Treasury withdrawal from ${selectedBusiness?.name ?? "business"}.`,
-            })
+            optimisticTransaction
           );
           patchBanking({ accounts: nextAccounts, businesses: nextBusinesses, transactions: nextTransactions });
+          return () => {
+            updateBankingState((current) => ({
+              ...current,
+              accounts: restoreEntityById(current.accounts, previousPersonalAccount),
+              businesses: restoreEntityById(current.businesses, previousBusiness),
+              transactions: removeEntityById(current.transactions, optimisticTransaction.id),
+            }));
+          };
         },
         () =>
           apiPost<{ transferId: string }>(
@@ -364,12 +408,25 @@ export default function BankingClient({ initialData }: Props) {
       await runOptimisticUpdate(
         "banking",
         (state) => {
+          const previousSourceBusiness =
+            state.banking.data.businesses.find((business) => business.id === fromOwnedBusinessId) ?? null;
+          const previousDestinationBusiness =
+            state.banking.data.businesses.find((business) => business.id === toOwnedBusinessId) ?? null;
           const nextBusinesses = updateBusinessBalance(
             updateBusinessBalance(state.banking.data.businesses, fromOwnedBusinessId, -amount),
             toOwnedBusinessId,
             amount
           );
           patchBanking({ businesses: nextBusinesses });
+          return () => {
+            updateBankingState((current) => ({
+              ...current,
+              businesses: [previousSourceBusiness, previousDestinationBusiness].reduce(
+                (collection, business) => restoreEntityById(collection, business),
+                current.businesses
+              ),
+            }));
+          };
         },
         () =>
           apiPost<{ transferId: string }>(
@@ -409,6 +466,10 @@ export default function BankingClient({ initialData }: Props) {
         "banking",
         (state) => {
           const now = new Date();
+          const previousCheckingAccount = checkingAccount
+            ? state.banking.data.accounts.find((account) => account.id === checkingAccount.id) ?? null
+            : null;
+          const previousLoanData = state.banking.data.loanData;
           const optimisticLoan: Loan = {
             id: `optimistic-loan-${Date.now()}`,
             player_id: "optimistic",
@@ -438,6 +499,10 @@ export default function BankingClient({ initialData }: Props) {
                 })
               )
             : state.banking.data.transactions;
+          const optimisticTransactionId =
+            checkingAccount && nextTransactions[0]?.transaction_type === "loan_disbursement"
+              ? nextTransactions[0].id
+              : null;
           patchBanking({
             accounts: nextAccounts,
             transactions: nextTransactions,
@@ -446,6 +511,16 @@ export default function BankingClient({ initialData }: Props) {
               maxLoanAvailable: state.banking.data.loanData?.maxLoanAvailable ?? initialData.loanData.maxLoanAvailable,
             },
           });
+          return () => {
+            updateBankingState((current) => ({
+              ...current,
+              accounts: restoreEntityById(current.accounts, previousCheckingAccount),
+              transactions: optimisticTransactionId
+                ? removeEntityById(current.transactions, optimisticTransactionId)
+                : current.transactions,
+              loanData: previousLoanData ?? null,
+            }));
+          };
         },
         async () => {
           const payload = await apiPost<{ loan: Loan }>(
@@ -487,16 +562,20 @@ export default function BankingClient({ initialData }: Props) {
             return;
           }
 
+          const previousCheckingAccount =
+            state.banking.data.accounts.find((account) => account.id === checkingAccount.id) ?? null;
+          const previousLoanData = state.banking.data.loanData;
+          const optimisticTransaction = createOptimisticTransaction({
+            accountId: checkingAccount.id,
+            amount,
+            direction: "debit",
+            transactionType: "loan_payment",
+            description: "Loan payment drafted from checking.",
+          });
           const nextAccounts = updateAccountBalance(state.banking.data.accounts, checkingAccount.id, -amount);
           const nextTransactions = prependTransaction(
             state.banking.data.transactions,
-            createOptimisticTransaction({
-              accountId: checkingAccount.id,
-              amount,
-              direction: "debit",
-              transactionType: "loan_payment",
-              description: "Loan payment drafted from checking.",
-            })
+            optimisticTransaction
           );
           const remainingBalance = Number(Math.max(0, activeSummary.loan.balance_remaining - amount).toFixed(2));
           const nextLoan =
@@ -517,6 +596,14 @@ export default function BankingClient({ initialData }: Props) {
               maxLoanAvailable: state.banking.data.loanData?.maxLoanAvailable ?? initialData.loanData.maxLoanAvailable,
             },
           });
+          return () => {
+            updateBankingState((current) => ({
+              ...current,
+              accounts: restoreEntityById(current.accounts, previousCheckingAccount),
+              transactions: removeEntityById(current.transactions, optimisticTransaction.id),
+              loanData: previousLoanData ?? null,
+            }));
+          };
         },
         async () => {
           const payload = await apiPost<{ paidAmount: number; updatedLoan: Loan }>(

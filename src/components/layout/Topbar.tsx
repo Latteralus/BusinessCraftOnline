@@ -236,6 +236,9 @@ export function Topbar() {
     try {
       await runOptimisticUpdate("chat", () => {
         patchChat(optimisticMessage);
+        return () => {
+          removeChatMessage(optimisticMessage.id);
+        };
       }, async () => {
         const payload = await apiPost<{ message?: ChatMessage; error?: string }>("/api/chat", { message }, { fallbackError: "Failed to send chat message." });
         removeChatMessage(optimisticMessage.id);

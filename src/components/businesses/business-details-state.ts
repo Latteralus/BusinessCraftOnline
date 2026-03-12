@@ -135,6 +135,19 @@ export function shouldSyncBusinessDetailsEntry(
       (value) => value.ownedBusinesses,
       (value) => value.upgradeDefinitions,
     ],
+    getContentSignatures: [
+      (value) => value.business,
+      (value) => value.production,
+      (value) => value.manufacturing,
+      (value) => value.inventory,
+      (value) => value.shelfItems,
+      (value) => value.upgrades,
+      (value) => value.upgradeProjects,
+      (value) => value.employees,
+      (value) => value.financeDashboard,
+      (value) => value.ownedBusinesses,
+      (value) => value.upgradeDefinitions,
+    ],
   });
 }
 

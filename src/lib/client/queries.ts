@@ -127,20 +127,6 @@ type BusinessDetailsStateResponse = {
   error?: string;
 };
 
-export const queryKeys = {
-  appShell: ["app-shell"] as const,
-  chatMessages: ["chat", "messages"] as const,
-  businessesPage: ["page", "businesses"] as const,
-  bankingPage: ["page", "banking"] as const,
-  inventoryPage: ["page", "inventory"] as const,
-  marketPage: ["page", "market"] as const,
-  employeesPage: ["page", "employees"] as const,
-  contractsPage: ["page", "contracts"] as const,
-  productionPage: ["page", "production"] as const,
-  productionStatus: (businessId: string) => ["production", "manufacturing", businessId] as const,
-  travelState: ["travel", "state"] as const,
-} as const;
-
 export async function fetchAppShell() {
   const payload = await apiGet<AppShellData>("/api/app-shell", { fallbackError: "Failed to load app shell." });
   return {

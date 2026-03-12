@@ -1,5 +1,4 @@
 import { Topbar } from "@/components/layout/Topbar";
-import { AuthenticatedQueryProvider } from "@/components/providers/AuthenticatedQueryProvider";
 import { GameHydrationProvider } from "@/providers/game-hydration-provider";
 import { RealtimeProvider } from "@/providers/realtime-provider";
 import { loadAuthenticatedShellInitialData } from "./server-data";
@@ -12,25 +11,23 @@ export default async function AuthenticatedLayout({
   const shellData = await loadAuthenticatedShellInitialData();
 
   return (
-    <AuthenticatedQueryProvider>
-      <GameHydrationProvider
-        initialData={{
-          player: {
-            playerId: shellData.identity.playerId,
-            initials: shellData.identity.initials,
-            firstName: shellData.identity.firstName,
-            lastName: shellData.identity.lastName,
-          },
-          appShell: shellData.appShell,
-          hydrated: true,
-        }}
-      >
-        <RealtimeProvider />
-        <Topbar />
-        <div className="main-container">
-          {children}
-        </div>
-      </GameHydrationProvider>
-    </AuthenticatedQueryProvider>
+    <GameHydrationProvider
+      initialData={{
+        player: {
+          playerId: shellData.identity.playerId,
+          initials: shellData.identity.initials,
+          firstName: shellData.identity.firstName,
+          lastName: shellData.identity.lastName,
+        },
+        appShell: shellData.appShell,
+        hydrated: true,
+      }}
+    >
+      <RealtimeProvider />
+      <Topbar />
+      <div className="main-container">
+        {children}
+      </div>
+    </GameHydrationProvider>
   );
 }

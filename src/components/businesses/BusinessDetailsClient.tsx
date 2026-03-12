@@ -240,6 +240,9 @@ export default function BusinessDetailsClient({
           return next;
         });
         return () => {
+          if (currentSlot) {
+            updateExtractionSlot(currentSlot);
+          }
           setAssignSelections((prev) => ({ ...prev, [slotId]: previousSelection }));
         };
       }, async () => {
@@ -269,6 +272,11 @@ export default function BusinessDetailsClient({
             status: currentSlot.status === "retooling" ? "retooling" : "idle",
           });
         }
+        return () => {
+          if (currentSlot) {
+            updateExtractionSlot(currentSlot);
+          }
+        };
       }, async () => {
         const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
           apiRoutes.production.unassignSlot,
@@ -294,6 +302,11 @@ export default function BusinessDetailsClient({
             status,
           });
         }
+        return () => {
+          if (currentSlot) {
+            updateExtractionSlot(currentSlot);
+          }
+        };
       }, async () => {
         const payload = await apiPost<{ slot: ProductionStatus["slots"][number] }>(
           apiRoutes.production.slotStatus,
@@ -536,6 +549,9 @@ export default function BusinessDetailsClient({
         }
         setSlotRetoolSelections((prev) => ({ ...prev, [slotId]: "" }));
         return () => {
+          if (currentSlot) {
+            updateExtractionSlot(currentSlot);
+          }
           setSlotRetoolSelections((prev) => ({ ...prev, [slotId]: previousSelection }));
         };
       }, async () => {
@@ -604,6 +620,7 @@ export default function BusinessDetailsClient({
     if (!marketActionItem || busy) return;
     await runBusyAction(async () => {
       const previousAction = marketActionItem;
+      const previousInventoryItem = inventory.find((entry) => entry.id === item.id) ?? item;
       await runOptimisticUpdate("businessDetails", () => {
         if (previousAction.type === "market") {
           patchInventoryItem(item.id, {
@@ -615,7 +632,13 @@ export default function BusinessDetailsClient({
           });
         }
         setMarketActionItem(null);
-        return () => setMarketActionItem(previousAction);
+        return () => {
+          patchInventoryItem(item.id, {
+            quantity: previousInventoryItem.quantity,
+            reserved_quantity: previousInventoryItem.reserved_quantity,
+          });
+          setMarketActionItem(previousAction);
+        };
       }, async () => {
         if (previousAction.type === "market") {
           await apiPost(
@@ -694,6 +717,7 @@ export default function BusinessDetailsClient({
         updated_at: new Date().toISOString(),
       };
       const previousAction = shelfActionItem;
+      const previousInventoryItem = inventory.find((entry) => entry.id === item.id) ?? item;
       await runOptimisticUpdate("businessDetails", () => {
         upsertShelfItem(optimisticShelfItem);
         const previousQuantity = previousShelfItem?.quantity ?? 0;
@@ -703,7 +727,18 @@ export default function BusinessDetailsClient({
           reserved_quantity: Math.max(0, current.reserved_quantity + reservedDelta),
         }));
         setShelfActionItem(null);
-        return () => setShelfActionItem(previousAction);
+        return () => {
+          if (previousShelfItem) {
+            upsertShelfItem(previousShelfItem);
+          } else {
+            removeShelfItemFromDetail(optimisticShelfItem.id);
+          }
+          patchInventoryItem(item.id, {
+            quantity: previousInventoryItem.quantity,
+            reserved_quantity: previousInventoryItem.reserved_quantity,
+          });
+          setShelfActionItem(previousAction);
+        };
       }, async () => {
         const payload = await apiPost<{ shelfItem: StoreShelfItem }>(
           apiRoutes.stores.shelves,
@@ -739,6 +774,11 @@ export default function BusinessDetailsClient({
     await runBusyAction(async () => {
       const currentShelfItem = shelfItems.find((item) => item.id === shelfItemId) ?? null;
       const previousAction = shelfActionItem;
+      const previousInventoryItem = currentShelfItem
+        ? inventory.find(
+            (entry) => entry.item_key === currentShelfItem.item_key && entry.quality === currentShelfItem.quality
+          ) ?? null
+        : null;
       await runOptimisticUpdate("businessDetails", () => {
         removeShelfItemFromDetail(shelfItemId);
         if (currentShelfItem) {
@@ -751,6 +791,15 @@ export default function BusinessDetailsClient({
           setShelfActionItem(null);
         }
         return () => {
+          if (currentShelfItem) {
+            upsertShelfItem(currentShelfItem);
+          }
+          if (previousInventoryItem) {
+            patchInventoryItem(previousInventoryItem.id, {
+              quantity: previousInventoryItem.quantity,
+              reserved_quantity: previousInventoryItem.reserved_quantity,
+            });
+          }
           if (previousAction) setShelfActionItem(previousAction);
         };
       }, async () => {

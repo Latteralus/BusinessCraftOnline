@@ -184,6 +184,9 @@ export default function ContractsClient({ initialData }: Props) {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
+        return () => {
+          removeContract(optimisticId);
+        };
       }, async () => {
         const payload = await apiPost<{ contract?: Contract }>(
           apiRoutes.contracts.root,
@@ -237,7 +240,9 @@ export default function ContractsClient({ initialData }: Props) {
             due_at: existing.due_at ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
             updated_at: new Date().toISOString(),
           });
-          return;
+          return () => {
+            patchContract(existing);
+          };
         }
 
         if (kind === "cancel") {
@@ -247,7 +252,9 @@ export default function ContractsClient({ initialData }: Props) {
             cancelled_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           });
-          return;
+          return () => {
+            patchContract(existing);
+          };
         }
 
         patchContract({
@@ -257,6 +264,9 @@ export default function ContractsClient({ initialData }: Props) {
           completed_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
+        return () => {
+          patchContract(existing);
+        };
       }, async () => {
         const payload = await apiPost<{ contract?: Contract }>(path, undefined, { fallbackError: `Failed to ${kind} contract.` });
         if (payload.contract) {

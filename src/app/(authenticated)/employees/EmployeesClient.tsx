@@ -125,6 +125,9 @@ export default function EmployeesClient({ initialData }: Props) {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
+        return () => {
+          removeEmployee(optimisticId);
+        };
       }, async () => {
         const payload = await apiPost<{ employee?: Employee }>(
           apiRoutes.employees.root,
@@ -164,6 +167,7 @@ export default function EmployeesClient({ initialData }: Props) {
     setError(null);
     setSuccess(null);
     try {
+      const existingEmployee = employees.find((employee) => employee.id === assignEmployeeId) ?? null;
       await runOptimisticUpdate("employees", () => {
         patchEmployees({
           id: assignEmployeeId,
@@ -172,6 +176,11 @@ export default function EmployeesClient({ initialData }: Props) {
           status: "assigned",
           updated_at: new Date().toISOString(),
         });
+        return () => {
+          if (existingEmployee) {
+            patchEmployees(existingEmployee);
+          }
+        };
       }, async () => {
         const payload = await apiPost<{ employee?: Employee }>(
           apiRoutes.employees.assign,
@@ -201,12 +210,18 @@ export default function EmployeesClient({ initialData }: Props) {
     setError(null);
     setSuccess(null);
     try {
+      const existingEmployee = employees.find((employee) => employee.id === employeeId) ?? null;
       await runOptimisticUpdate("employees", () => {
         patchEmployees({
           id: employeeId,
           status: "available",
           updated_at: new Date().toISOString(),
         });
+        return () => {
+          if (existingEmployee) {
+            patchEmployees(existingEmployee);
+          }
+        };
       }, async () => {
         const payload = await apiPost<{ employee?: Employee }>(
           apiRoutes.employees.reactivate,
@@ -233,12 +248,18 @@ export default function EmployeesClient({ initialData }: Props) {
     setError(null);
     setSuccess(null);
     try {
+      const existingEmployee = employees.find((employee) => employee.id === employeeId) ?? null;
       await runOptimisticUpdate("employees", () => {
         patchEmployees({
           id: employeeId,
           status: "available",
           updated_at: new Date().toISOString(),
         });
+        return () => {
+          if (existingEmployee) {
+            patchEmployees(existingEmployee);
+          }
+        };
       }, async () => {
         const payload = await apiPost<{ employee?: Employee }>(
           apiRoutes.employees.unassign,
@@ -265,12 +286,18 @@ export default function EmployeesClient({ initialData }: Props) {
     setError(null);
     setSuccess(null);
     try {
+      const existingEmployee = employees.find((employee) => employee.id === employeeId) ?? null;
       await runOptimisticUpdate("employees", () => {
         patchEmployees({
           id: employeeId,
           status: "fired",
           updated_at: new Date().toISOString(),
         });
+        return () => {
+          if (existingEmployee) {
+            patchEmployees(existingEmployee);
+          }
+        };
       }, async () => {
         const payload = await apiDelete<{ employee?: Employee }>(
           apiRoutes.employees.detail(employeeId),
