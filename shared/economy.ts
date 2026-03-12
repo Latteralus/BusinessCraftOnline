@@ -12,12 +12,12 @@ export const STOREFRONT_AD_BUDGET_FOR_MAX_EFFECT = 200;
 export const STOREFRONT_AD_MAX_TRAFFIC_BOOST = 1;
 
 export const NPC_DEMAND_CURVE = [
-  { startHour: 0, endHour: 5, multiplier: 0.3 },
-  { startHour: 6, endHour: 8, multiplier: 0.6 },
-  { startHour: 9, endHour: 11, multiplier: 1.0 },
-  { startHour: 12, endHour: 13, multiplier: 1.3 },
-  { startHour: 14, endHour: 16, multiplier: 0.85 },
-  { startHour: 17, endHour: 20, multiplier: 1.15 },
+  { startHour: 0, endHour: 5, multiplier: 0.6 },
+  { startHour: 6, endHour: 8, multiplier: 0.8 },
+  { startHour: 9, endHour: 11, multiplier: 2.0 },
+  { startHour: 12, endHour: 13, multiplier: 2.3 },
+  { startHour: 14, endHour: 16, multiplier: 1.85 },
+  { startHour: 17, endHour: 20, multiplier: 1.25 },
   { startHour: 21, endHour: 23, multiplier: 0.5 },
 ] as const;
 

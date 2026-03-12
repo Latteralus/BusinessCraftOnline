@@ -18,7 +18,7 @@ export function formatMarketTransactionLine(input: FormatMarketTransactionLineIn
   const sellerName =
     tx.seller_business_name ??
     (tx.seller_business_id ? businessNameById?.get(tx.seller_business_id) : null) ??
-    (tx.seller_business_id ? `Business ${tx.seller_business_id.slice(0, 8)}` : "Unknown Seller");
+    (tx.seller_business_id ? `Business ${tx.seller_business_id.slice(0, 8)}` : tx.seller_source_type === "personal" ? "Personal Inventory" : "Unknown Seller");
 
   const buyerName =
     tx.buyer_type === "npc"

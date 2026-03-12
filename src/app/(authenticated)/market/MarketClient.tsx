@@ -1,6 +1,5 @@
 "use client";
 
-import { NPC_PRICE_CEILINGS } from "@/config/items";
 import { formatMarketTransactionLine } from "@/domains/market/feed";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency } from "@/lib/formatters";
@@ -13,7 +12,7 @@ import type { MarketListing, MarketTransaction } from "@/domains/market";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { useGameStore, useMarketSlice } from "@/stores/game-store";
+import { useGameStore, useInventorySlice, useMarketSlice } from "@/stores/game-store";
 import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 
@@ -182,19 +181,25 @@ function MiniSparkline(props: { points: number[]; tone?: string }) {
 
 export default function MarketClient({ initialData }: Props) {
   const market = useMarketSlice();
+  const inventory = useInventorySlice();
   const patchMarket = useGameStore((state) => state.patchMarket);
+  const playerId = useGameStore((state) => state.player.data.playerId);
   const businesses = market.businesses;
   const listings = market.listings;
   const transactions = market.transactions;
+  const personalInventory = inventory.personalInventory;
+  const businessInventory = inventory.businessInventory;
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
+  const [sourceType, setSourceType] = useState<"business" | "personal">(
+    initialData.businessInventory.length > 0 || initialData.businesses.length > 0 ? "business" : "personal"
+  );
   const [sourceBusinessId, setSourceBusinessId] = useState(initialData.businesses[0]?.id ?? "");
+  const [sourceInventoryRowId, setSourceInventoryRowId] = useState("");
   const [buyerBusinessId, setBuyerBusinessId] = useState(initialData.businesses[0]?.id ?? "");
-  const [itemKey, setItemKey] = useState(Object.keys(NPC_PRICE_CEILINGS)[0] ?? "");
-  const [quality, setQuality] = useState(50);
   const [quantity, setQuantity] = useState(5);
   const [unitPrice, setUnitPrice] = useState(5);
   const [buyQuantityByListingId, setBuyQuantityByListingId] = useState<Record<string, number>>({});
@@ -210,6 +215,56 @@ export default function MarketClient({ initialData }: Props) {
     () => businesses.find((business) => business.id === sourceBusinessId) ?? null,
     [businesses, sourceBusinessId]
   );
+
+  const sourceInventoryOptions = useMemo(() => {
+    if (sourceType === "personal") {
+      return personalInventory
+        .filter((row) => row.quantity > 0)
+        .map((row) => ({
+          id: row.id,
+          itemKey: row.item_key,
+          quality: row.quality,
+          available: row.quantity,
+          cityId: initialData.currentCityId ?? null,
+          sourceLabel: "Personal Inventory",
+          optionLabel: `${formatItemKey(row.item_key)} · Q${row.quality} · ${row.quantity} units`,
+        }));
+    }
+
+    if (!sourceBusinessId) return [];
+    return businessInventory
+      .filter((row) => row.business_id === sourceBusinessId && Math.max(0, row.quantity - row.reserved_quantity) > 0)
+      .map((row) => ({
+        id: row.id,
+        itemKey: row.item_key,
+        quality: row.quality,
+        available: Math.max(0, row.quantity - row.reserved_quantity),
+        cityId: row.city_id,
+        sourceLabel: sourceBusiness?.name ?? "Business Inventory",
+        optionLabel: `${formatItemKey(row.item_key)} · Q${row.quality} · ${Math.max(0, row.quantity - row.reserved_quantity)} units`,
+      }));
+  }, [businessInventory, initialData.currentCityId, personalInventory, sourceBusiness?.name, sourceBusinessId, sourceType]);
+
+  const selectedSourceInventory = useMemo(
+    () => sourceInventoryOptions.find((row) => row.id === sourceInventoryRowId) ?? sourceInventoryOptions[0] ?? null,
+    [sourceInventoryOptions, sourceInventoryRowId]
+  );
+
+  useEffect(() => {
+    if (!selectedSourceInventory && sourceInventoryRowId) {
+      setSourceInventoryRowId("");
+      return;
+    }
+    if (selectedSourceInventory && selectedSourceInventory.id !== sourceInventoryRowId) {
+      setSourceInventoryRowId(selectedSourceInventory.id);
+    }
+  }, [selectedSourceInventory, sourceInventoryRowId]);
+
+  useEffect(() => {
+    setQuantity((current) =>
+      selectedSourceInventory ? Math.max(1, Math.min(current, selectedSourceInventory.available)) : 1
+    );
+  }, [selectedSourceInventory?.available]);
 
   const buyerBusiness = useMemo(
     () => businesses.find((business) => business.id === buyerBusinessId) ?? null,
@@ -248,7 +303,7 @@ export default function MarketClient({ initialData }: Props) {
       businessNameById.set(business.id, business.name);
     }
     for (const listing of listings) {
-      if (listing.business?.name) {
+      if (listing.business?.name && listing.source_business_id) {
         businessNameById.set(listing.source_business_id, listing.business.name);
       }
     }
@@ -303,7 +358,7 @@ export default function MarketClient({ initialData }: Props) {
   }, [nowMs, transactions]);
 
   async function createListing() {
-    if (!sourceBusinessId || busy) return;
+    if (busy || !selectedSourceInventory || quantity < 1 || quantity > selectedSourceInventory.available) return;
     setBusy(true);
     setError(null);
     const optimisticId = `optimistic-listing-${Date.now()}`;
@@ -313,11 +368,17 @@ export default function MarketClient({ initialData }: Props) {
         const optimisticListing: MarketListing = {
           id: optimisticId,
           owner_player_id: "",
-          source_business_id: sourceBusinessId,
-          source_inventory_id: null,
-          city_id: businesses.find((business) => business.id === sourceBusinessId)?.city_id ?? "",
-          item_key: itemKey,
-          quality,
+          source_type: sourceType,
+          source_business_id: sourceType === "business" ? sourceBusinessId : null,
+          source_inventory_id: sourceType === "business" ? selectedSourceInventory.id : null,
+          source_personal_inventory_id: sourceType === "personal" ? selectedSourceInventory.id : null,
+          city_id:
+            selectedSourceInventory.cityId ??
+            businesses.find((business) => business.id === sourceBusinessId)?.city_id ??
+            initialData.currentCityId ??
+            "",
+          item_key: selectedSourceInventory.itemKey,
+          quality: selectedSourceInventory.quality,
           quantity,
           reserved_quantity: quantity,
           unit_price: unitPrice,
@@ -328,13 +389,21 @@ export default function MarketClient({ initialData }: Props) {
           cancelled_at: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          business: sourceBusinessName ? { name: sourceBusinessName } : undefined,
+          business: sourceType === "business" && sourceBusinessName ? { name: sourceBusinessName } : undefined,
+          source_label: selectedSourceInventory.sourceLabel,
         };
         patchMarket({ listings: [optimisticListing, ...listings] });
       }, async () => {
         const payload = await apiPost<{ listing?: MarketListing }>(
           apiRoutes.market.root,
-          { sourceBusinessId, itemKey, quality, quantity, unitPrice },
+          {
+            sourceType,
+            sourceBusinessId: sourceType === "business" ? sourceBusinessId : undefined,
+            itemKey: selectedSourceInventory.itemKey,
+            quality: selectedSourceInventory.quality,
+            quantity,
+            unitPrice,
+          },
           { fallbackError: "Failed to create listing." }
         );
         if (payload.listing) {
@@ -349,7 +418,7 @@ export default function MarketClient({ initialData }: Props) {
         banking: true,
         inventory: true,
         market: true,
-        businessDetails: detailSyncTarget(sourceBusinessId),
+        businessDetails: detailSyncTarget(sourceType === "business" ? sourceBusinessId : null),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create listing.");
@@ -535,47 +604,58 @@ export default function MarketClient({ initialData }: Props) {
               <div style={{ display: "grid", gap: 14 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
                   <label>
-                    <FieldLabel><TooltipLabel label="Source Business" content="The business posting inventory onto the market as a public listing." /></FieldLabel>
-                    <select value={sourceBusinessId} onChange={(event) => setSourceBusinessId(event.target.value)} title="Source business">
-                      <option value="">Select business</option>
-                      {businesses.map((business) => (
-                        <option key={business.id} value={business.id}>
-                          {business.name} ({formatBusinessType(business.type)})
-                        </option>
-                      ))}
+                    <FieldLabel><TooltipLabel label="Source Type" content="Choose whether the listing comes from one of your companies or from your personal inventory." /></FieldLabel>
+                    <select value={sourceType} onChange={(event) => setSourceType(event.target.value as "business" | "personal")} title="Source type">
+                      <option value="business">Business Inventory</option>
+                      <option value="personal">Personal Inventory</option>
                     </select>
                   </label>
                   <label>
-                    <FieldLabel><TooltipLabel label="Buyer Business" content="The business that will receive inventory when you buy a listing." /></FieldLabel>
-                    <select value={buyerBusinessId} onChange={(event) => setBuyerBusinessId(event.target.value)} title="Buyer business">
-                      <option value="">Select business</option>
-                      {businesses.map((business) => (
-                        <option key={business.id} value={business.id}>
-                          {business.name} ({formatBusinessType(business.type)})
-                        </option>
-                      ))}
-                    </select>
+                    <FieldLabel><TooltipLabel label={sourceType === "business" ? "Source Business" : "Source Inventory"} content={sourceType === "business" ? "Choose which company is posting stock onto the open market." : "Personal listings are posted directly from the inventory your character is carrying."} /></FieldLabel>
+                    {sourceType === "business" ? (
+                      <select value={sourceBusinessId} onChange={(event) => setSourceBusinessId(event.target.value)} title="Source business">
+                        <option value="">Select business</option>
+                        {businesses.map((business) => (
+                          <option key={business.id} value={business.id}>
+                            {business.name} ({formatBusinessType(business.type)})
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div style={{ padding: "11px 12px", borderRadius: 12, border: "1px solid rgba(148, 163, 184, 0.16)", background: "rgba(15, 23, 42, 0.72)", minHeight: 46, display: "flex", alignItems: "center" }}>
+                        Personal Inventory
+                      </div>
+                    )}
                   </label>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
                   <label>
-                    <FieldLabel><TooltipLabel label="Item" content="The commodity or product being listed for sale." /></FieldLabel>
-                    <select value={itemKey} onChange={(event) => setItemKey(event.target.value)} title="Item key">
-                      {Object.keys(NPC_PRICE_CEILINGS).map((key) => (
-                        <option key={key} value={key}>
-                          {formatItemKey(key)}
+                    <FieldLabel><TooltipLabel label="Inventory Row" content="Select the actual inventory row that should be listed on the public market." /></FieldLabel>
+                    <select value={selectedSourceInventory?.id ?? ""} onChange={(event) => setSourceInventoryRowId(event.target.value)} title="Source inventory row">
+                      <option value="">Select inventory</option>
+                      {sourceInventoryOptions.map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {row.optionLabel}
                         </option>
                       ))}
                     </select>
                   </label>
                   <label>
-                    <FieldLabel><TooltipLabel label="Quality" content="Higher quality goods are tracked separately and can justify stronger pricing." /></FieldLabel>
-                    <input type="number" min={1} max={100} value={quality} onChange={(event) => setQuality(Number(event.target.value) || 1)} />
+                    <FieldLabel><TooltipLabel label="Item" content="The item attached to the selected inventory row." /></FieldLabel>
+                    <div style={{ padding: "11px 12px", borderRadius: 12, border: "1px solid rgba(148, 163, 184, 0.16)", background: "rgba(15, 23, 42, 0.72)", minHeight: 46, display: "flex", alignItems: "center" }}>
+                      {selectedSourceInventory ? formatItemKey(selectedSourceInventory.itemKey) : "Select inventory"}
+                    </div>
                   </label>
                   <label>
-                    <FieldLabel><TooltipLabel label="Quantity" content="How many units will be placed into the listing." /></FieldLabel>
-                    <input type="number" min={1} value={quantity} onChange={(event) => setQuantity(Number(event.target.value) || 1)} />
+                    <FieldLabel><TooltipLabel label="Quality" content="The listing preserves the quality of the selected row." /></FieldLabel>
+                    <div style={{ padding: "11px 12px", borderRadius: 12, border: "1px solid rgba(148, 163, 184, 0.16)", background: "rgba(15, 23, 42, 0.72)", minHeight: 46, display: "flex", alignItems: "center" }}>
+                      {selectedSourceInventory ? `Q${selectedSourceInventory.quality}` : "Select inventory"}
+                    </div>
+                  </label>
+                  <label>
+                    <FieldLabel><TooltipLabel label="Quantity" content="How many units from the selected row should be posted to the market." /></FieldLabel>
+                    <input type="number" min={1} max={selectedSourceInventory?.available ?? 1} value={quantity} onChange={(event) => setQuantity(Number(event.target.value) || 1)} />
                   </label>
                   <label>
                     <FieldLabel><TooltipLabel label="Unit Price" content="The asking price per unit before any market fees are applied." /></FieldLabel>
@@ -584,11 +664,11 @@ export default function MarketClient({ initialData }: Props) {
                 </div>
 
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <button onClick={() => void createListing()} disabled={busy || !sourceBusinessId}>
+                  <button onClick={() => void createListing()} disabled={busy || !selectedSourceInventory || quantity > (selectedSourceInventory?.available ?? 0)}>
                     {busy ? "Publishing..." : "Publish Listing"}
                   </button>
                   <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
-                    Listing ticket: {quantity} {formatItemKey(itemKey)} at {formatCurrency(unitPrice)} each for {formatCurrency(quantity * unitPrice)}
+                    Listing ticket: {quantity} {selectedSourceInventory ? formatItemKey(selectedSourceInventory.itemKey) : "units"} at {formatCurrency(unitPrice)} each for {formatCurrency(quantity * unitPrice)}
                   </div>
                 </div>
               </div>
@@ -608,10 +688,14 @@ export default function MarketClient({ initialData }: Props) {
                     Desk Readout
                   </div>
                   <div style={{ color: "#f8fafc", fontSize: "1.1rem", fontWeight: 700 }}>
-                    {sourceBusiness?.name ?? "Select a source business"}
+                    {selectedSourceInventory?.sourceLabel ?? (sourceType === "business" ? "Select a source business" : "Select personal inventory")}
                   </div>
                   <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 4 }}>
-                    {sourceBusiness ? `Cash on hand ${formatCurrency(sourceBusiness.balance)}` : "Choose where inventory will enter the market."}
+                    {sourceType === "business"
+                      ? sourceBusiness
+                        ? `Cash on hand ${formatCurrency(sourceBusiness.balance)}`
+                        : "Choose which business will place inventory onto the open market."
+                      : "Personal listings are posted directly from inventory you already carry."}
                   </div>
                 </div>
 
@@ -625,8 +709,8 @@ export default function MarketClient({ initialData }: Props) {
                     <strong>{formatCurrency(listingSummary.avgAsk)}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Destination routing" content="The buyer business selected to receive purchased inventory from the order book." /></span>
-                    <strong>{buyerBusiness?.name ?? "No buyer selected"}</strong>
+                    <span style={{ color: "var(--text-secondary)" }}><TooltipLabel label="Available to list" content="Units currently available on the selected inventory row." /></span>
+                    <strong>{selectedSourceInventory ? `${selectedSourceInventory.available} units` : "No inventory selected"}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                     <span style={{ color: "var(--text-secondary)" }}>Market coverage</span>
@@ -635,8 +719,27 @@ export default function MarketClient({ initialData }: Props) {
                 </div>
 
                 <div style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6 }}>
-                  Set the buyer business before lifting an ask so incoming inventory lands in the correct operation.
+                  Listing creation is source-driven: choose the inventory owner first, then the stock row, then the public asking price.
                 </div>
+              </div>
+            </div>
+          </Panel>
+
+          <Panel title="Purchase Routing" eyebrow="Receiving Business">
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 12, alignItems: "end" }}>
+              <label>
+                <FieldLabel><TooltipLabel label="Buyer Business" content="Choose where purchased goods from the open market should be delivered." /></FieldLabel>
+                <select value={buyerBusinessId} onChange={(event) => setBuyerBusinessId(event.target.value)} title="Buyer business">
+                  <option value="">Select business</option>
+                  {businesses.map((business) => (
+                    <option key={business.id} value={business.id}>
+                      {business.name} ({formatBusinessType(business.type)})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div style={{ color: "var(--text-secondary)", fontSize: 12, paddingBottom: 10 }}>
+                Purchases settle into {buyerBusiness?.name ?? "the selected business"}.
               </div>
             </div>
           </Panel>
@@ -649,10 +752,14 @@ export default function MarketClient({ initialData }: Props) {
                 {activeListings.map((listing) => {
                   const requestedQty = Math.max(1, Math.min(listing.quantity, buyQuantityByListingId[listing.id] ?? 1));
                   const total = requestedQty * listing.unit_price;
-                  const isOwnSource = listing.source_business_id === sourceBusinessId;
+                  const isOwnSource = Boolean(playerId && listing.owner_player_id === playerId);
                   const listingAgeMs = Math.max(0, nowMs - new Date(listing.created_at).getTime());
                   const freshnessRatio = clamp(1 - listingAgeMs / (1000 * 60 * 60), 0.08, 1);
                   const motionPhase = ((nowMs / 1000) % 3) / 3;
+                  const listingSourceLabel =
+                    listing.source_type === "personal"
+                      ? listing.source_label ?? "Personal Inventory"
+                      : listing.business?.name ?? (listing.source_business_id ? `Business ${listing.source_business_id.slice(0, 8)}` : "Unknown Business");
 
                   return (
                     <article
@@ -671,11 +778,11 @@ export default function MarketClient({ initialData }: Props) {
                         <div>
                           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
                             <h3 style={{ margin: 0, fontSize: "1.05rem" }}>{formatItemKey(listing.item_key)}</h3>
-                            <StatusBadge tone={isOwnSource ? "good" : "neutral"}>{isOwnSource ? "Selected Seller" : "Open Ask"}</StatusBadge>
+                            <StatusBadge tone={isOwnSource ? "good" : "neutral"}>{isOwnSource ? "Your Listing" : "Open Ask"}</StatusBadge>
                             <StatusBadge tone="warn">Q{listing.quality}</StatusBadge>
                           </div>
                           <div style={{ color: "var(--text-secondary)", fontSize: 13 }}>
-                            {listing.business?.name ?? `Business ${listing.source_business_id.slice(0, 8)}`} posted this lot on {formatTimestamp(listing.created_at)}
+                            {listingSourceLabel} posted this lot on {formatTimestamp(listing.created_at)}
                           </div>
                         </div>
                         <div style={{ textAlign: "right" }}>
@@ -691,8 +798,8 @@ export default function MarketClient({ initialData }: Props) {
                           <div style={{ marginTop: 6, fontWeight: 700 }}>{listing.quantity} units</div>
                         </div>
                         <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
-                          <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Buyer Route</div>
-                          <div style={{ marginTop: 6, fontWeight: 700 }}>{buyerBusiness?.name ?? "Select buyer"}</div>
+                          <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Seller</div>
+                          <div style={{ marginTop: 6, fontWeight: 700 }}>{listingSourceLabel}</div>
                         </div>
                         <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
                           <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Trade Status</div>
@@ -786,20 +893,23 @@ export default function MarketClient({ initialData }: Props) {
                         <div style={{ color: "var(--text-secondary)", fontSize: 12, paddingBottom: 10 }}>
                           Ticket value {formatCurrency(total)}
                         </div>
-                        <button onClick={() => void buyListing(listing.id)} disabled={busy || !buyerBusinessId}>
-                          Buy For {buyerBusiness ? buyerBusiness.name : "Selected Buyer"}
-                        </button>
-                        <button
-                          onClick={() => void cancelListing(listing.id)}
-                          disabled={busy}
-                          style={{
-                            border: "1px solid rgba(148, 163, 184, 0.16)",
-                            background: "rgba(15, 23, 42, 0.72)",
-                            color: "#e2e8f0",
-                          }}
-                        >
-                          Cancel Listing
-                        </button>
+                        {isOwnSource ? (
+                          <button
+                            onClick={() => void cancelListing(listing.id)}
+                            disabled={busy}
+                            style={{
+                              border: "1px solid rgba(148, 163, 184, 0.16)",
+                              background: "rgba(15, 23, 42, 0.72)",
+                              color: "#e2e8f0",
+                            }}
+                          >
+                            Cancel Listing
+                          </button>
+                        ) : (
+                          <button onClick={() => void buyListing(listing.id)} disabled={busy || !buyerBusinessId}>
+                            Buy For {buyerBusiness ? buyerBusiness.name : "Selected Buyer"}
+                          </button>
+                        )}
                       </div>
                     </article>
                   );

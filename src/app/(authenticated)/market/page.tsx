@@ -9,6 +9,10 @@ export default async function MarketPage() {
     <GameHydrationProvider
       initialData={{
         businesses: initialData.businesses,
+        inventory: {
+          personalInventory: initialData.personalInventory,
+          businessInventory: initialData.businessInventory,
+        },
         market: initialData,
       }}
     >

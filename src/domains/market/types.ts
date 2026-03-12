@@ -1,11 +1,14 @@
 export const MARKET_LISTING_STATUSES = ["active", "filled", "cancelled", "expired"] as const;
 export type MarketListingStatus = (typeof MARKET_LISTING_STATUSES)[number];
+export type MarketListingSourceType = "business" | "personal";
 
 export type MarketListing = {
   id: string;
   owner_player_id: string;
-  source_business_id: string;
+  source_type: MarketListingSourceType;
+  source_business_id: string | null;
   source_inventory_id: string | null;
+  source_personal_inventory_id: string | null;
   city_id: string;
   item_key: string;
   quality: number;
@@ -20,6 +23,7 @@ export type MarketListing = {
   created_at: string;
   updated_at: string;
   business?: { name: string };
+  source_label?: string | null;
 };
 
 export type MarketTransaction = {
@@ -28,7 +32,8 @@ export type MarketTransaction = {
   seller_player_id: string;
   buyer_player_id: string | null;
   buyer_type: "player" | "npc";
-  seller_business_id: string;
+  seller_source_type: MarketListingSourceType;
+  seller_business_id: string | null;
   seller_business_name: string | null;
   buyer_business_id: string | null;
   buyer_business_name: string | null;
@@ -178,7 +183,8 @@ export type MarketListingFilter = {
 };
 
 export type CreateMarketListingInput = {
-  sourceBusinessId: string;
+  sourceType: MarketListingSourceType;
+  sourceBusinessId?: string;
   itemKey: string;
   quality: number;
   quantity: number;

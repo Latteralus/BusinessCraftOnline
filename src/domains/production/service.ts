@@ -223,6 +223,22 @@ function resolveExtractionStatus(
   return "idle";
 }
 
+function resolveDisplayedExtractionStatus(
+  slot: ExtractionSlot,
+  employeeStatus: ReturnType<typeof getEmployeeStatusFromShift> | null
+): ExtractionSlot["status"] {
+  if (slot.status === "retooling" || slot.pending_item_key || slot.retool_complete_at) {
+    return "retooling";
+  }
+  if (!slot.employee_id) {
+    return "idle";
+  }
+  if (employeeStatus && employeeStatus !== "assigned") {
+    return "resting";
+  }
+  return slot.status;
+}
+
 async function finalizeExtractionRetools(client: QueryClient, businessId: string): Promise<void> {
   const nowIso = new Date().toISOString();
   const { data, error } = await client
@@ -536,15 +552,13 @@ export async function getProductionStatus(
   const detailed: ExtractionSlotWithDetails[] = [];
   for (const slot of slots) {
     const employee = slot.employee_id ? await getEmployeeById(client, playerId, slot.employee_id) : null;
+    const employeeStatus = employee ? getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) : null;
     const configuredItemKey = resolveExtractionConfiguredItem(slot, business.type);
     detailed.push({
       ...slot,
-      status:
-        slot.status === "retooling" || slot.pending_item_key || slot.retool_complete_at
-          ? "retooling"
-          : slot.status,
+      status: resolveDisplayedExtractionStatus(slot, employeeStatus),
       business_type: business.type,
-      employee_status: employee ? getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) : null,
+      employee_status: employeeStatus,
       tool: toolBySlot.get(slot.id) ?? null,
       configured_output: getExtractionProductOption(business.type, configuredItemKey),
       pending_output: slot.pending_item_key ? getExtractionProductOption(business.type, slot.pending_item_key) : null,

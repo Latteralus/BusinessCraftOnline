@@ -53,6 +53,9 @@ export type MarketPageData = {
   businesses: BusinessWithBalance[];
   listings: MarketListing[];
   transactions: MarketTransaction[];
+  personalInventory: PersonalInventoryItem[];
+  businessInventory: BusinessInventoryItem[];
+  currentCityId?: string | null;
 };
 
 export type EmployeesPageData = {
@@ -216,17 +219,20 @@ export async function fetchInventoryPageData(): Promise<InventoryPageData> {
 }
 
 export async function fetchMarketPageData(): Promise<MarketPageData> {
-  const [businessesJson, listingsJson] = await Promise.all([
+  const [businessesJson, listingsJson, inventoryJson] = await Promise.all([
     apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." }),
     apiGet<ListingsResponse>(apiRoutes.market.listings({ includeTransactions: true, transactionsLimit: 40, buyerType: "player" }), {
       fallbackError: "Failed to load market listings.",
     }),
+    apiGet<InventoryResponse>(apiRoutes.inventory.root, { fallbackError: "Failed to load inventory." }),
   ]);
 
   return {
     businesses: businessesJson.businesses ?? [],
     listings: listingsJson.listings ?? [],
     transactions: listingsJson.transactions ?? [],
+    personalInventory: inventoryJson.personalInventory ?? [],
+    businessInventory: inventoryJson.businessInventory ?? [],
   };
 }
 

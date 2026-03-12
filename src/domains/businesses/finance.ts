@@ -63,7 +63,7 @@ type StorefrontSnapshotRow = {
 
 type StorefrontTransactionRow = {
   id: string;
-  seller_business_id: string;
+  seller_business_id: string | null;
   buyer_type: "player" | "npc";
   item_key: string;
   quantity: number | string;

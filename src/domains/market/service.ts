@@ -201,7 +201,7 @@ async function applySourceInventorySale(
 }
 
 async function releaseSourceInventoryReservation(client: QueryClient, listing: MarketListing): Promise<void> {
-  if (!listing.source_inventory_id) return;
+  if (listing.source_type !== "business" || !listing.source_inventory_id) return;
 
   const { data: row, error } = await client
     .from("business_inventory")
@@ -227,6 +227,39 @@ async function releaseSourceInventoryReservation(client: QueryClient, listing: M
   if (updateError) throw updateError;
 }
 
+async function restorePersonalListingToInventory(client: QueryClient, listing: MarketListing): Promise<void> {
+  if (listing.source_type !== "personal") return;
+
+  const { data: existingRow, error: existingError } = await client
+    .from("personal_inventory")
+    .select("id, quantity")
+    .eq("player_id", listing.owner_player_id)
+    .eq("item_key", listing.item_key)
+    .eq("quality", listing.quality)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  if (existingRow) {
+    const { error: updateError } = await client
+      .from("personal_inventory")
+      .update({
+        quantity: toNumber(existingRow.quantity) + listing.quantity,
+        updated_at: nowIso(),
+      })
+      .eq("id", existingRow.id);
+    if (updateError) throw updateError;
+    return;
+  }
+
+  const { error: insertError } = await client.from("personal_inventory").insert({
+    player_id: listing.owner_player_id,
+    item_key: listing.item_key,
+    quality: listing.quality,
+    quantity: listing.quantity,
+  });
+  if (insertError) throw insertError;
+}
+
 async function settleSaleAccounting(
   client: QueryClient,
   listing: MarketListing,
@@ -245,72 +278,95 @@ async function settleSaleAccounting(
   const gross = round2(listing.unit_price * soldQuantity);
   const fee = round2(gross * MARKET_TRANSACTION_FEE);
   const net = round2(gross - fee);
-  const saleCost = listing.source_inventory_id
+  const saleCost = listing.source_type === "business" && listing.source_inventory_id
     ? await consumeInventoryCostByRowId(client, listing.source_inventory_id, soldQuantity)
     : { totalCost: 0, itemKey: listing.item_key, quantity: soldQuantity, estimated: true };
-  const sellerBusinessName = await getBusinessNameSafe(client, listing.source_business_id);
+  const sellerBusinessName =
+    listing.source_type === "business"
+      ? await getBusinessNameSafe(client, listing.source_business_id)
+      : "Personal Inventory";
   const buyerBusinessName = buyerType === "player" ? await getBusinessNameSafe(client, buyerBusinessId) : null;
 
-  await addBusinessAccountEntry(client, listing.owner_player_id, listing.source_business_id, {
-    amount: gross,
-    entryType: "credit",
-    category: buyerType === "npc" ? "npc_sale" : "market_sale",
-    referenceId: listing.id,
-    description: `${buyerType.toUpperCase()} market sale: ${soldQuantity}x ${listing.item_key}`,
-  });
-  await addBusinessAccountEntry(client, listing.owner_player_id, listing.source_business_id, {
-    amount: fee,
-    entryType: "debit",
-    category: "market_fee",
-    referenceId: listing.id,
-    description: `Market fee: ${soldQuantity}x ${listing.item_key}`,
-  });
-
-  await insertBusinessFinancialEvents(client, listing.owner_player_id, [
-    {
-      business_id: listing.source_business_id,
-      account_code: "revenue",
+  if (listing.source_type === "business" && listing.source_business_id) {
+    await addBusinessAccountEntry(client, listing.owner_player_id, listing.source_business_id, {
       amount: gross,
-      quantity: soldQuantity,
-      item_key: listing.item_key,
-      reference_type: "market_transaction",
-      reference_id: listing.id,
-      description: `${buyerType.toUpperCase()} sale revenue: ${soldQuantity}x ${listing.item_key}`,
-      metadata: { buyerType },
-    },
-    {
-      business_id: listing.source_business_id,
-      account_code: "cogs",
-      amount: saleCost.totalCost,
-      quantity: soldQuantity,
-      item_key: listing.item_key,
-      reference_type: "market_transaction",
-      reference_id: listing.id,
-      description: `COGS on sale: ${soldQuantity}x ${listing.item_key}`,
-      metadata: { estimatedCost: saleCost.estimated },
-    },
-    {
-      business_id: listing.source_business_id,
-      account_code: "inventory",
-      amount: saleCost.totalCost,
-      quantity: soldQuantity,
-      item_key: listing.item_key,
-      reference_type: "market_transaction",
-      reference_id: listing.id,
-      description: `Inventory relieved on sale: ${soldQuantity}x ${listing.item_key}`,
-      metadata: { direction: "out", estimatedCost: saleCost.estimated },
-    },
-    {
-      business_id: listing.source_business_id,
-      account_code: "operating_expense",
+      entryType: "credit",
+      category: buyerType === "npc" ? "npc_sale" : "market_sale",
+      referenceId: listing.id,
+      description: `${buyerType.toUpperCase()} market sale: ${soldQuantity}x ${listing.item_key}`,
+    });
+    await addBusinessAccountEntry(client, listing.owner_player_id, listing.source_business_id, {
       amount: fee,
-      quantity: soldQuantity,
-      item_key: listing.item_key,
-      reference_type: "market_transaction",
-      reference_id: listing.id,
-      description: `Market fee expense: ${soldQuantity}x ${listing.item_key}`,
-    },
-  ]);
+      entryType: "debit",
+      category: "market_fee",
+      referenceId: listing.id,
+      description: `Market fee: ${soldQuantity}x ${listing.item_key}`,
+    });
+
+    await insertBusinessFinancialEvents(client, listing.owner_player_id, [
+      {
+        business_id: listing.source_business_id,
+        account_code: "revenue",
+        amount: gross,
+        quantity: soldQuantity,
+        item_key: listing.item_key,
+        reference_type: "market_transaction",
+        reference_id: listing.id,
+        description: `${buyerType.toUpperCase()} sale revenue: ${soldQuantity}x ${listing.item_key}`,
+        metadata: { buyerType },
+      },
+      {
+        business_id: listing.source_business_id,
+        account_code: "cogs",
+        amount: saleCost.totalCost,
+        quantity: soldQuantity,
+        item_key: listing.item_key,
+        reference_type: "market_transaction",
+        reference_id: listing.id,
+        description: `COGS on sale: ${soldQuantity}x ${listing.item_key}`,
+        metadata: { estimatedCost: saleCost.estimated },
+      },
+      {
+        business_id: listing.source_business_id,
+        account_code: "inventory",
+        amount: saleCost.totalCost,
+        quantity: soldQuantity,
+        item_key: listing.item_key,
+        reference_type: "market_transaction",
+        reference_id: listing.id,
+        description: `Inventory relieved on sale: ${soldQuantity}x ${listing.item_key}`,
+        metadata: { direction: "out", estimatedCost: saleCost.estimated },
+      },
+      {
+        business_id: listing.source_business_id,
+        account_code: "operating_expense",
+        amount: fee,
+        quantity: soldQuantity,
+        item_key: listing.item_key,
+        reference_type: "market_transaction",
+        reference_id: listing.id,
+        description: `Market fee expense: ${soldQuantity}x ${listing.item_key}`,
+      },
+    ]);
+  } else {
+    const { data: checkingAccount, error: checkingError } = await client
+      .from("bank_accounts")
+      .select("id")
+      .eq("player_id", listing.owner_player_id)
+      .eq("account_type", "checking")
+      .maybeSingle();
+    if (checkingError) throw checkingError;
+    if (!checkingAccount) throw new Error("Seller checking account not found.");
+
+    await appendPersonalTransaction(client, listing.owner_player_id, {
+      accountId: checkingAccount.id,
+      amount: net,
+      direction: "credit",
+      transactionType: "market_sale",
+      referenceId: listing.id,
+      description: `Market sale: ${soldQuantity}x ${listing.item_key}`,
+    });
+  }
 
   if (buyerType === "player") {
     if (buyerBusinessId && buyerPlayerId) {
@@ -351,6 +407,7 @@ async function settleSaleAccounting(
       seller_player_id: listing.owner_player_id,
       buyer_player_id: buyerPlayerId,
       buyer_type: buyerType,
+      seller_source_type: listing.source_type,
       seller_business_id: listing.source_business_id,
       seller_business_name: sellerBusinessName,
       buyer_business_id: buyerBusinessId,
@@ -409,44 +466,112 @@ export async function createMarketListing(
   playerId: string,
   input: CreateMarketListingInput
 ): Promise<MarketListing> {
-  const business = await ensureOwnedBusiness(client, playerId, input.sourceBusinessId);
-  await reconcileBusinessInventoryReservations(client, playerId, business.id);
+  if (input.sourceType === "business") {
+    if (!input.sourceBusinessId) throw new Error("Business id is required.");
+    const business = await ensureOwnedBusiness(client, playerId, input.sourceBusinessId);
+    await reconcileBusinessInventoryReservations(client, playerId, business.id);
 
-  const { data: inventoryRow, error: inventoryError } = await client
-    .from("business_inventory")
-    .select("id, quantity, reserved_quantity")
-    .eq("owner_player_id", playerId)
-    .eq("business_id", business.id)
-    .eq("item_key", input.itemKey)
-    .eq("quality", input.quality)
-    .maybeSingle();
+    const { data: inventoryRow, error: inventoryError } = await client
+      .from("business_inventory")
+      .select("id, quantity, reserved_quantity")
+      .eq("owner_player_id", playerId)
+      .eq("business_id", business.id)
+      .eq("item_key", input.itemKey)
+      .eq("quality", input.quality)
+      .maybeSingle();
 
-  if (inventoryError) throw inventoryError;
-  if (!inventoryRow) throw new Error("Source inventory not found for requested item and quality.");
+    if (inventoryError) throw inventoryError;
+    if (!inventoryRow) throw new Error("Source inventory not found for requested item and quality.");
 
-  const quantity = toNumber(inventoryRow.quantity);
-  const reserved = toNumber(inventoryRow.reserved_quantity);
-  const available = quantity - reserved;
-  if (available < input.quantity) {
-    throw new Error("Not enough available inventory to create listing.");
+    const quantity = toNumber(inventoryRow.quantity);
+    const reserved = toNumber(inventoryRow.reserved_quantity);
+    const available = quantity - reserved;
+    if (available < input.quantity) {
+      throw new Error("Not enough available inventory to create listing.");
+    }
+
+    const { error: reserveError } = await client
+      .from("business_inventory")
+      .update({
+        reserved_quantity: reserved + input.quantity,
+        updated_at: nowIso(),
+      })
+      .eq("id", inventoryRow.id);
+    if (reserveError) throw reserveError;
+
+    const { data, error } = await client
+      .from("market_listings")
+      .insert({
+        owner_player_id: playerId,
+        source_type: "business",
+        source_business_id: business.id,
+        source_inventory_id: inventoryRow.id,
+        source_personal_inventory_id: null,
+        city_id: business.city_id,
+        item_key: input.itemKey,
+        quality: input.quality,
+        quantity: input.quantity,
+        reserved_quantity: input.quantity,
+        unit_price: input.unitPrice,
+        listing_type: "sell",
+        status: "active",
+        expires_at: input.expiresAt ?? null,
+      })
+      .select("*")
+      .single();
+
+    if (error) throw error;
+    return normalizeListing(data as MarketListing);
   }
 
-  const { error: reserveError } = await client
-    .from("business_inventory")
-    .update({
-      reserved_quantity: reserved + input.quantity,
-      updated_at: nowIso(),
-    })
-    .eq("id", inventoryRow.id);
-  if (reserveError) throw reserveError;
+  const { data: personalRow, error: personalError } = await client
+    .from("personal_inventory")
+    .select("id, quantity")
+    .eq("player_id", playerId)
+    .eq("item_key", input.itemKey)
+    .eq("quality", input.quality)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (personalError) throw personalError;
+  if (!personalRow) throw new Error("Personal inventory not found for requested item and quality.");
+
+  const available = toNumber(personalRow.quantity);
+  if (available < input.quantity) {
+    throw new Error("Not enough personal inventory to create listing.");
+  }
+
+  if (available === input.quantity) {
+    const { error: deleteError } = await client.from("personal_inventory").delete().eq("id", personalRow.id);
+    if (deleteError) throw deleteError;
+  } else {
+    const { error: updateError } = await client
+      .from("personal_inventory")
+      .update({
+        quantity: available - input.quantity,
+        updated_at: nowIso(),
+      })
+      .eq("id", personalRow.id);
+    if (updateError) throw updateError;
+  }
+
+  const { data: characterRow, error: characterError } = await client
+    .from("characters")
+    .select("current_city_id")
+    .eq("player_id", playerId)
+    .maybeSingle();
+  if (characterError) throw characterError;
+  if (!characterRow?.current_city_id) throw new Error("Current city is required to list personal inventory on the market.");
 
   const { data, error } = await client
     .from("market_listings")
     .insert({
       owner_player_id: playerId,
-      source_business_id: business.id,
-      source_inventory_id: inventoryRow.id,
-      city_id: business.city_id,
+      source_type: "personal",
+      source_business_id: null,
+      source_inventory_id: null,
+      source_personal_inventory_id: null,
+      city_id: characterRow.current_city_id,
       item_key: input.itemKey,
       quality: input.quality,
       quantity: input.quantity,
@@ -473,7 +598,11 @@ export async function cancelMarketListing(
     throw new Error("Only active listings can be cancelled.");
   }
 
-  await releaseSourceInventoryReservation(client, listing);
+  if (listing.source_type === "business") {
+    await releaseSourceInventoryReservation(client, listing);
+  } else {
+    await restorePersonalListingToInventory(client, listing);
+  }
 
   const now = nowIso();
   const { data, error } = await client

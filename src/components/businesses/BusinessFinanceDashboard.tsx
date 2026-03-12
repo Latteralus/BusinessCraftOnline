@@ -129,10 +129,11 @@ function LineChart(props: {
   points: Array<Record<string, number | string | boolean>>;
 }) {
   const width = 520;
-  const height = 180;
+  const height = 192;
   const pad = 18;
+  const xAxisLabelHeight = 20;
   const chartW = width - pad * 2;
-  const chartH = height - pad * 2;
+  const chartH = height - pad * 2 - xAxisLabelHeight;
   const [nowMs, setNowMs] = useState(Date.now());
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -183,6 +184,23 @@ function LineChart(props: {
 
   const currentPointIndex = displayedPoints.findIndex((point) => point.isCurrent);
   const pulseRadius = 4 + ((Math.sin(nowMs / 350) + 1) / 2) * 2.5;
+  const axisLabelIndexes = useMemo(() => {
+    if (displayedPoints.length <= 1) return new Set([0]);
+
+    const maxLabels = 7;
+    const step = Math.max(1, Math.ceil(displayedPoints.length / maxLabels));
+    const indexes = new Set<number>();
+
+    for (let index = 0; index < displayedPoints.length; index += step) {
+      indexes.add(index);
+    }
+
+    indexes.add(0);
+    indexes.add(displayedPoints.length - 1);
+    if (currentPointIndex >= 0) indexes.add(currentPointIndex);
+
+    return indexes;
+  }, [currentPointIndex, displayedPoints.length]);
 
   return (
     <div
@@ -225,9 +243,17 @@ function LineChart(props: {
           ))
         )}
         {displayedPoints.map((point, index) => {
+          if (!axisLabelIndexes.has(index)) return null;
           const x = pad + (displayedPoints.length <= 1 ? chartW / 2 : (index / (displayedPoints.length - 1)) * chartW);
           return (
-            <text key={`${String(point.label)}-${index}`} x={x} y={height - 2} textAnchor="middle" fill="rgba(148,163,184,0.8)" fontSize="10">
+            <text
+              key={`${String(point.label)}-${index}`}
+              x={x}
+              y={height - 4}
+              textAnchor="middle"
+              fill="rgba(148,163,184,0.8)"
+              fontSize="10"
+            >
               {String(point.label)}
             </text>
           );

@@ -621,6 +621,7 @@ export default function BusinessDetailsClient({
           await apiPost(
             apiRoutes.market.root,
             {
+              sourceType: "business",
               sourceBusinessId: business.id,
               itemKey: item.item_key,
               quality: item.quality,

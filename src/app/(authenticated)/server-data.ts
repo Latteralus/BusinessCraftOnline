@@ -230,14 +230,23 @@ export async function loadProductionPageData() {
 }
 
 export async function loadMarketPageData() {
-  const { supabase, user } = await requireAuthedPageContext();
-  const [businesses, listings, transactions] = await Promise.all([
+  const { supabase, user, character } = await requireAuthedPageContext();
+  const [businesses, listings, transactions, personalInventory, businessInventory] = await Promise.all([
     getBusinessesWithBalancesCached(supabase, user.id),
     getMarketListings(supabase, user.id).catch(() => []),
     getMarketTransactions(supabase, user.id, 40, { buyerType: "player" }).catch(() => []),
+    getPersonalInventory(supabase, user.id).catch(() => []),
+    getBusinessInventory(supabase, user.id).catch(() => []),
   ]);
 
-  return { businesses, listings, transactions };
+  return {
+    businesses,
+    listings,
+    transactions,
+    personalInventory,
+    businessInventory,
+    currentCityId: character.current_city_id ?? null,
+  };
 }
 
 export async function loadDashboardAnalytics(userId: string) {

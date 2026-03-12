@@ -3,6 +3,7 @@ import { getStorefrontTrafficMultiplierBounds } from "@/config/market";
 import { MARKET_LISTING_STATUSES } from "./types";
 
 const marketListingStatusSchema = z.enum(MARKET_LISTING_STATUSES);
+const marketListingSourceTypeSchema = z.enum(["business", "personal"]);
 const storefrontTrafficBounds = getStorefrontTrafficMultiplierBounds();
 
 export const marketListingFilterSchema = z.object({
@@ -17,27 +18,38 @@ export const marketListingFilterSchema = z.object({
   ownOnly: z.boolean().optional(),
 });
 
-export const createMarketListingSchema = z.object({
-  sourceBusinessId: z.uuid("Business id is invalid."),
-  itemKey: z
-    .string({ error: "Item key is required." })
-    .trim()
-    .min(1, "Item key is required.")
-    .max(64, "Item key must be 64 characters or less."),
-  quality: z
-    .number({ error: "Quality must be a number." })
-    .int("Quality must be an integer.")
-    .min(1, "Quality must be at least 1.")
-    .max(100, "Quality must be at most 100."),
-  quantity: z
-    .number({ error: "Quantity must be a number." })
-    .int("Quantity must be an integer.")
-    .min(1, "Quantity must be at least 1."),
-  unitPrice: z
-    .number({ error: "Unit price must be a number." })
-    .positive("Unit price must be greater than 0."),
-  expiresAt: z.iso.datetime().optional(),
-});
+export const createMarketListingSchema = z
+  .object({
+    sourceType: marketListingSourceTypeSchema,
+    sourceBusinessId: z.uuid("Business id is invalid.").optional(),
+    itemKey: z
+      .string({ error: "Item key is required." })
+      .trim()
+      .min(1, "Item key is required.")
+      .max(64, "Item key must be 64 characters or less."),
+    quality: z
+      .number({ error: "Quality must be a number." })
+      .int("Quality must be an integer.")
+      .min(1, "Quality must be at least 1.")
+      .max(100, "Quality must be at most 100."),
+    quantity: z
+      .number({ error: "Quantity must be a number." })
+      .int("Quantity must be an integer.")
+      .min(1, "Quantity must be at least 1."),
+    unitPrice: z
+      .number({ error: "Unit price must be a number." })
+      .positive("Unit price must be greater than 0."),
+    expiresAt: z.iso.datetime().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.sourceType === "business" && !value.sourceBusinessId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sourceBusinessId"],
+        message: "Business id is required when listing from a business.",
+      });
+    }
+  });
 
 export const marketListingIdSchema = z.object({
   listingId: z.uuid("Listing id is invalid."),

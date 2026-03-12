@@ -191,12 +191,13 @@ export async function reconcileBusinessInventoryReservations(
   }
 
   for (const row of (listingsResult.data as Array<{
-    source_business_id: string;
+    source_business_id: string | null;
     item_key: string;
     quality: number | string;
     quantity: number | string;
     reserved_quantity: number | string;
   }>) ?? []) {
+    if (!row.source_business_id) continue;
     const key = `${row.source_business_id}:${row.item_key}:${toNumber(row.quality)}`;
     const committed = Math.max(0, Math.min(toNumber(row.quantity), toNumber(row.reserved_quantity)));
     reservedByKey.set(key, (reservedByKey.get(key) ?? 0) + committed);
