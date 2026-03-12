@@ -37,9 +37,10 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function useNowMs() {
-  const [nowMs, setNowMs] = useState(Date.now());
+  const [nowMs, setNowMs] = useState(0);
 
   useEffect(() => {
+    setNowMs(Date.now());
     const interval = window.setInterval(() => {
       setNowMs(Date.now());
     }, 1000);
@@ -163,6 +164,7 @@ function HorizontalBarChart(props: { title: string; rows: Array<{ label: string;
 
 function LiveFlowPanel(props: {
   title: string;
+  nowMs: number;
   rows: Array<{ id: string; label: string; sublabel: string; progress: number; color: string; accent?: string }>;
 }) {
   return (
@@ -195,7 +197,7 @@ function LiveFlowPanel(props: {
                   position: "absolute",
                   inset: 0,
                   background: `linear-gradient(90deg, ${row.color}22, ${row.color}55, ${row.color}22)`,
-                  transform: `translateX(${((Date.now() / 40) % 200) - 100}%)`,
+                  transform: `translateX(${((props.nowMs / 40) % 200) - 100}%)`,
                   opacity: 0.45,
                 }}
               />
@@ -327,6 +329,7 @@ export default function BusinessOperationsDashboard(props: Props) {
         </div>
         <LiveFlowPanel
           title="Live Lane Flow"
+          nowMs={nowMs}
           rows={production.slots.slice(0, 5).map((slot) => {
             const isActive = slot.status === "active";
             const retool = getRetoolProgress(slot.retool_complete_at, nowMs);
@@ -405,6 +408,7 @@ export default function BusinessOperationsDashboard(props: Props) {
         </div>
         <LiveFlowPanel
           title="Live Cell Pulse"
+          nowMs={nowMs}
           rows={props.manufacturing.lines.slice(0, 5).map((line) => {
             const retool = getRetoolProgress(line.retool_complete_at, nowMs);
             const recipeRate = line.configured_recipe?.baseOutputQuantity ?? 0;

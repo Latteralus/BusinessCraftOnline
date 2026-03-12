@@ -88,9 +88,10 @@ function SparklineCard(props: {
   values: number[];
   tone?: "neutral" | "positive" | "negative";
 }) {
-  const [nowMs, setNowMs] = useState(Date.now());
+  const [nowMs, setNowMs] = useState(0);
 
   useEffect(() => {
+    setNowMs(Date.now());
     const interval = window.setInterval(() => {
       setNowMs(Date.now());
     }, 1000);
@@ -453,7 +454,7 @@ export default function BusinessOverviewDashboard(props: Props) {
           <div style={{ display: "grid", gap: 8 }}>
             {props.financeDashboard.periods["30d"].recentEvents.slice(0, 6).map((event) => (
               <div key={event.id} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 12, borderBottom: "1px solid rgba(148,163,184,0.08)", paddingBottom: 8 }}>
-                <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{new Date(event.occurredAt).toLocaleDateString()}</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 11 }} suppressHydrationWarning>{new Date(event.occurredAt).toLocaleDateString()}</div>
                 <div>
                   <div style={{ color: "#f8fafc" }}>{event.label}</div>
                   <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>{event.source} · {event.accountCode}</div>

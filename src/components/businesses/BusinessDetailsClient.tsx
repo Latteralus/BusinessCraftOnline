@@ -1556,7 +1556,9 @@ export default function BusinessDetailsClient({
                   {" "}Lv.{activeUpgradeProject.target_level}
                 </div>
                 <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginTop: 4 }}>
-                  Completes {activeUpgradeProject.completes_at ? new Date(activeUpgradeProject.completes_at).toLocaleString() : "soon"} • Downtime: {formatLabel(activeUpgradeProject.downtime_policy)}
+                  <span suppressHydrationWarning>
+                    Completes {activeUpgradeProject.completes_at ? new Date(activeUpgradeProject.completes_at).toLocaleString() : "soon"} • Downtime: {formatLabel(activeUpgradeProject.downtime_policy)}
+                  </span>
                 </div>
               </div>
             )}
@@ -1591,7 +1593,9 @@ export default function BusinessDetailsClient({
                         </div>
                         {project && (
                           <div style={{ marginTop: 10, fontSize: "0.8rem", color: "#93c5fd" }}>
-                            Project in progress for level {project.target_level}. Completion target: {project.completes_at ? new Date(project.completes_at).toLocaleString() : "pending"}.
+                            <span suppressHydrationWarning>
+                              Project in progress for level {project.target_level}. Completion target: {project.completes_at ? new Date(project.completes_at).toLocaleString() : "pending"}.
+                            </span>
                           </div>
                         )}
                       </div>

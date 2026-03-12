@@ -110,9 +110,10 @@ function FlowRail(props: { label: string; sub: string; progress: number; color: 
 }
 
 export default function BusinessInventoryDashboard({ inventory, shelfItems }: Props) {
-  const [nowMs, setNowMs] = useState(Date.now());
+  const [nowMs, setNowMs] = useState(0);
 
   useEffect(() => {
+    setNowMs(Date.now());
     const interval = window.setInterval(() => {
       setNowMs(Date.now());
     }, 1000);

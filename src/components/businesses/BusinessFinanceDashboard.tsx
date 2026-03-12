@@ -134,8 +134,9 @@ function LineChart(props: {
   const xAxisLabelHeight = 20;
   const chartW = width - pad * 2;
   const chartH = height - pad * 2 - xAxisLabelHeight;
-  const [nowMs, setNowMs] = useState(Date.now());
+  const [nowMs, setNowMs] = useState(0);
   useEffect(() => {
+    setNowMs(Date.now());
     const interval = window.setInterval(() => {
       setNowMs(Date.now());
     }, 1000);
@@ -545,7 +546,7 @@ export default function BusinessFinanceDashboardPanel({ financeDashboard }: Prop
                 }}
               >
                 <div>
-                  <div style={{ color: "#cbd5e1", fontSize: 12, fontWeight: 600 }}>{formatLedgerTimestamp(event.occurredAt)}</div>
+                  <div style={{ color: "#cbd5e1", fontSize: 12, fontWeight: 600 }} suppressHydrationWarning>{formatLedgerTimestamp(event.occurredAt)}</div>
                   <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{event.sourceLabel}</div>
                 </div>
                 <div>
