@@ -10,6 +10,7 @@ import {
 import { isWorkerOperational } from "../_shared/employee-status.ts";
 import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
 import {
+  EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS,
   EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
   EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
   EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
@@ -390,7 +391,10 @@ Deno.serve(async (request) => {
         EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[
           typedBusiness.type as keyof typeof EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS
         ] ?? null;
-      let outputMultiplier = 1;
+      let outputMultiplier =
+        EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS[
+          typedBusiness.type as keyof typeof EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS
+        ] ?? 1;
       const toolOutputBonus =
         EXTRACTION_TOOL_OUTPUT_BONUS_BY_BUSINESS[
           typedBusiness.type as keyof typeof EXTRACTION_TOOL_OUTPUT_BONUS_BY_BUSINESS

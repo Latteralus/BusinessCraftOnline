@@ -3,6 +3,7 @@
 import { EXTRACTION_OUTPUT_ITEM_BY_BUSINESS } from "@/config/production";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import {
+  EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS,
   EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
   EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
 } from "@/config/production";
@@ -97,6 +98,10 @@ function calculateExtractionThroughput(production: ProductionStatus) {
     if (slot.status !== "active") return sum;
 
     const businessType = production.businessType as keyof typeof EXTRACTION_REQUIRED_TOOL_BY_BUSINESS;
+    const baseOutput =
+      EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS[
+        production.businessType as keyof typeof EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS
+      ] ?? 1;
     const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType];
     const fallbackMultiplier = EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[businessType] ?? 0;
     const hasOperationalTool =
@@ -105,7 +110,7 @@ function calculateExtractionThroughput(production: ProductionStatus) {
         slot.tool?.item_type === requiredTool &&
         (slot.tool?.uses_remaining ?? 0) > 0);
 
-    return sum + (hasOperationalTool ? 1 : fallbackMultiplier || 0);
+    return sum + (hasOperationalTool ? baseOutput : fallbackMultiplier || 0);
   }, 0);
 }
 
@@ -335,7 +340,16 @@ export default function BusinessOperationsDashboard(props: Props) {
             const retool = getRetoolProgress(slot.retool_complete_at, nowMs);
             const progress = retool
               ? retool.progress
-              : getLiveCycleProgress(slot.last_extracted_at, slot.output_progress, isActive ? 1 : 0, nowMs);
+              : getLiveCycleProgress(
+                  slot.last_extracted_at,
+                  slot.output_progress,
+                  isActive
+                    ? EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS[
+                        production.businessType as keyof typeof EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS
+                      ] ?? 1
+                    : 0,
+                  nowMs
+                );
             return {
               id: slot.id,
               label: `${slot.line_label} ${slot.slot_number}`,

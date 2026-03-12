@@ -38,6 +38,7 @@ export async function apiRequest<TResponse>(path: string, options: ApiRequestOpt
 
   const response = await fetch(path, {
     ...rest,
+    cache: method === "GET" ? "no-store" : rest.cache,
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),

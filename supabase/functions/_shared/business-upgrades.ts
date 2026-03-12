@@ -32,7 +32,7 @@ const DEFAULT_EFFECTS: BusinessUpgradeEffects = {
   workerCapacitySlots: 0,
   extractionOutputMultiplier: 1,
   extractionQualityBonus: 0,
-  farmWaterUseMultiplier: 0.6,
+  farmWaterUseMultiplier: 1,
   toolDurabilityMultiplier: 1,
   manufacturingOutputMultiplier: 1,
   manufacturingInputUseMultiplier: 1,

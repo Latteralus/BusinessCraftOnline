@@ -49,6 +49,14 @@ export const EXTRACTION_TOOL_OUTPUT_BONUS_BY_BUSINESS = {
   mine: 2,
 } as const satisfies Partial<Record<SharedExtractionBusinessType, number>>;
 
+export const EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS = {
+  mine: 1,
+  farm: 2,
+  water_company: 1,
+  logging_camp: 1,
+  oil_well: 1,
+} as const satisfies Record<SharedExtractionBusinessType, number>;
+
 export const EXTRACTION_PRODUCT_OPTIONS_BY_BUSINESS = {
   mine: [
     { itemKey: "iron_ore", displayName: "Iron Ore" },
