@@ -101,6 +101,60 @@ export async function consumeInventoryCostByRowId(
   return { totalCost: consumedTotalCost, itemKey: row.item_key, quantity: used, estimated };
 }
 
+export async function previewInventoryCostByRowId(
+  client: QueryClient,
+  rowId: string,
+  quantityToConsume: number
+): Promise<{ totalCost: number; itemKey: string | null; quantity: number; unitCost: number; estimated: boolean }> {
+  const { data, error } = await client
+    .from("business_inventory")
+    .select("id, owner_player_id, business_id, item_key, quality, quantity, reserved_quantity, unit_cost, total_cost")
+    .eq("id", rowId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    return { totalCost: 0, itemKey: null, quantity: quantityToConsume, unitCost: 0, estimated: true };
+  }
+
+  const row = data as InventoryRow;
+  const quantity = Math.max(0, toNumber(row.quantity));
+  const used = Math.min(quantityToConsume, quantity);
+  const { unitCost, estimated } = getRowUnitCost(row);
+
+  return {
+    totalCost: round2(used * unitCost),
+    itemKey: row.item_key,
+    quantity: used,
+    unitCost,
+    estimated,
+  };
+}
+
+export async function refreshInventoryCostByRowId(
+  client: QueryClient,
+  rowId: string,
+  unitCost: number
+): Promise<void> {
+  const { data, error } = await client
+    .from("business_inventory")
+    .select("id, quantity")
+    .eq("id", rowId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return;
+
+  const quantity = Math.max(0, toNumber((data as { quantity: number | string }).quantity));
+  const { error: updateError } = await client
+    .from("business_inventory")
+    .update({
+      unit_cost: unitCost,
+      total_cost: round2(quantity * unitCost),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", rowId);
+  if (updateError) throw updateError;
+}
+
 export async function consumeBusinessInventoryCost(
   client: QueryClient,
   playerId: string,
@@ -146,7 +200,9 @@ export async function insertBusinessFinancialEvents(
   rows: NewBusinessFinancialEvent[]
 ): Promise<void> {
   if (rows.length === 0) return;
-  for (const row of rows) {
+  const effectiveAt = new Date().toISOString();
+
+  await Promise.all(rows.map(async (row) => {
     const { error } = await client.rpc("append_business_financial_event", {
       p_player_id: playerId,
       p_business_id: row.business_id,
@@ -157,10 +213,10 @@ export async function insertBusinessFinancialEvents(
       p_reference_type: row.reference_type ?? null,
       p_reference_id: row.reference_id ?? null,
       p_description: row.description,
-      p_effective_at: row.effective_at ?? new Date().toISOString(),
+      p_effective_at: row.effective_at ?? effectiveAt,
       p_metadata: row.metadata ?? {},
     });
 
     if (error) throw error;
-  }
+  }));
 }

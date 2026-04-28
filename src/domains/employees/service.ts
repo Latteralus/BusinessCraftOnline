@@ -154,6 +154,24 @@ export async function getEmployeeById(
   return normalizeEmployee(data as Employee);
 }
 
+export async function getEmployeesByIds(
+  client: QueryClient,
+  playerId: string,
+  employeeIds: string[]
+): Promise<Employee[]> {
+  const uniqueIds = Array.from(new Set(employeeIds));
+  if (uniqueIds.length === 0) return [];
+
+  const { data, error } = await client
+    .from("employees")
+    .select("*")
+    .eq("player_id", playerId)
+    .in("id", uniqueIds);
+
+  if (error) throw error;
+  return ((data as Employee[]) ?? []).map(normalizeEmployee);
+}
+
 export async function getEmployeeAssignment(
   client: QueryClient,
   playerId: string,

@@ -11,6 +11,8 @@ import {
   computeWeightedAverageCost,
   consumeInventoryCostByRowId,
   insertBusinessFinancialEvents,
+  previewInventoryCostByRowId,
+  refreshInventoryCostByRowId,
 } from "@/domains/businesses/financial-events";
 import { reconcileBusinessInventoryReservations } from "@/domains/inventory";
 import { round2, round4, toNumber } from "@/lib/core/number";
@@ -615,6 +617,12 @@ export async function buyMarketListing(
   playerId: string,
   input: BuyMarketListingInput
 ): Promise<{ listing: MarketListing; transaction: MarketTransaction }> {
+  const listingBeforePurchase = await getListing(client, input.listingId);
+  const sellerInventoryCost =
+    listingBeforePurchase.source_type === "business" && listingBeforePurchase.source_inventory_id
+      ? await previewInventoryCostByRowId(client, listingBeforePurchase.source_inventory_id, input.quantity)
+      : null;
+
   const { data, error } = await client.rpc("execute_market_purchase", {
     p_listing_id: input.listingId,
     p_quantity: input.quantity,
@@ -632,6 +640,65 @@ export async function buyMarketListing(
   }
 
   const transaction = normalizeTransaction(result.transaction);
+  if (
+    listingBeforePurchase.source_type === "business" &&
+    listingBeforePurchase.source_business_id &&
+    listingBeforePurchase.source_inventory_id &&
+    sellerInventoryCost
+  ) {
+    await refreshInventoryCostByRowId(
+      client,
+      listingBeforePurchase.source_inventory_id,
+      sellerInventoryCost.unitCost
+    );
+
+    await insertBusinessFinancialEvents(client, listingBeforePurchase.owner_player_id, [
+      {
+        business_id: listingBeforePurchase.source_business_id,
+        account_code: "revenue",
+        amount: transaction.gross_total,
+        quantity: transaction.quantity,
+        item_key: transaction.item_key,
+        reference_type: "market_transaction",
+        reference_id: transaction.id,
+        description: `Player sale revenue: ${transaction.quantity}x ${transaction.item_key}`,
+        metadata: { buyerType: "player" },
+      },
+      {
+        business_id: listingBeforePurchase.source_business_id,
+        account_code: "cogs",
+        amount: sellerInventoryCost.totalCost,
+        quantity: sellerInventoryCost.quantity,
+        item_key: transaction.item_key,
+        reference_type: "market_transaction",
+        reference_id: transaction.id,
+        description: `COGS on player sale: ${transaction.quantity}x ${transaction.item_key}`,
+        metadata: { estimatedCost: sellerInventoryCost.estimated },
+      },
+      {
+        business_id: listingBeforePurchase.source_business_id,
+        account_code: "inventory",
+        amount: sellerInventoryCost.totalCost,
+        quantity: sellerInventoryCost.quantity,
+        item_key: transaction.item_key,
+        reference_type: "market_transaction",
+        reference_id: transaction.id,
+        description: `Inventory relieved on player sale: ${transaction.quantity}x ${transaction.item_key}`,
+        metadata: { direction: "out", estimatedCost: sellerInventoryCost.estimated },
+      },
+      {
+        business_id: listingBeforePurchase.source_business_id,
+        account_code: "operating_expense",
+        amount: transaction.market_fee,
+        quantity: transaction.quantity,
+        item_key: transaction.item_key,
+        reference_type: "market_transaction",
+        reference_id: transaction.id,
+        description: `Market fee expense: ${transaction.quantity}x ${transaction.item_key}`,
+      },
+    ]);
+  }
+
   const { data: destinationInventory, error: destinationInventoryError } = await client
     .from("business_inventory")
     .select("id, quantity, unit_cost, total_cost")

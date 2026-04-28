@@ -20,7 +20,7 @@ import {
 } from "@/config/production";
 import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
 import { addBusinessAccountEntry, getBusinessBalance } from "@/domains/businesses/service";
-import { getEmployeeAssignment, getEmployeeById, getEmployeeStatusFromShift } from "@/domains/employees";
+import { getEmployeeAssignment, getEmployeeById, getEmployeesByIds, getEmployeeStatusFromShift } from "@/domains/employees";
 import { getResolvedUpgradeEffects } from "@/domains/upgrades";
 import type { QueryClient } from "@/lib/db/query-client";
 import type {
@@ -549,9 +549,16 @@ export async function getProductionStatus(
   const effects = await getResolvedUpgradeEffects(client, business.id, business.type);
   const maxSlots = getMaxLines(effects.workerCapacitySlots);
 
+  const employees = await getEmployeesByIds(
+    client,
+    playerId,
+    slots.flatMap((slot) => (slot.employee_id ? [slot.employee_id] : []))
+  );
+  const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+
   const detailed: ExtractionSlotWithDetails[] = [];
   for (const slot of slots) {
-    const employee = slot.employee_id ? await getEmployeeById(client, playerId, slot.employee_id) : null;
+    const employee = slot.employee_id ? employeeById.get(slot.employee_id) ?? null : null;
     const employeeStatus = employee ? getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) : null;
     const configuredItemKey = resolveExtractionConfiguredItem(slot, business.type);
     detailed.push({

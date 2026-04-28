@@ -3,6 +3,7 @@ export {
   fireEmployee,
   getEmployeeAssignment,
   getEmployeeById,
+  getEmployeesByIds,
   getEmployeeSkills,
   getEmployeeStatusFromShift,
   getEmployeeSummary,
