@@ -461,7 +461,7 @@ export async function transferItems(
           addedUnitCost: purchaseUnitCost,
         });
 
-        await client
+        const { error: costUpdateError } = await client
           .from("business_inventory")
           .update({
             unit_cost: next.nextUnitCost,
@@ -469,6 +469,7 @@ export async function transferItems(
             updated_at: nowIso(),
           })
           .eq("id", destinationRow.id);
+        if (costUpdateError) throw costUpdateError;
       }
     }
   }

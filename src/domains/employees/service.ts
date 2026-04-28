@@ -73,28 +73,39 @@ async function ensureBusinessBelongsToPlayer(
 }
 
 async function clearEmployeeExtractionSlots(client: QueryClient, employeeId: string): Promise<void> {
-  const { error } = await client
+  const now = new Date().toISOString();
+
+  // Retooling slots: only remove the employee, the retool continues without one
+  const { error: retoolingSlotError } = await client
     .from("extraction_slots")
-    .update({
-      employee_id: null,
-      status: "idle",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("employee_id", employeeId);
+    .update({ employee_id: null, updated_at: now })
+    .eq("employee_id", employeeId)
+    .eq("status", "retooling");
+  if (retoolingSlotError) throw retoolingSlotError;
 
-  if (error) throw error;
+  // All other slots: remove employee and set to idle
+  const { error: idleSlotError } = await client
+    .from("extraction_slots")
+    .update({ employee_id: null, status: "idle", updated_at: now })
+    .eq("employee_id", employeeId)
+    .neq("status", "retooling");
+  if (idleSlotError) throw idleSlotError;
 
-  const { error: manufacturingError } = await client
+  // Retooling manufacturing lines: only remove the employee
+  const { error: retoolingLineError } = await client
     .from("manufacturing_lines")
-    .update({
-      employee_id: null,
-      worker_assigned: false,
-      status: "idle",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("employee_id", employeeId);
+    .update({ employee_id: null, worker_assigned: false, updated_at: now })
+    .eq("employee_id", employeeId)
+    .eq("status", "retooling");
+  if (retoolingLineError) throw retoolingLineError;
 
-  if (manufacturingError) throw manufacturingError;
+  // All other manufacturing lines: remove employee and set to idle
+  const { error: idleLineError } = await client
+    .from("manufacturing_lines")
+    .update({ employee_id: null, worker_assigned: false, status: "idle", updated_at: now })
+    .eq("employee_id", employeeId)
+    .neq("status", "retooling");
+  if (idleLineError) throw idleLineError;
 }
 
 export async function getPlayerEmployees(

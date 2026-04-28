@@ -29,7 +29,6 @@ import type {
   MarketTransactionFilter,
   MarketTransaction,
   NpcMarketSubtickState,
-  RecordNpcPurchaseInput,
   StorefrontPerformanceSummary,
   TickHealthSummary,
   TickRunLog,
@@ -188,16 +187,6 @@ async function ensurePersistedStorefrontSettings(
     { onConflict: "business_id" }
   );
   if (insertError) throw insertError;
-}
-
-async function applySourceInventorySale(
-  client: QueryClient,
-  listing: MarketListing,
-  soldQuantity: number
-): Promise<{ totalCost: number; estimated: boolean }> {
-  if (!listing.source_inventory_id) return { totalCost: 0, estimated: true };
-  const result = await consumeInventoryCostByRowId(client, listing.source_inventory_id, soldQuantity);
-  return { totalCost: result.totalCost, estimated: result.estimated };
 }
 
 async function releaseSourceInventoryReservation(client: QueryClient, listing: MarketListing): Promise<void> {
@@ -667,7 +656,7 @@ export async function buyMarketListing(
       addedUnitCost: purchaseUnitCost,
     });
 
-    await client
+    const { error: costUpdateError } = await client
       .from("business_inventory")
       .update({
         unit_cost: next.nextUnitCost,
@@ -675,6 +664,7 @@ export async function buyMarketListing(
         updated_at: nowIso(),
       })
       .eq("id", destinationInventory.id);
+    if (costUpdateError) throw costUpdateError;
 
     await insertBusinessFinancialEvents(client, playerId, [
       {
@@ -696,54 +686,8 @@ export async function buyMarketListing(
   };
 }
 
-export async function recordNpcPurchase(
-  client: QueryClient,
-  input: RecordNpcPurchaseInput & {
-    shopperName?: string;
-    shopperTier?: string;
-    shopperBudget?: number;
-    subTickIndex?: number;
-    tickWindowStartedAt?: string;
-  }
-): Promise<{ listing: MarketListing; transaction: MarketTransaction }> {
+export function recordNpcPurchase(): never {
   throw new Error("NPC purchases must be executed through storefront shelf stock, not direct inventory or market listings.");
-
-  const listing = await getListing(client, input.listingId);
-  if (listing.status !== "active") throw new Error("Listing is not active.");
-
-  const soldQuantity = Math.max(1, Math.min(input.quantity, listing.quantity));
-
-  const nextQty = listing.quantity - soldQuantity;
-  const nextReserved = Math.max(0, listing.reserved_quantity - soldQuantity);
-  const nextStatus = nextQty <= 0 ? "filled" : "active";
-  const now = nowIso();
-
-  const { data: updatedRow, error: listingError } = await client
-    .from("market_listings")
-    .update({
-      quantity: Math.max(0, nextQty),
-      reserved_quantity: Math.max(0, nextReserved),
-      status: nextStatus,
-      filled_at: nextStatus === "filled" ? now : null,
-      updated_at: now,
-    })
-    .eq("id", listing.id)
-    .select("*")
-    .single();
-  if (listingError) throw listingError;
-
-  const transaction = await settleSaleAccounting(client, listing, soldQuantity, "npc", null, null, {
-    shopperName: input.shopperName ?? null,
-    shopperTier: input.shopperTier ?? null,
-    shopperBudget: input.shopperBudget ?? null,
-    subTickIndex: input.subTickIndex ?? null,
-    tickWindowStartedAt: input.tickWindowStartedAt ?? null,
-  });
-
-  return {
-    listing: normalizeListing(updatedRow as MarketListing),
-    transaction,
-  };
 }
 
 export async function getMarketTransactions(
