@@ -12,6 +12,8 @@ export const BUSINESS_LEDGER_CATEGORY_CLASSIFICATION = {
   contract_payout: "revenue",
   market_fee: "operating_expense",
   wage_payment: "operating_expense",
+  employee_hire: "operating_expense",
+  employee_wage_settlement: "operating_expense",
   storefront_ads: "operating_expense",
   upgrade_purchase: "operating_expense",
   market_purchase: "inventory",

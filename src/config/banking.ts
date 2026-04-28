@@ -16,6 +16,8 @@ export const TRANSACTION_TYPES = [
   "interest_credit",
   "manual_adjustment",
   "market_purchase",
+  "market_sale",
+  "shipping_fee",
 ] as const;
 
 export const LOAN_STATUSES = ["active", "paid", "defaulted"] as const;
