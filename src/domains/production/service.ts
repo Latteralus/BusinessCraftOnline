@@ -1,4 +1,5 @@
 import {
+  EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS,
   EXTRACTION_BUSINESS_TYPES,
   EXTRACTION_LINE_LABEL_BY_BUSINESS,
   EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
@@ -7,6 +8,7 @@ import {
   EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
   EXTRACTION_RETOOL_COST_BY_BUSINESS,
   EXTRACTION_SLOT_STATUSES,
+  EXTRACTION_TOOL_OUTPUT_BONUS_BY_BUSINESS,
   MANUFACTURING_RETOOL_COST_BY_BUSINESS,
   PRODUCTION_RETOOL_DURATION_MINUTES,
   TOOL_BASE_DURABILITY,
@@ -16,6 +18,7 @@ import {
   isExtractionBusinessType,
   isManufacturingBusinessType,
   type ExtractionBusinessType,
+  type ManufacturingRecipe,
   type ManufacturingBusinessType,
 } from "@/config/production";
 import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
@@ -233,10 +236,86 @@ function resolveDisplayedExtractionStatus(
   if (!slot.employee_id) {
     return "idle";
   }
-  if (employeeStatus && employeeStatus !== "assigned") {
+  if (employeeStatus !== "assigned") {
     return "resting";
   }
   return slot.status;
+}
+
+function roundRate(value: number): number {
+  return Number(value.toFixed(4));
+}
+
+function hasOperationalExtractionTool(
+  slot: ExtractionSlot,
+  tool: ToolDurability | null,
+  businessType: ExtractionBusinessType
+): boolean {
+  const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType] ?? null;
+  if (!requiredTool) return true;
+  return slot.tool_item_key === requiredTool && tool?.item_type === requiredTool && tool.uses_remaining > 0;
+}
+
+function getExtractionThroughputPerMinute(
+  slot: ExtractionSlot,
+  tool: ToolDurability | null,
+  businessType: ExtractionBusinessType,
+  displayedStatus: ExtractionSlot["status"],
+  effects: Awaited<ReturnType<typeof getResolvedUpgradeEffects>>
+): number {
+  if (displayedStatus !== "active") return 0;
+
+  const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType] ?? null;
+  const baseOutput = EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS[businessType] ?? 1;
+  const multiplier = effects.extractionOutputMultiplier;
+  if (!requiredTool) {
+    return roundRate(baseOutput * multiplier);
+  }
+
+  if (hasOperationalExtractionTool(slot, tool, businessType)) {
+    const toolBonus = EXTRACTION_TOOL_OUTPUT_BONUS_BY_BUSINESS[businessType] ?? 0;
+    return roundRate((baseOutput + toolBonus) * multiplier);
+  }
+
+  const fallbackOutput = EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[businessType] ?? 0;
+  return roundRate(fallbackOutput * multiplier);
+}
+
+function resolveDisplayedManufacturingStatus(
+  line: ManufacturingLine,
+  employeeStatus: ReturnType<typeof getEmployeeStatusFromShift> | null
+): ManufacturingLine["status"] {
+  if (line.status === "retooling" || line.pending_recipe_key || line.retool_complete_at) {
+    return "retooling";
+  }
+  if (!line.employee_id) {
+    return "idle";
+  }
+  if (employeeStatus !== "assigned") {
+    return "resting";
+  }
+  return line.status;
+}
+
+function getManufacturingOutputPerMinute(
+  lineStatus: ManufacturingLine["status"],
+  recipe: ManufacturingRecipe | null,
+  effects: Awaited<ReturnType<typeof getResolvedUpgradeEffects>>
+): number {
+  if (lineStatus !== "active" || !recipe) return 0;
+  return roundRate(recipe.baseOutputQuantity * effects.manufacturingOutputMultiplier);
+}
+
+function getManufacturingInputRequirementsPerMinute(
+  lineStatus: ManufacturingLine["status"],
+  recipe: ManufacturingRecipe | null,
+  effects: Awaited<ReturnType<typeof getResolvedUpgradeEffects>>
+): Array<{ itemKey: string; quantity: number }> {
+  if (lineStatus !== "active" || !recipe) return [];
+  return recipe.inputs.map((input) => ({
+    itemKey: input.itemKey,
+    quantity: roundRate(input.quantity * effects.manufacturingInputUseMultiplier),
+  }));
 }
 
 async function finalizeExtractionRetools(client: QueryClient, businessId: string): Promise<void> {
@@ -561,15 +640,20 @@ export async function getProductionStatus(
     const employee = slot.employee_id ? employeeById.get(slot.employee_id) ?? null : null;
     const employeeStatus = employee ? getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) : null;
     const configuredItemKey = resolveExtractionConfiguredItem(slot, business.type);
+    const tool = toolBySlot.get(slot.id) ?? null;
+    const status = resolveDisplayedExtractionStatus(slot, employeeStatus);
+    const throughputPerMinute = getExtractionThroughputPerMinute(slot, tool, business.type, status, effects);
     detailed.push({
       ...slot,
-      status: resolveDisplayedExtractionStatus(slot, employeeStatus),
+      status,
       business_type: business.type,
       employee_status: employeeStatus,
-      tool: toolBySlot.get(slot.id) ?? null,
+      tool,
       configured_output: getExtractionProductOption(business.type, configuredItemKey),
       pending_output: slot.pending_item_key ? getExtractionProductOption(business.type, slot.pending_item_key) : null,
       line_label: EXTRACTION_LINE_LABEL_BY_BUSINESS[business.type],
+      throughput_per_minute: throughputPerMinute,
+      is_degraded: status === "active" && throughputPerMinute > 0 && !hasOperationalExtractionTool(slot, tool, business.type),
     });
   }
 
@@ -754,6 +838,26 @@ export async function setExtractionSlotStatus(
   if (input.status === "active" && !slot.employee_id) {
     throw new Error("Cannot activate a slot without an assigned employee.");
   }
+  if (input.status === "active" && slot.employee_id) {
+    const employee = await getEmployeeById(client, playerId, slot.employee_id);
+    if (!employee || getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) !== "assigned") {
+      throw new Error("Assigned worker is not currently operational.");
+    }
+
+    const { data: toolRow, error: toolError } = await client
+      .from("tool_durability")
+      .select("*")
+      .eq("extraction_slot_id", slot.id)
+      .maybeSingle();
+    if (toolError) throw toolError;
+
+    const tool = toolRow ? normalizeTool(toolRow as ToolDurability) : null;
+    const effects = await getResolvedUpgradeEffects(client, slot.business_id, slot.business_type);
+    const throughput = getExtractionThroughputPerMinute(slot, tool, slot.business_type, "active", effects);
+    if (throughput <= 0) {
+      throw new Error("Install a working required tool before activating this slot.");
+    }
+  }
 
   const { data, error } = await client
     .from("extraction_slots")
@@ -835,13 +939,32 @@ export async function getManufacturingStatus(
   const maxLines = getMaxLines(effects.workerCapacitySlots);
   const recipes = getManufacturingRecipesForBusinessType(business.type);
 
-  const detailed: ManufacturingLineWithDetails[] = lines.map((line) => ({
-    ...line,
-    business_type: business.type,
-    available_recipes: recipes,
-    configured_recipe: line.configured_recipe_key ? getManufacturingRecipeByKey(line.configured_recipe_key) : null,
-    pending_recipe: line.pending_recipe_key ? getManufacturingRecipeByKey(line.pending_recipe_key) : null,
-  }));
+  const employees = await getEmployeesByIds(
+    client,
+    playerId,
+    lines.flatMap((line) => (line.employee_id ? [line.employee_id] : []))
+  );
+  const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+
+  const detailed: ManufacturingLineWithDetails[] = lines.map((line) => {
+    const employee = line.employee_id ? employeeById.get(line.employee_id) ?? null : null;
+    const employeeStatus = employee ? getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) : null;
+    const status = resolveDisplayedManufacturingStatus(line, employeeStatus);
+    const configuredRecipe = line.configured_recipe_key ? getManufacturingRecipeByKey(line.configured_recipe_key) : null;
+
+    return {
+      ...line,
+      status,
+      worker_assigned: employeeStatus === "assigned",
+      business_type: business.type,
+      employee_status: employeeStatus,
+      available_recipes: recipes,
+      configured_recipe: configuredRecipe,
+      pending_recipe: line.pending_recipe_key ? getManufacturingRecipeByKey(line.pending_recipe_key) : null,
+      output_per_minute: getManufacturingOutputPerMinute(status, configuredRecipe, effects),
+      input_requirements_per_minute: getManufacturingInputRequirementsPerMinute(status, configuredRecipe, effects),
+    };
+  });
 
   return {
     businessId: business.id,
@@ -1080,13 +1203,17 @@ export async function setManufacturingLineStatus(
   if (input.status === "active") {
     if (!line.employee_id) throw new Error("Assign a worker before starting this line.");
     if (!line.configured_recipe_key) throw new Error("Retool this line before starting production.");
+    const employee = await getEmployeeById(client, playerId, line.employee_id);
+    if (!employee || getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) !== "assigned") {
+      throw new Error("Assigned worker is not currently operational.");
+    }
   }
 
   const { data, error } = await client
     .from("manufacturing_lines")
     .update({
       status: input.status,
-      worker_assigned: Boolean(line.employee_id),
+      worker_assigned: input.status === "active" ? true : Boolean(line.employee_id),
       updated_at: new Date().toISOString(),
     })
     .eq("id", line.id)

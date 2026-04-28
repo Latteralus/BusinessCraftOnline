@@ -232,6 +232,8 @@ export default function BusinessDetailsClient({
               ? getWorkerEffectiveStatus(currentEmployee.status, currentEmployee.shift_ends_at)
               : "assigned",
             status: currentSlot.status === "retooling" ? "retooling" : "active",
+            throughput_per_minute: 0,
+            is_degraded: false,
           });
         }
         setAssignSelections((prev) => {
@@ -270,6 +272,8 @@ export default function BusinessDetailsClient({
             employee_id: null,
             employee_status: null,
             status: currentSlot.status === "retooling" ? "retooling" : "idle",
+            throughput_per_minute: 0,
+            is_degraded: false,
           });
         }
         return () => {
@@ -300,6 +304,8 @@ export default function BusinessDetailsClient({
           updateExtractionSlot({
             ...currentSlot,
             status,
+            throughput_per_minute: status === "active" ? currentSlot.throughput_per_minute : 0,
+            is_degraded: status === "active" ? currentSlot.is_degraded : false,
           });
         }
         return () => {
@@ -545,6 +551,8 @@ export default function BusinessDetailsClient({
             status: "retooling",
             output_progress: 0,
             input_progress: 0,
+            throughput_per_minute: 0,
+            is_degraded: false,
           });
         }
         setSlotRetoolSelections((prev) => ({ ...prev, [slotId]: "" }));

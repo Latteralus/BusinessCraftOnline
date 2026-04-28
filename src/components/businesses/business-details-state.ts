@@ -80,10 +80,12 @@ export function normalizeProductionStatus(
   production: ProductionStatus | null | undefined
 ): ProductionStatus | null {
   if (!production) return null;
+  const slots = Array.isArray(production.slots) ? production.slots : [];
 
   return {
     ...production,
-    slots: Array.isArray(production.slots) ? production.slots : [],
+    slots,
+    summary: summarizeProductionSlots(slots),
   };
 }
 

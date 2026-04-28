@@ -6,6 +6,7 @@ import {
   getBusinessUpgrades,
   getBusinessesWithBalances,
   supportsExtraction,
+  supportsManufacturing,
 } from "@/domains/businesses";
 import { getBusinessInventory } from "@/domains/inventory";
 import { getManufacturingStatus, getProductionStatus } from "@/domains/production";
@@ -30,6 +31,7 @@ export async function loadBusinessDetailsEntry(
   }
 
   const isExtraction = supportsExtraction(business.type);
+  const isManufacturing = supportsManufacturing(business.type);
   const [
     production,
     manufacturing,
@@ -43,7 +45,7 @@ export async function loadBusinessDetailsEntry(
     ownedBusinesses,
   ] = await Promise.all([
     isExtraction ? getProductionStatus(client, playerId, business.id).catch(() => null) : Promise.resolve(null),
-    !isExtraction ? getManufacturingStatus(client, playerId, business.id).catch(() => null) : Promise.resolve(null),
+    isManufacturing ? getManufacturingStatus(client, playerId, business.id).catch(() => null) : Promise.resolve(null),
     getBusinessInventory(client, playerId, business.id).catch(() => []),
     getStoreShelfItems(client, playerId, { businessId: business.id }).catch(() => []),
     getBusinessUpgrades(client, playerId, business.id).catch(() => []),

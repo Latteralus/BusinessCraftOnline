@@ -1,6 +1,4 @@
 import {
-  EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS,
-  EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
   EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
   EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
 } from "@/config/production";
@@ -43,19 +41,8 @@ export function getExtractionSlotThroughput(
   slot: ExtractionSlotView,
   businessType: ProductionStatus["businessType"]
 ) {
-  if (slot.status !== "active") return 0;
-  if (hasOperationalExtractionTool(slot, businessType)) {
-    return (
-      EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS[
-        businessType as keyof typeof EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS
-      ] ?? 1
-    );
-  }
-  return (
-    EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[
-      businessType as keyof typeof EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS
-    ] ?? 0
-  );
+  void businessType;
+  return slot.status === "active" ? slot.throughput_per_minute : 0;
 }
 
 export function buildExtractionOperationsView(production: ProductionStatus) {
@@ -64,10 +51,7 @@ export function buildExtractionOperationsView(production: ProductionStatus) {
     0
   );
   const degradedSlots = production.slots.filter(
-    (slot) =>
-      slot.status === "active" &&
-      getExtractionSlotThroughput(slot, production.businessType) > 0 &&
-      !hasOperationalExtractionTool(slot, production.businessType)
+    (slot) => slot.status === "active" && slot.is_degraded
   ).length;
 
   return {
@@ -105,9 +89,12 @@ export function buildManufacturingOperationsView(
   const finishedInventoryUnits = inventory
     .filter((row) => finishedOutputKeys.has(row.item_key))
     .reduce((sum, row) => sum + Math.max(0, row.quantity - row.reserved_quantity), 0);
-  const perMinute = leadLine?.status === "active" && recipe ? recipe.baseOutputQuantity : 0;
+  const perMinute = leadLine?.output_per_minute ?? 0;
   const inputCoverage = recipe
-    ? recipe.inputs.map((input) => {
+    ? (leadLine?.input_requirements_per_minute?.length
+        ? leadLine.input_requirements_per_minute
+        : recipe.inputs
+      ).map((input) => {
         const available = inventory
           .filter((row) => row.item_key === input.itemKey)
           .reduce((sum, row) => sum + Math.max(0, row.quantity - row.reserved_quantity), 0);
@@ -129,6 +116,6 @@ export function buildManufacturingOperationsView(
     perMinute,
     inputCoverage,
     bottleneck,
-    workerReady: Boolean(leadLine?.employee_id),
+    workerReady: leadLine?.employee_status === "assigned" && leadLine.worker_assigned,
   };
 }

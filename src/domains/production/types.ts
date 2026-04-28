@@ -42,6 +42,8 @@ export type ExtractionSlotWithDetails = ExtractionSlot & {
   configured_output: ExtractionProductOption | null;
   pending_output: ExtractionProductOption | null;
   line_label: string;
+  throughput_per_minute: number;
+  is_degraded: boolean;
 };
 
 export type ProductionStatus = {
@@ -108,9 +110,12 @@ export type ManufacturingLine = {
 
 export type ManufacturingLineWithDetails = ManufacturingLine & {
   business_type: BusinessType;
+  employee_status: EmployeeStatus | null;
   available_recipes: ManufacturingRecipe[];
   configured_recipe: ManufacturingRecipe | null;
   pending_recipe: ManufacturingRecipe | null;
+  output_per_minute: number;
+  input_requirements_per_minute: Array<{ itemKey: string; quantity: number }>;
 };
 
 export type ManufacturingStatusView = {
