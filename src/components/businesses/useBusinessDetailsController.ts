@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import type { Business, BusinessFinanceDashboard, BusinessUpgrade, BusinessUpgradeProject } from "@/domains/businesses";
 import type { FinancePeriod } from "@/config/finance";
 import type { Employee } from "@/domains/employees";
@@ -33,14 +33,38 @@ export function useBusinessDetailsController(input: BusinessDetailsClientProps) 
   const businessId = input.business.id;
   const detail = useGameStore((state) => state.businessDetails.data[businessId]);
   const upsertBusinessDetail = useGameStore((state) => state.upsertBusinessDetail);
-  const initialEntry = createBusinessDetailsEntry(input);
+  const patchBusinessDetail = useGameStore((state) => state.patchBusinessDetail);
+  const initialEntry = useMemo(
+    () => createBusinessDetailsEntry(input),
+    [
+      input.business,
+      input.production,
+      input.manufacturing,
+      input.inventory,
+      input.shelfItems,
+      input.upgrades,
+      input.upgradeProjects,
+      input.employees,
+      input.financeDashboard,
+      input.ownedBusinesses,
+      input.upgradeDefinitions,
+    ]
+  );
 
   useEffect(() => {
     const currentDetail = useGameStore.getState().businessDetails.data[businessId];
-    if (shouldSyncBusinessDetailsEntry(currentDetail, initialEntry)) {
+    if (!currentDetail) {
       upsertBusinessDetail(businessId, initialEntry);
+      return;
     }
-  }, [businessId, initialEntry, upsertBusinessDetail]);
+
+    if (shouldSyncBusinessDetailsEntry(currentDetail, initialEntry)) {
+      patchBusinessDetail(businessId, {
+        business: initialEntry.business,
+        ownedBusinesses: initialEntry.ownedBusinesses,
+      });
+    }
+  }, [businessId, initialEntry, patchBusinessDetail, upsertBusinessDetail]);
 
   const view = resolveBusinessDetailsView(detail, initialEntry);
 
