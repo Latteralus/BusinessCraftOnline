@@ -5,6 +5,7 @@ import {
   CUSTOM_SESSION_TTL_SECONDS,
 } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -49,12 +50,9 @@ export async function POST(request: Request) {
       maxAge: CUSTOM_SESSION_TTL_SECONDS,
     });
 
-    // Check if character exists using the newly minted JWT by injecting it
-    // Wait, the currently initialized supabase client doesn't have the token yet!
-    // We can just initialize a new one with the token, or pass the token manually.
-    // Actually, `createSupabaseServerClient` reads from `cookies()`. In Next.js App Router,
-    // setting a cookie makes it immediately readable from `cookies().get()` in the same route.
-    const { createClient } = require("@supabase/supabase-js");
+    // Check if character exists using the newly minted JWT.
+    // `createSupabaseServerClient` reads from cookies(), but we need the token
+    // active immediately, so we use a direct client with the JWT as a header.
     const authClient = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,

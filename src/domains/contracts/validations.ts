@@ -28,7 +28,10 @@ export const createContractSchema = z.object({
     .number({ error: "Unit price must be a number." })
     .positive("Unit price must be greater than 0."),
   notes: z.string().trim().max(280, "Notes must be 280 characters or less.").optional(),
-  expiresAt: z.iso.datetime().optional(),
+  expiresAt: z.iso.datetime().optional().refine(
+    (val) => !val || new Date(val).getTime() > Date.now(),
+    { message: "Expiry date must be in the future." }
+  ),
 });
 
 export const contractIdSchema = z.object({

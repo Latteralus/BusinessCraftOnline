@@ -1183,6 +1183,7 @@ export async function stopManufacturing(
     .from("manufacturing_lines")
     .update({
       status: line.status === "retooling" ? "retooling" : "idle",
+      worker_assigned: false,
       updated_at: new Date().toISOString(),
     })
     .eq("id", line.id);

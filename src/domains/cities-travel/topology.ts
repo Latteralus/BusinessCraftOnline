@@ -11,7 +11,7 @@ const TRAVEL_TIER_DETAILS: Record<TravelTier, TravelTierDetails> = {
   same_region: { minutes: 30, cost: 50, shippingCostPerUnit: 0.05 },
   adjacent_region: { minutes: 90, cost: 120, shippingCostPerUnit: 0.12 },
   cross_country: { minutes: 240, cost: 280, shippingCostPerUnit: 0.25 },
-  far_cross_country: { minutes: 180, cost: 200, shippingCostPerUnit: 0.3 },
+  far_cross_country: { minutes: 360, cost: 420, shippingCostPerUnit: 0.35 },
 };
 
 const ADJACENT_REGIONS: Record<CityRegion, CityRegion[]> = {

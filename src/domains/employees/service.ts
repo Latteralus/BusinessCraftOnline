@@ -550,11 +550,14 @@ export async function settleEmployeeWages(
 
   if (updateError) throw updateError;
 
-  const skills = await getEmployeeSkills(client, playerId, employee.id);
+  const [skills, assignment] = await Promise.all([
+    getEmployeeSkills(client, playerId, employee.id),
+    getEmployeeAssignment(client, playerId, employee.id).catch(() => null),
+  ]);
 
   return {
     ...normalizeEmployee(updatedEmployeeRow as Employee),
-    assignment: null,
+    assignment,
     skills,
   };
 }
