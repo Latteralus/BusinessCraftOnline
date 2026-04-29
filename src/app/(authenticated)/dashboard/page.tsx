@@ -367,6 +367,9 @@ export default async function DashboardPage() {
     : null;
 
   const businessSummary = summarizeBusinessesWithBalances(businessesWithBalances);
+  const employeeTotal = employeeSummary?.totalEmployees ?? 0;
+  const assignedEmployeeCount = employeeSummary?.assignedCount ?? 0;
+  const employeeAssignedPercent = employeeTotal > 0 ? Math.round((assignedEmployeeCount / employeeTotal) * 100) : 0;
   const businessList = [...businessesWithBalances].sort((a, b) => b.balance - a.balance);
 
   const checkingAccount =
@@ -560,13 +563,13 @@ export default async function DashboardPage() {
           </div>
           <div className="card-body">
             <div className="emp-item">
-              <div className="emp-avatar" style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)" }}>{employeeSummary?.totalEmployees ?? 0}</div>
+              <div className="emp-avatar" style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)" }}>{employeeTotal}</div>
               <div className="emp-info">
                 <div className="emp-name">Total Employees</div>
-                <div className="emp-role">Assigned: {employeeSummary?.assignedCount ?? 0} · Resting: {employeeSummary?.restingCount ?? 0}</div>
+                <div className="emp-role">Assigned: {assignedEmployeeCount} · Resting: {employeeSummary?.restingCount ?? 0}</div>
               </div>
               <div className="emp-right">
-                <div className="emp-shift-bar"><div className="emp-shift-fill" style={{ width: "100%" }}></div></div>
+                <div className="emp-shift-bar"><div className="emp-shift-fill" style={{ width: `${employeeAssignedPercent}%` }}></div></div>
               </div>
             </div>
           </div>

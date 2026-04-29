@@ -1,11 +1,12 @@
 "use client";
 
-import { EMPLOYEE_TYPES } from "@/config/employees";
+import { BASE_WAGE_PER_HOUR, EMPLOYEE_TYPES, HIRE_COSTS } from "@/config/employees";
 import type { Employee, EmployeeRole, EmployeeSummary, EmployeeType } from "@/domains/employees";
 import { apiDelete, apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
 import type { EmployeesPageData } from "@/lib/client/queries";
-import { formatNullableDateTime } from "@/lib/formatters";
+import { formatCurrency, formatNullableDateTime } from "@/lib/formatters";
+import { formatPayrollRateWithTick, formatPayrollTickLabel } from "@/lib/payroll";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import { makeNpcShopperName } from "../../../../shared/core/npc-shopper-names";
 import Link from "next/link";
@@ -66,6 +67,7 @@ export default function EmployeesClient({ initialData }: Props) {
   const [assignBusinessId, setAssignBusinessId] = useState("");
   const [assignRole, setAssignRole] = useState<EmployeeRole>("production");
   const [assigning, setAssigning] = useState(false);
+  const selectedTypeBaseWage = BASE_WAGE_PER_HOUR[employeeType];
 
   const manageableEmployees = useMemo(
     () => employees.filter((employee) => employee.status !== "fired"),
@@ -376,6 +378,17 @@ export default function EmployeesClient({ initialData }: Props) {
               <input value={specialtySkillKey} onChange={(event) => setSpecialtySkillKey(event.target.value)} placeholder="metalworking" />
             </label>
           ) : null}
+          <div style={{ padding: 12, border: "1px solid var(--border-subtle)", borderRadius: 8, background: "var(--bg-elevated)" }}>
+            <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: 4 }}>
+              Hiring cost: {formatCurrency(HIRE_COSTS[employeeType])}
+            </div>
+            <div style={{ fontWeight: 600 }}>
+              Base payroll: {formatPayrollRateWithTick(selectedTypeBaseWage)}
+            </div>
+            <div style={{ color: "var(--text-muted)", fontSize: "0.8rem", marginTop: 4 }}>
+              Actual assigned wage may include skill modifiers; payroll debits every {formatPayrollTickLabel()}.
+            </div>
+          </div>
           <button onClick={submitHire} disabled={hiring || !hireBusinessId || (employeeType === "specialist" && !specialtySkillKey.trim())}>
             {hiring ? "Hiring..." : "Hire Employee"}
           </button>
@@ -431,6 +444,10 @@ export default function EmployeesClient({ initialData }: Props) {
               <p style={{ margin: "6px 0", color: "#94a3b8" }}>
                 {employee.employee_type} · {employee.status}
                 {employee.specialty_skill_key ? ` · specialty: ${employee.specialty_skill_key}` : ""}
+              </p>
+              <p style={{ margin: "6px 0", color: "#94a3b8" }}>
+                Wage: {formatPayrollRateWithTick(employee.wage_per_hour || BASE_WAGE_PER_HOUR[employee.employee_type])}
+                {employee.unpaid_wage_due ? ` · unpaid due ${formatCurrency(employee.unpaid_wage_due)}` : ""}
               </p>
               <p style={{ margin: "6px 0", color: "#94a3b8" }}>Shift Ends: {formatNullableDateTime(employee.shift_ends_at)}</p>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

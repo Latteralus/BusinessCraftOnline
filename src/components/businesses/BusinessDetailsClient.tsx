@@ -11,7 +11,7 @@ import type { ManufacturingStatusView, ProductionStatus } from "@/domains/produc
 import type { StoreShelfItem } from "@/domains/stores";
 import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import { calculateUpgradePreview, formatInstallTimeMinutes } from "@/domains/upgrades";
-import { BASE_WAGE_PER_HOUR } from "@/config/employees";
+import { BASE_WAGE_PER_HOUR, HIRE_COSTS } from "@/config/employees";
 import { apiDelete, apiPatch, apiPost } from "@/lib/client/api";
 import { fetchBusinessDetailsSection } from "@/lib/client/queries";
 import { apiRoutes } from "@/lib/client/routes";
@@ -19,6 +19,7 @@ import type { BusinessDetailsSection } from "@/lib/business-details-data";
 import { getNpcBuyerPriceRange, getNpcSuggestedBasePrice } from "@/config/items";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
+import { formatPayrollRateWithTick, formatPayrollTickAmount, formatPayrollTickLabel } from "@/lib/payroll";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
 import { makeNpcShopperName } from "../../../shared/core/npc-shopper-names";
@@ -66,9 +67,9 @@ export default function BusinessDetailsClient({
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const tempPayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.temp / 4);
-  const partTimePayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.part_time / 4);
-  const fullTimePayPer15Min = formatCurrency(BASE_WAGE_PER_HOUR.full_time / 4);
+  const tempPayrollRate = formatPayrollRateWithTick(BASE_WAGE_PER_HOUR.temp);
+  const partTimePayrollRate = formatPayrollRateWithTick(BASE_WAGE_PER_HOUR.part_time);
+  const fullTimePayrollRate = formatPayrollRateWithTick(BASE_WAGE_PER_HOUR.full_time);
   const businessId = initialBusiness.id;
   
   const defaultTab = (initialTab as TabType) || "overview";
@@ -240,6 +241,11 @@ export default function BusinessDetailsClient({
     ...employee,
     employee_assignments: employee.employee_assignments ?? undefined,
   }));
+  const totalHourlyPayroll = employees.reduce((sum, employee) => sum + (employee.wage_per_hour || 0), 0);
+  const businessHourlyPayroll = thisBusinessEmployees.reduce(
+    (sum, employee) => sum + (getAssignmentForBusiness(employee)?.wage_per_hour ?? employee.wage_per_hour ?? 0),
+    0
+  );
 
   async function runBusyAction(action: () => Promise<void>, fallbackMessage: string) {
     if (busy) return;
@@ -1365,9 +1371,9 @@ export default function BusinessDetailsClient({
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <h3 style={{ margin: 0 }}>Employees</h3>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => hireEmployee("temp")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Temp ($0 · {tempPayPer15Min}/15m)</button>
-                <button onClick={() => hireEmployee("part_time")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Part Time ($200 · {partTimePayPer15Min}/15m)</button>
-                <button onClick={() => hireEmployee("full_time")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Full Time ($500 · {fullTimePayPer15Min}/15m)</button>
+                <button onClick={() => hireEmployee("temp")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Temp ({formatCurrency(HIRE_COSTS.temp)} · {tempPayrollRate})</button>
+                <button onClick={() => hireEmployee("part_time")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Part Time ({formatCurrency(HIRE_COSTS.part_time)} · {partTimePayrollRate})</button>
+                <button onClick={() => hireEmployee("full_time")} disabled={busy} style={{ fontSize: "0.8rem", padding: "6px 12px" }}>Hire Full Time ({formatCurrency(HIRE_COSTS.full_time)} · {fullTimePayrollRate})</button>
               </div>
             </div>
 
@@ -1384,11 +1390,17 @@ export default function BusinessDetailsClient({
               </div>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                 <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Total Wages Per Hour</div>
-                <div>{formatCurrency(employees.reduce((sum, employee) => sum + (employee.wage_per_hour || 0), 0))}</div>
+                <div>{formatCurrency(totalHourlyPayroll)}</div>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
+                  {formatPayrollTickAmount(totalHourlyPayroll)} per {formatPayrollTickLabel()} payroll tick
+                </div>
               </div>
               <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                 <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>This Business Wages Per Hour</div>
-                <div>{formatCurrency(thisBusinessEmployees.reduce((sum, employee) => sum + (getAssignmentForBusiness(employee)?.wage_per_hour ?? employee.wage_per_hour ?? 0), 0))}</div>
+                <div>{formatCurrency(businessHourlyPayroll)}</div>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
+                  {formatPayrollTickAmount(businessHourlyPayroll)} per {formatPayrollTickLabel()} payroll tick
+                </div>
               </div>
             </div>
 
@@ -1409,7 +1421,7 @@ export default function BusinessDetailsClient({
                           </div>
                         )}
                         <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
-                          Wage: {formatCurrency(assignment?.wage_per_hour ?? BASE_WAGE_PER_HOUR[e.employee_type])}/hr
+                          Wage: {formatPayrollRateWithTick(assignment?.wage_per_hour ?? BASE_WAGE_PER_HOUR[e.employee_type])}
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>

@@ -1,9 +1,10 @@
 // @ts-nocheck
 import { startTickRequest, toNumber, writeTickRunLog } from "../_shared/tick-runtime.ts";
+import { WAGE_TICK_HOURS, WAGE_TICK_MINUTES, calculatePayrollCharge } from "../_shared/payroll.ts";
 
-const WAGE_CHARGE_INTERVAL_MINUTES = 15;
+const WAGE_CHARGE_INTERVAL_MINUTES = WAGE_TICK_MINUTES;
 const WAGE_CHARGE_INTERVAL_MS = WAGE_CHARGE_INTERVAL_MINUTES * 60 * 1000;
-const WAGE_CHARGE_INTERVAL_HOURS = WAGE_CHARGE_INTERVAL_MINUTES / 60;
+const WAGE_CHARGE_INTERVAL_HOURS = WAGE_TICK_HOURS;
 
 function readTimestampMs(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -114,7 +115,7 @@ Deno.serve(async (request) => {
       }
 
       const wagePerHour = Number(toNumber(employee.wage_per_hour).toFixed(2));
-      const wageAmount = Number((wagePerHour * chargeWindowCount * WAGE_CHARGE_INTERVAL_HOURS).toFixed(2));
+      const wageAmount = calculatePayrollCharge(wagePerHour, chargeWindowCount);
 
       if (wagePerHour <= 0 || wageAmount <= 0) {
         await supabase

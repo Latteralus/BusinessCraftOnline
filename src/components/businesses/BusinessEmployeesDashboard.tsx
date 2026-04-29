@@ -6,6 +6,7 @@ import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
+import { formatPayrollRateWithTick, formatPayrollTickAmount, formatPayrollTickLabel } from "@/lib/payroll";
 import { useEffect, useMemo, useState } from "react";
 
 type Props = {
@@ -153,24 +154,35 @@ export default function BusinessEmployeesDashboard({ business, employees }: Prop
 
   const byStatus = new Map<string, number>();
   const byType = new Map<string, number>();
-  let payrollAll = 0;
-  let payrollBusiness = 0;
+  let activePayrollAll = 0;
+  let activePayrollBusiness = 0;
+  let attachedPayrollBusiness = 0;
   let unpaidCount = 0;
   let assignedCount = 0;
   let availableCount = 0;
 
   for (const employee of employees) {
     const effectiveStatus = getWorkerEffectiveStatus(employee.status, employee.shift_ends_at);
+    const assignment = getAssignments(employee)[0];
+    const hourlyWage = assignment?.wage_per_hour ?? employee.wage_per_hour ?? BASE_WAGE_PER_HOUR[employee.employee_type];
     byStatus.set(effectiveStatus, (byStatus.get(effectiveStatus) ?? 0) + 1);
     byType.set(employee.employee_type, (byType.get(employee.employee_type) ?? 0) + 1);
-    payrollAll += employee.wage_per_hour || 0;
+    if ((effectiveStatus === "assigned" || effectiveStatus === "unpaid") && (assignment || employee.employer_business_id)) {
+      activePayrollAll += hourlyWage;
+    }
     if (effectiveStatus === "unpaid") unpaidCount += 1;
     if (effectiveStatus === "assigned") assignedCount += 1;
     if (effectiveStatus === "available") availableCount += 1;
   }
 
   for (const employee of thisBusinessEmployees) {
-    payrollBusiness += getAssignmentForBusiness(employee)?.wage_per_hour ?? employee.wage_per_hour ?? BASE_WAGE_PER_HOUR[employee.employee_type];
+    const assignment = getAssignmentForBusiness(employee);
+    const hourlyWage = assignment?.wage_per_hour ?? employee.wage_per_hour ?? BASE_WAGE_PER_HOUR[employee.employee_type];
+    const effectiveStatus = getWorkerEffectiveStatus(employee.status, employee.shift_ends_at);
+    attachedPayrollBusiness += hourlyWage;
+    if ((effectiveStatus === "assigned" || effectiveStatus === "unpaid") && (assignment || employee.employer_business_id === business.id)) {
+      activePayrollBusiness += hourlyWage;
+    }
   }
 
   const specialists = byType.get("specialist") ?? 0;
@@ -215,7 +227,11 @@ export default function BusinessEmployeesDashboard({ business, employees }: Prop
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
           <WorkforceCard label="Headcount" value={`${employees.length}`} sub={`${thisBusinessEmployees.length} attached to this site`} />
-          <WorkforceCard label="Payroll Burn" value={formatCurrency(payrollBusiness)} sub={`${formatCurrency(payrollAll)} company-wide hourly`} />
+          <WorkforceCard
+            label="Payroll Tick"
+            value={formatPayrollTickAmount(activePayrollBusiness)}
+            sub={`${formatCurrency(activePayrollBusiness)}/hr here · ${formatPayrollTickAmount(activePayrollAll)}/${formatPayrollTickLabel()} company-wide`}
+          />
           <WorkforceCard label="Operationally Ready" value={`${assignedCount + availableCount}`} sub={`${availableCount} available · ${assignedCount} assigned`} tone="positive" />
           <WorkforceCard label="Payroll Risk" value={`${unpaidCount}`} sub={unpaidCount > 0 ? "Workers awaiting settlement" : "No unpaid workers"} tone={unpaidCount > 0 ? "negative" : "neutral"} />
           <WorkforceCard label="Specialists" value={`${specialists}`} sub="High-skill staff on payroll" />
@@ -237,8 +253,8 @@ export default function BusinessEmployeesDashboard({ business, employees }: Prop
           rows={[
             { label: "Employees Attached Here", value: `${thisBusinessEmployees.length}` },
             { label: "Cross-Business Placements", value: `${crossBusinessAssignments}` },
-            { label: "Hourly Payroll Here", value: formatCurrency(payrollBusiness) },
-            { label: "Hourly Payroll Total", value: formatCurrency(payrollAll) },
+            { label: "Active Payroll Here", value: formatPayrollRateWithTick(activePayrollBusiness) },
+            { label: "Active Payroll Total", value: formatPayrollRateWithTick(activePayrollAll) },
             { label: "Unpaid Alerts", value: `${unpaidCount}` },
           ]}
         />
@@ -271,7 +287,8 @@ export default function BusinessEmployeesDashboard({ business, employees }: Prop
             { label: "Part-Time Base", value: `${formatCurrency(BASE_WAGE_PER_HOUR.part_time)}/hr` },
             { label: "Full-Time Base", value: `${formatCurrency(BASE_WAGE_PER_HOUR.full_time)}/hr` },
             { label: "Specialist Base", value: `${formatCurrency(BASE_WAGE_PER_HOUR.specialist)}/hr` },
-            { label: "Current Site Burn", value: `${formatCurrency(payrollBusiness)}/hr` },
+            { label: "Attached Site Payroll", value: `${formatCurrency(attachedPayrollBusiness)}/hr` },
+            { label: `Active Site Tick (${formatPayrollTickLabel()})`, value: formatPayrollTickAmount(activePayrollBusiness) },
           ]}
         />
       </div>
