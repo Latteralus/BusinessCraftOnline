@@ -44,6 +44,11 @@ export type MarketPageData = {
   personalInventory: PersonalInventoryItem[];
   businessInventory: BusinessInventoryItem[];
   currentCityId: string | null;
+  page?: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
 };
 
 export type EmployeesPageData = {
@@ -131,6 +136,7 @@ export function buildMarketPageData(input: {
   personalInventory: PersonalInventoryItem[];
   businessInventory: BusinessInventoryItem[];
   currentCityId: string | null;
+  page?: MarketPageData["page"];
 }): MarketPageData {
   return input;
 }

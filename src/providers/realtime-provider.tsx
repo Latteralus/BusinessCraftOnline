@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import { usePathname } from "next/navigation";
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { getBusinessesWithBalances } from "@/domains/businesses";
 import { getManufacturingStatus } from "@/domains/production";
@@ -22,6 +23,7 @@ async function fetchRealtimeToken() {
 }
 
 export function RealtimeProvider() {
+  const pathname = usePathname();
   const hydrated = useGameStore((state) => state.hydrated);
   const playerId = useGameStore((state) => state.player.data.playerId);
   const bankingAccounts = useGameStore((state) => state.banking.data.accounts);
@@ -85,6 +87,21 @@ export function RealtimeProvider() {
     }
     return Array.from(slotIds).sort();
   }, [trackedBusinessDetails]);
+  const activeRealtimeModules = useMemo(() => {
+    const path = pathname ?? "";
+    return {
+      dashboard: path === "/dashboard" || path === "/",
+      businesses: path === "/businesses",
+      businessDetail: path.startsWith("/businesses/"),
+      banking: path === "/banking",
+      inventory: path === "/inventory",
+      market: path === "/market",
+      contracts: path === "/contracts",
+      employees: path === "/employees",
+      production: path === "/production",
+      travel: path === "/travel",
+    };
+  }, [pathname]);
 
   useEffect(() => {
     if (!hydrated || !playerId) {
@@ -110,33 +127,36 @@ export function RealtimeProvider() {
       }
     };
 
-    const refillStore = async () => {
-      const [appShell, chat, mailbox, businessesPage, banking, inventory, market, production, contractsPage, employees, travel] =
-        await Promise.all([
-          fetchAppShell(),
-          fetchChatMessages(),
-          mailLoadedAt !== null ? fetchMailbox(activeMailThreadId ?? undefined) : Promise.resolve(null),
-          fetchBusinessesPageData(),
-          fetchBankingPageData(),
-          fetchInventoryPageData(),
-          fetchMarketPageData(),
-          fetchProductionPageData(),
-          fetchContractsPageData(),
-          fetchEmployeesPageData(),
-          fetchTravelState(),
-        ]);
+    const sliceRefreshes = new Map<string, Promise<void>>();
+    const queuedSliceRefreshes = new Set<string>();
 
-      if (cancelled) {
-        return;
+    const runSliceRefresh = (key: string, task: () => Promise<void>) => {
+      if (sliceRefreshes.has(key)) {
+        queuedSliceRefreshes.add(key);
+        return sliceRefreshes.get(key);
       }
 
-      patchAppShell({
-        playerCount: appShell.playerCount,
-        onlinePlayers: appShell.onlinePlayers,
-        notificationsCount: appShell.notificationsCount,
-        unreadChatCount: appShell.unreadChatCount,
-        unreadMailCount: appShell.unreadMailCount,
-      });
+      const job = task()
+        .catch(() => undefined)
+        .finally(() => {
+          sliceRefreshes.delete(key);
+          if (queuedSliceRefreshes.has(key) && !cancelled) {
+            queuedSliceRefreshes.delete(key);
+            void runSliceRefresh(key, task);
+          }
+        });
+      sliceRefreshes.set(key, job);
+      return job;
+    };
+
+    const refreshShellEssentials = () => runSliceRefresh("shell", async () => {
+      const [appShell, chat, mailbox] = await Promise.all([
+        fetchAppShell(),
+        fetchChatMessages(),
+        mailLoadedAt !== null ? fetchMailbox(activeMailThreadId ?? undefined) : Promise.resolve(null),
+      ]);
+      if (cancelled) return;
+      patchAppShell(appShell);
       setChat(chat.messages);
       if (mailbox) {
         setMail({
@@ -145,14 +165,71 @@ export function RealtimeProvider() {
           recipientSearchResults: useGameStore.getState().mail.data.recipientSearchResults,
         });
       }
-      setBusinesses(businessesPage.businesses);
-      setBanking(banking);
-      setInventory(inventory);
-      setMarket(market);
-      setProduction(production);
-      setContracts(contractsPage.contracts);
-      setEmployees(employees);
-      setTravel(travel);
+    });
+
+    const refreshActiveRouteData = () => runSliceRefresh("active-route", async () => {
+      const tasks: Promise<void>[] = [];
+
+      if (activeRealtimeModules.dashboard || activeRealtimeModules.businesses) {
+        tasks.push(fetchBusinessesPageData().then((data) => {
+          if (!cancelled) {
+            setBusinesses(data.businesses);
+            setTravel(data.travelState);
+          }
+        }));
+      }
+      if (activeRealtimeModules.banking) {
+        tasks.push(fetchBankingPageData().then((data) => {
+          if (!cancelled) setBanking(data);
+        }));
+      }
+      if (activeRealtimeModules.inventory) {
+        tasks.push(fetchInventoryPageData().then((data) => {
+          if (!cancelled) setInventory(data);
+        }));
+      }
+      if (activeRealtimeModules.market) {
+        tasks.push(fetchMarketPageData().then((data) => {
+          if (!cancelled) setMarket(data);
+        }));
+      }
+      if (activeRealtimeModules.production) {
+        tasks.push(fetchProductionPageData().then((data) => {
+          if (!cancelled) setProduction(data);
+        }));
+      }
+      if (activeRealtimeModules.contracts) {
+        tasks.push(fetchContractsPageData().then((data) => {
+          if (!cancelled) {
+            setContracts(data.contracts);
+            setBusinesses(data.businesses);
+          }
+        }));
+      }
+      if (activeRealtimeModules.employees) {
+        tasks.push(fetchEmployeesPageData().then((data) => {
+          if (!cancelled) setEmployees(data);
+        }));
+      }
+      if (activeRealtimeModules.travel) {
+        tasks.push(fetchTravelState().then((data) => {
+          if (!cancelled) setTravel(data);
+        }));
+      }
+      if (activeRealtimeModules.businessDetail) {
+        for (const businessId of trackedBusinessDetailIds) {
+          tasks.push(refreshBusinessDetail(businessId).then(() => undefined));
+        }
+      }
+
+      await Promise.all(tasks);
+    });
+
+    const refillStore = async () => {
+      await Promise.all([
+        refreshShellEssentials(),
+        refreshActiveRouteData(),
+      ]);
     };
 
     const startFallbackPoll = () => {
@@ -376,23 +453,29 @@ export function RealtimeProvider() {
           });
         channels.push(playerChannel);
 
-        const businessesChannel = supabase
-          .channel(`businesses-${playerId}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "businesses", filter: `player_id=eq.${playerId}` }, handleBusinessChange)
-          .subscribe();
-        channels.push(businessesChannel);
+        if (activeRealtimeModules.dashboard || activeRealtimeModules.businesses || activeRealtimeModules.businessDetail) {
+          const businessesChannel = supabase
+            .channel(`businesses-${playerId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "businesses", filter: `player_id=eq.${playerId}` }, handleBusinessChange)
+            .subscribe();
+          channels.push(businessesChannel);
+        }
 
-        const employeesChannel = supabase
-          .channel(`employees-${playerId}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "employees", filter: `player_id=eq.${playerId}` }, handleEmployeeChange)
-          .subscribe();
-        channels.push(employeesChannel);
+        if (activeRealtimeModules.employees || activeRealtimeModules.businessDetail) {
+          const employeesChannel = supabase
+            .channel(`employees-${playerId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "employees", filter: `player_id=eq.${playerId}` }, handleEmployeeChange)
+            .subscribe();
+          channels.push(employeesChannel);
+        }
 
-        const contractsChannel = supabase
-          .channel(`contracts-${playerId}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "contracts", filter: `owner_player_id=eq.${playerId}` }, handleContractChange)
-          .subscribe();
-        channels.push(contractsChannel);
+        if (activeRealtimeModules.contracts) {
+          const contractsChannel = supabase
+            .channel(`contracts-${playerId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "contracts", filter: `owner_player_id=eq.${playerId}` }, handleContractChange)
+            .subscribe();
+          channels.push(contractsChannel);
+        }
 
         const chatChannel = supabase
           .channel("global-chat")
@@ -438,68 +521,98 @@ export function RealtimeProvider() {
           .subscribe();
         channels.push(mailMessagesChannel);
 
-        const inventoryChannel = supabase
-          .channel(`inventory-${playerId}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "personal_inventory", filter: `player_id=eq.${playerId}` }, () => {
-            void fetchInventoryPageData().then((data) => !cancelled && setInventory(data));
-          })
-          .on("postgres_changes", { event: "*", schema: "public", table: "business_inventory", filter: `owner_player_id=eq.${playerId}` }, () => {
-            void fetchInventoryPageData().then((data) => !cancelled && setInventory(data));
-          })
-          .on("postgres_changes", { event: "*", schema: "public", table: "shipping_queue", filter: `owner_player_id=eq.${playerId}` }, () => {
-            void fetchInventoryPageData().then((data) => !cancelled && setInventory(data));
-          })
-          .subscribe();
-        channels.push(inventoryChannel);
-
-        const bankingChannel = supabase
-          .channel(`banking-${playerId}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "bank_accounts", filter: `player_id=eq.${playerId}` }, () => {
-            void fetchBankingPageData().then((data) => !cancelled && setBanking(data));
-          })
-          .on("postgres_changes", { event: "*", schema: "public", table: "loans", filter: `player_id=eq.${playerId}` }, () => {
-            void fetchBankingPageData().then((data) => !cancelled && setBanking(data));
-          })
-          .subscribe();
-        channels.push(bankingChannel);
-
-        for (const accountId of bankingAccountIds) {
-          const transactionsChannel = supabase
-            .channel(`transactions-${playerId}-${accountId}`)
-            .on("postgres_changes", { event: "*", schema: "public", table: "transactions", filter: `account_id=eq.${accountId}` }, () => {
-              void fetchBankingPageData().then((data) => !cancelled && setBanking(data));
+        if (activeRealtimeModules.inventory) {
+          const inventoryChannel = supabase
+            .channel(`inventory-${playerId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "personal_inventory", filter: `player_id=eq.${playerId}` }, () => {
+              void runSliceRefresh("inventory", async () => {
+                const data = await fetchInventoryPageData();
+                if (!cancelled) setInventory(data);
+              });
+            })
+            .on("postgres_changes", { event: "*", schema: "public", table: "business_inventory", filter: `owner_player_id=eq.${playerId}` }, () => {
+              void runSliceRefresh("inventory", async () => {
+                const data = await fetchInventoryPageData();
+                if (!cancelled) setInventory(data);
+              });
+            })
+            .on("postgres_changes", { event: "*", schema: "public", table: "shipping_queue", filter: `owner_player_id=eq.${playerId}` }, () => {
+              void runSliceRefresh("inventory", async () => {
+                const data = await fetchInventoryPageData();
+                if (!cancelled) setInventory(data);
+              });
             })
             .subscribe();
-          channels.push(transactionsChannel);
+          channels.push(inventoryChannel);
         }
 
-        for (const businessId of ownedBusinessIds) {
-          const businessBalancesChannel = supabase
-            .channel(`business-balances-${playerId}-${businessId}`)
-            .on("postgres_changes", { event: "*", schema: "public", table: "business_accounts", filter: `business_id=eq.${businessId}` }, () => {
-              void refreshBusinessBalances();
+        if (activeRealtimeModules.banking) {
+          const bankingChannel = supabase
+            .channel(`banking-${playerId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "bank_accounts", filter: `player_id=eq.${playerId}` }, () => {
+              void runSliceRefresh("banking", async () => {
+                const data = await fetchBankingPageData();
+                if (!cancelled) setBanking(data);
+              });
+            })
+            .on("postgres_changes", { event: "*", schema: "public", table: "loans", filter: `player_id=eq.${playerId}` }, () => {
+              void runSliceRefresh("banking", async () => {
+                const data = await fetchBankingPageData();
+                if (!cancelled) setBanking(data);
+              });
             })
             .subscribe();
-          channels.push(businessBalancesChannel);
+          channels.push(bankingChannel);
+
+          for (const accountId of bankingAccountIds) {
+            const transactionsChannel = supabase
+              .channel(`transactions-${playerId}-${accountId}`)
+              .on("postgres_changes", { event: "*", schema: "public", table: "transactions", filter: `account_id=eq.${accountId}` }, () => {
+                void runSliceRefresh("banking", async () => {
+                  const data = await fetchBankingPageData();
+                  if (!cancelled) setBanking(data);
+                });
+              })
+              .subscribe();
+            channels.push(transactionsChannel);
+          }
         }
 
-        const marketActiveChannel = supabase
-          .channel(`market-active-${playerId}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "market_listings", filter: "status=eq.active" }, () => {
-            void fetchMarketPageData().then((data) => !cancelled && setMarket(data));
-          })
-          .subscribe();
-        channels.push(marketActiveChannel);
+        if (activeRealtimeModules.dashboard || activeRealtimeModules.businesses || activeRealtimeModules.banking || activeRealtimeModules.businessDetail) {
+          for (const businessId of ownedBusinessIds) {
+            const businessBalancesChannel = supabase
+              .channel(`business-balances-${playerId}-${businessId}`)
+              .on("postgres_changes", { event: "*", schema: "public", table: "business_accounts", filter: `business_id=eq.${businessId}` }, () => {
+                void refreshBusinessBalances();
+              })
+              .subscribe();
+            channels.push(businessBalancesChannel);
+          }
+        }
 
-        const marketOwnedChannel = supabase
-          .channel(`market-owned-${playerId}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "market_listings", filter: `owner_player_id=eq.${playerId}` }, () => {
-            void fetchMarketPageData().then((data) => !cancelled && setMarket(data));
-          })
-          .subscribe();
-        channels.push(marketOwnedChannel);
+        if (activeRealtimeModules.market) {
+          const refreshMarket = () => runSliceRefresh("market", async () => {
+            const data = await fetchMarketPageData();
+            if (!cancelled) setMarket(data);
+          });
+          const marketActiveChannel = supabase
+            .channel(`market-active-${playerId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "market_listings", filter: "status=eq.active" }, () => {
+              void refreshMarket();
+            })
+            .subscribe();
+          channels.push(marketActiveChannel);
 
-        if (selectedProductionBusinessId) {
+          const marketOwnedChannel = supabase
+            .channel(`market-owned-${playerId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "market_listings", filter: `owner_player_id=eq.${playerId}` }, () => {
+              void refreshMarket();
+            })
+            .subscribe();
+          channels.push(marketOwnedChannel);
+        }
+
+        if (activeRealtimeModules.production && selectedProductionBusinessId) {
           const productionChannel = supabase
             .channel(`production-${playerId}-${selectedProductionBusinessId}`)
             .on("postgres_changes", { event: "*", schema: "public", table: "manufacturing_jobs", filter: `business_id=eq.${selectedProductionBusinessId}` }, () => {
@@ -512,15 +625,20 @@ export function RealtimeProvider() {
           channels.push(productionChannel);
         }
 
-        const travelChannel = supabase
-          .channel(`travel-${playerId}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "travel_log", filter: `player_id=eq.${playerId}` }, () => {
-            void fetchTravelState().then((data) => !cancelled && setTravel(data));
-          })
-          .subscribe();
-        channels.push(travelChannel);
+        if (activeRealtimeModules.travel || activeRealtimeModules.businesses || activeRealtimeModules.dashboard) {
+          const travelChannel = supabase
+            .channel(`travel-${playerId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "travel_log", filter: `player_id=eq.${playerId}` }, () => {
+              void runSliceRefresh("travel", async () => {
+                const data = await fetchTravelState();
+                if (!cancelled) setTravel(data);
+              });
+            })
+            .subscribe();
+          channels.push(travelChannel);
+        }
 
-        for (const businessId of trackedBusinessDetailIds) {
+        if (activeRealtimeModules.businessDetail) for (const businessId of trackedBusinessDetailIds) {
           const businessDetailChannel = supabase
             .channel(`business-detail-${playerId}-${businessId}`)
             .on("postgres_changes", { event: "*", schema: "public", table: "businesses", filter: `id=eq.${businessId}` }, () => {
@@ -566,7 +684,7 @@ export function RealtimeProvider() {
           channels.push(businessDetailChannel);
         }
 
-        for (const slotId of trackedExtractionSlotIds) {
+        if (activeRealtimeModules.businessDetail) for (const slotId of trackedExtractionSlotIds) {
           const extractionToolChannel = supabase
             .channel(`business-detail-tools-${playerId}-${slotId}`)
             .on("postgres_changes", { event: "*", schema: "public", table: "tool_durability", filter: `extraction_slot_id=eq.${slotId}` }, () => {
@@ -613,6 +731,7 @@ export function RealtimeProvider() {
     patchMarket,
     playerId,
     activeMailThreadId,
+    activeRealtimeModules,
     mailLoadedAt,
     removeBusiness,
     removeBusinessDetail,

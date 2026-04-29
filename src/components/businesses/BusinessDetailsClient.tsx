@@ -13,7 +13,9 @@ import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import { calculateUpgradePreview, formatInstallTimeMinutes } from "@/domains/upgrades";
 import { BASE_WAGE_PER_HOUR } from "@/config/employees";
 import { apiDelete, apiPatch, apiPost } from "@/lib/client/api";
+import { fetchBusinessDetailsSection } from "@/lib/client/queries";
 import { apiRoutes } from "@/lib/client/routes";
+import type { BusinessDetailsSection } from "@/lib/business-details-data";
 import { getNpcBuyerPriceRange, getNpcSuggestedBasePrice } from "@/config/items";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
@@ -73,6 +75,10 @@ export default function BusinessDetailsClient({
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadedSections, setLoadedSections] = useState<Partial<Record<BusinessDetailsSection, boolean>>>({
+    options: true,
+  });
+  const [loadingSection, setLoadingSection] = useState<BusinessDetailsSection | null>(null);
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
   const [slotRetoolSelections, setSlotRetoolSelections] = useState<Record<string, string>>({});
   const [manufacturingAssignSelections, setManufacturingAssignSelections] = useState<Record<string, string>>({});
@@ -100,6 +106,7 @@ export default function BusinessDetailsClient({
     patchDetail,
     refreshFinanceDashboard,
     updateEmployeeRecord,
+    removeEmployeeRecord,
     updateExtractionSlot,
     updateManufacturingLine,
     patchInventoryItem,
@@ -124,6 +131,39 @@ export default function BusinessDetailsClient({
     const period = searchParams.get("period");
     return period === "24h" || period === "7d" || period === "30d" ? period : "1h";
   })() as FinancePeriod;
+
+  const activeSection = (activeTab === "options" ? "options" : activeTab) as BusinessDetailsSection;
+
+  useEffect(() => {
+    if (loadedSections[activeSection] || loadingSection === activeSection) {
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingSection(activeSection);
+    setError(null);
+
+    void fetchBusinessDetailsSection(businessId, activeSection, selectedFinancePeriod)
+      .then((detailPatch) => {
+        if (cancelled) return;
+        patchDetail(detailPatch as Parameters<typeof patchDetail>[0]);
+        setLoadedSections((current) => ({ ...current, [activeSection]: true }));
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load business section.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingSection(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection, businessId, loadedSections, loadingSection, patchDetail, selectedFinancePeriod]);
 
   useEffect(() => {
     if (initialTab && ["overview", "finance", "operations", "employees", "inventory", "upgrades", "options"].includes(initialTab)) {
@@ -409,6 +449,8 @@ export default function BusinessDetailsClient({
         }
       }
     }
+
+    return assignPayload.employee;
   }
 
   async function hireEmployee(employeeType: string) {
@@ -430,13 +472,14 @@ export default function BusinessDetailsClient({
       if (hireResponse.employee) {
         updateEmployeeRecord(hireResponse.employee);
       }
-      await assignEmployeeToBusinessAndMaybeSlot(hireResponse.employee.id);
+      const assignedEmployee = await assignEmployeeToBusinessAndMaybeSlot(hireResponse.employee.id);
       await syncMutationViews({
         businesses: true,
         banking: true,
         employees: true,
         businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
       });
+      updateEmployeeRecord(assignedEmployee ?? hireResponse.employee);
     }, "Error hiring employee");
   }
 
@@ -449,7 +492,7 @@ export default function BusinessDetailsClient({
         { fallbackError: "Failed to fire employee." }
       );
       if (payload.employee) {
-        updateEmployeeRecord(payload.employee);
+        removeEmployeeRecord(payload.employee.id);
       }
       await syncMutationViews({
         businesses: true,
@@ -457,6 +500,7 @@ export default function BusinessDetailsClient({
         employees: true,
         businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
       });
+      removeEmployeeRecord(payload.employee?.id ?? employeeId);
     }, "Error firing employee");
   }
 
@@ -475,6 +519,9 @@ export default function BusinessDetailsClient({
         employees: true,
         businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
       });
+      if (payload.employee) {
+        updateEmployeeRecord(payload.employee);
+      }
     }, "Error unassigning employee");
   }
 
@@ -494,6 +541,9 @@ export default function BusinessDetailsClient({
         employees: true,
         businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
       });
+      if (payload.employee) {
+        updateEmployeeRecord(payload.employee);
+      }
     }, "Error settling employee wages");
   }
 
@@ -503,6 +553,7 @@ export default function BusinessDetailsClient({
     await runBusyAction(async () => {
       const employee = thisBusinessEmployees.find((candidate) => candidate.id === employeeId);
       const assignment = employee ? getAssignmentForBusiness(employee) : null;
+      let assignedEmployee: (Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] }) | null = null;
 
       if (!assignment) {
         const assignPayload = await apiPost<{ employee: Employee & { employee_assignments?: (EmployeeAssignment & { business: Business })[] } }>(apiRoutes.employees.assign, {
@@ -512,6 +563,7 @@ export default function BusinessDetailsClient({
           roleSkillKey: "logistics",
         }, { fallbackError: "Failed to assign employee." });
         if (assignPayload.employee) {
+          assignedEmployee = assignPayload.employee;
           updateEmployeeRecord(assignPayload.employee);
         }
       }
@@ -528,6 +580,9 @@ export default function BusinessDetailsClient({
         employees: true,
         businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
       });
+      if (assignedEmployee) {
+        updateEmployeeRecord(assignedEmployee);
+      }
       setManufacturingAssignSelections((prev) => ({ ...prev, [lineId]: "" }));
     }, "Error assigning employee");
   }
@@ -857,6 +912,11 @@ export default function BusinessDetailsClient({
         {error && (
           <div style={{ padding: "12px", marginBottom: "16px", background: "rgba(248, 113, 113, 0.1)", color: "#f87171", borderRadius: "8px", border: "1px solid rgba(248, 113, 113, 0.2)" }}>
             {error}
+          </div>
+        )}
+        {loadingSection === activeSection && (
+          <div style={{ padding: "12px", marginBottom: "16px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+            Loading {activeSection}...
           </div>
         )}
         {activeTab === "overview" && (

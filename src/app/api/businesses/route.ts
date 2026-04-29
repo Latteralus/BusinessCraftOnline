@@ -14,6 +14,7 @@ import {
   parseJsonBody,
   requireAuthedUser,
 } from "@/app/api/_shared/route-helpers";
+import { withTiming } from "@/lib/server-timing";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -33,11 +34,15 @@ export async function GET(request: Request) {
   }
 
   try {
-    const businesses = await getBusinessesWithBalances(supabase, user.id, parsed.data);
-    const summary = summarizeBusinessesWithBalances(businesses);
-    const response: BusinessesPayload = { businesses, summary };
+    return await withTiming("api-route", "/api/businesses GET", async (timing) => {
+      const businesses = await timing.measure("businesses-with-balances", () =>
+        getBusinessesWithBalances(supabase, user.id, parsed.data)
+      );
+      const summary = summarizeBusinessesWithBalances(businesses);
+      const response: BusinessesPayload = { businesses, summary };
 
-    return NextResponse.json(response);
+      return NextResponse.json(response);
+    });
   } catch (error) {
     return fail(error, "Failed to fetch businesses.", 500);
   }

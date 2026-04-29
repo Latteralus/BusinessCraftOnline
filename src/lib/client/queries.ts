@@ -14,6 +14,7 @@ import type { MailRecipientPreview, MailThreadDetail, MailThreadPreview } from "
 import type { MarketListing, MarketTransaction } from "@/domains/market";
 import type { ManufacturingStatusView } from "@/domains/production";
 import type { BusinessDetailsEntry } from "@/stores/game-store";
+import type { BusinessDetailsPatch, BusinessDetailsSection } from "@/lib/business-details-data";
 import type { FinancePeriod } from "@/config/finance";
 import { apiGet } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
@@ -91,6 +92,11 @@ type ContractsResponse = {
 type ListingsResponse = {
   listings: MarketListing[];
   transactions?: MarketTransaction[];
+  page?: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
   error?: string;
 };
 
@@ -101,6 +107,8 @@ type ManufacturingResponse = {
 
 type BusinessDetailsStateResponse = {
   detail?: BusinessDetailsEntry;
+  detailPatch?: BusinessDetailsPatch;
+  section?: BusinessDetailsSection;
   error?: string;
 };
 
@@ -200,7 +208,7 @@ export async function fetchInventoryPageData(): Promise<InventoryPageData> {
 export async function fetchMarketPageData(): Promise<MarketPageData> {
   const [businessesJson, listingsJson, inventoryJson, travelJson] = await Promise.all([
     apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." }),
-    apiGet<ListingsResponse>(apiRoutes.market.listings({ includeTransactions: true, transactionsLimit: 40, buyerType: "player" }), {
+    apiGet<ListingsResponse>(apiRoutes.market.listings({ includeTransactions: true, transactionsLimit: 40, buyerType: "player", status: "active", limit: 50, offset: 0 }), {
       fallbackError: "Failed to load market listings.",
     }),
     apiGet<InventoryResponse>(apiRoutes.inventory.root, { fallbackError: "Failed to load inventory." }),
@@ -214,6 +222,13 @@ export async function fetchMarketPageData(): Promise<MarketPageData> {
     personalInventory: inventoryJson.personalInventory ?? [],
     businessInventory: inventoryJson.businessInventory ?? [],
     currentCityId: travelJson.currentCity?.id ?? null,
+    page: listingsJson.page,
+  });
+}
+
+export async function fetchMarketListingsPage(offset: number, limit = 50) {
+  return apiGet<ListingsResponse>(apiRoutes.market.listings({ status: "active", limit, offset }), {
+    fallbackError: "Failed to load market listings.",
   });
 }
 
@@ -275,4 +290,16 @@ export async function fetchBusinessDetailsState(
   }
 
   return payload.detail;
+}
+
+export async function fetchBusinessDetailsSection(
+  businessId: string,
+  section: BusinessDetailsSection,
+  period: FinancePeriod = "1h"
+): Promise<BusinessDetailsPatch> {
+  const payload = await apiGet<BusinessDetailsStateResponse>(apiRoutes.businesses.state(businessId, period, section), {
+    fallbackError: "Failed to load business section.",
+  });
+
+  return payload.detailPatch ?? {};
 }

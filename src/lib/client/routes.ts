@@ -23,8 +23,8 @@ export const apiRoutes = {
   businesses: {
     root: "/api/businesses",
     detail: (businessId: string) => `/api/businesses/${businessId}`,
-    state: (businessId: string, period?: "1h" | "24h" | "7d" | "30d") =>
-      withSearch(`/api/businesses/${businessId}/state`, { period }),
+    state: (businessId: string, period?: "1h" | "24h" | "7d" | "30d", section?: "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades" | "options") =>
+      withSearch(`/api/businesses/${businessId}/state`, { period, section }),
     upgrade: (businessId: string) => `/api/businesses/${businessId}/upgrade`,
   },
   cities: "/api/cities",
@@ -49,7 +49,17 @@ export const apiRoutes = {
   },
   market: {
     root: "/api/market",
-    listings: (options: { includeTransactions?: boolean; transactionsLimit?: number; buyerType?: "player" | "npc" } = {}) =>
+    listings: (options: {
+      includeTransactions?: boolean;
+      transactionsLimit?: number;
+      buyerType?: "player" | "npc";
+      status?: "active" | "filled" | "cancelled" | "expired";
+      ownOnly?: boolean;
+      cityId?: string;
+      itemKey?: string;
+      limit?: number;
+      offset?: number;
+    } = {}) =>
       withSearch("/api/market", options),
     cancel: (listingId: string) => `/api/market/${listingId}/cancel`,
     buy: (listingId: string) => `/api/market/${listingId}/buy`,

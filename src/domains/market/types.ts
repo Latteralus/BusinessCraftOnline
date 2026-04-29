@@ -180,6 +180,8 @@ export type MarketListingFilter = {
   itemKey?: string;
   status?: MarketListingStatus;
   ownOnly?: boolean;
+  limit?: number;
+  offset?: number;
 };
 
 export type CreateMarketListingInput = {

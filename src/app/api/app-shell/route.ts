@@ -5,6 +5,7 @@ import { requireAuthedUser } from "@/app/api/_shared/route-helpers";
 import { getUnreadChatCount } from "@/domains/chat";
 import { getUnreadMailCount } from "@/domains/mail";
 import type { QueryClient } from "@/lib/db/query-client";
+import { withTiming } from "@/lib/server-timing";
 import { NextResponse } from "next/server";
 
 function ensureCurrentPlayerOnline(
@@ -18,8 +19,10 @@ function ensureCurrentPlayerOnline(
   return [currentPlayer, ...onlinePlayers];
 }
 
-async function loadAppShellData(supabase: QueryClient, userId: string) {
-  await touchPlayerPresence(supabase, userId);
+async function loadAppShellData(supabase: QueryClient, userId: string, options: { touchPresence?: boolean } = {}) {
+  if (options.touchPresence) {
+    await touchPlayerPresence(supabase, userId);
+  }
 
   const [onlinePlayersRaw, character, storefrontSettings, unreadChatCount, unreadMailCount] = await Promise.all([
     getOnlinePlayerPreviews(supabase, 300).catch(() => []),
@@ -54,7 +57,10 @@ export async function GET() {
   const { supabase, user } = auth;
 
   try {
-    return NextResponse.json(await loadAppShellData(supabase, user.id));
+    return await withTiming("api-route", "/api/app-shell GET", async (timing) => {
+      const shell = await timing.measure("app-shell-data", () => loadAppShellData(supabase, user.id));
+      return NextResponse.json(shell);
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load app shell." },
@@ -69,9 +75,14 @@ export async function POST() {
   const { supabase, user } = auth;
 
   try {
-    return NextResponse.json({
-      ok: true,
-      ...(await loadAppShellData(supabase, user.id)),
+    return await withTiming("api-route", "/api/app-shell POST", async (timing) => {
+      const shell = await timing.measure("app-shell-data-with-presence", () =>
+        loadAppShellData(supabase, user.id, { touchPresence: true })
+      );
+      return NextResponse.json({
+        ok: true,
+        ...shell,
+      });
     });
   } catch (error) {
     return NextResponse.json(

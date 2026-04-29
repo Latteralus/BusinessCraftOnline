@@ -5,7 +5,7 @@ import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency } from "@/lib/formatters";
 import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
-import type { MarketPageData } from "@/lib/client/queries";
+import { fetchMarketListingsPage, type MarketPageData } from "@/lib/client/queries";
 import { formatItemKey } from "@/lib/items";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import type { MarketListing, MarketTransaction } from "@/domains/market";
@@ -203,6 +203,10 @@ export default function MarketClient({ initialData }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [marketPage, setMarketPage] = useState(
+    initialData.page ?? { limit: 50, offset: 0, hasMore: initialData.listings.length >= 50 }
+  );
+  const [loadingMoreListings, setLoadingMoreListings] = useState(false);
 
   const [sourceType, setSourceType] = useState<"business" | "personal">(
     initialData.businessInventory.length > 0 || initialData.businesses.length > 0 ? "business" : "personal"
@@ -444,6 +448,34 @@ export default function MarketClient({ initialData }: Props) {
       setError(err instanceof Error ? err.message : "Failed to create listing.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function loadMoreListings() {
+    if (loadingMoreListings || !marketPage.hasMore) return;
+    setLoadingMoreListings(true);
+    setError(null);
+    try {
+      const nextOffset = marketPage.offset + marketPage.limit;
+      const payload = await fetchMarketListingsPage(nextOffset, marketPage.limit);
+      updateMarketState((current) => ({
+        ...current,
+        listings: [
+          ...current.listings,
+          ...((payload.listings ?? []).filter(
+            (listing) => !current.listings.some((existing) => existing.id === listing.id)
+          )),
+        ],
+      }));
+      setMarketPage(payload.page ?? {
+        limit: marketPage.limit,
+        offset: nextOffset,
+        hasMore: false,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load more listings.");
+    } finally {
+      setLoadingMoreListings(false);
     }
   }
 
@@ -951,6 +983,21 @@ export default function MarketClient({ initialData }: Props) {
                     </article>
                   );
                 })}
+                {marketPage.hasMore ? (
+                  <button
+                    type="button"
+                    onClick={() => void loadMoreListings()}
+                    disabled={loadingMoreListings}
+                    style={{
+                      justifySelf: "center",
+                      border: "1px solid rgba(148, 163, 184, 0.16)",
+                      background: "rgba(15, 23, 42, 0.72)",
+                      color: "#e2e8f0",
+                    }}
+                  >
+                    {loadingMoreListings ? "Loading..." : "Load More Listings"}
+                  </button>
+                ) : null}
               </div>
             )}
           </Panel>

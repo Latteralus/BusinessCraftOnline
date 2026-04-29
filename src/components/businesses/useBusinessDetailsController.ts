@@ -1,12 +1,11 @@
 import { useEffect } from "react";
 import type { Business, BusinessFinanceDashboard, BusinessUpgrade, BusinessUpgradeProject } from "@/domains/businesses";
 import type { FinancePeriod } from "@/config/finance";
-import { getBusinessFinanceDashboard as buildBusinessFinanceDashboard } from "@/domains/businesses/finance";
 import type { Employee } from "@/domains/employees";
 import type { BusinessInventoryItem } from "@/domains/inventory";
 import { summarizeManufacturingLines, type ManufacturingStatusView, type ProductionStatus } from "@/domains/production";
 import type { StoreShelfItem } from "@/domains/stores";
-import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { fetchBusinessDetailsSection } from "@/lib/client/queries";
 import { useGameStore } from "@/stores/game-store";
 import {
   createBusinessDetailsEntry,
@@ -66,12 +65,8 @@ export function useBusinessDetailsController(input: BusinessDetailsClientProps) 
   async function refreshFinanceDashboard(
     period: FinancePeriod = view.financeDashboard?.currentPeriod ?? "1h"
   ) {
-    const finance = await buildBusinessFinanceDashboard(
-      createSupabaseBrowserClient(),
-      view.business.player_id,
-      view.business,
-      period
-    );
+    const patch = await fetchBusinessDetailsSection(businessId, "finance", period);
+    const finance = patch.financeDashboard ?? null;
     patchDetail({ financeDashboard: finance });
     return finance;
   }
@@ -89,6 +84,10 @@ export function useBusinessDetailsController(input: BusinessDetailsClientProps) 
       ...nextEmployee,
     };
     patchDetail({ employees: next });
+  }
+
+  function removeEmployeeRecord(employeeId: string) {
+    patchDetail({ employees: view.employees.filter((employee) => employee.id !== employeeId) });
   }
 
   function updateExtractionSlot(slot: ProductionStatus["slots"][number]) {
@@ -152,6 +151,7 @@ export function useBusinessDetailsController(input: BusinessDetailsClientProps) 
     patchDetail,
     refreshFinanceDashboard,
     updateEmployeeRecord,
+    removeEmployeeRecord,
     updateExtractionSlot,
     updateManufacturingLine,
     patchInventoryItem,

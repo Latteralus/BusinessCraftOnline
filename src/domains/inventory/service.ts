@@ -161,8 +161,6 @@ export async function getBusinessInventory(
   playerId: string,
   businessId?: string
 ): Promise<BusinessInventoryItem[]> {
-  await reconcileBusinessInventoryReservations(client, playerId, businessId);
-
   let query = client
     .from("business_inventory")
     .select("*")

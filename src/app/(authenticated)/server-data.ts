@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { getCharacter, getOnlinePlayerPreviews, getPlayer, touchPlayerPresence } from "@/domains/auth-character";
+import { getCharacter, getPlayer } from "@/domains/auth-character";
 import type { OnlinePlayerPreview } from "@/domains/auth-character";
 import {
   type BankingLoanState,
@@ -21,12 +21,11 @@ import {
   getCityById,
 } from "@/domains/cities-travel";
 import { getContracts } from "@/domains/contracts";
-import { getUnreadChatCount } from "@/domains/chat";
-import { getUnreadMailCount } from "@/domains/mail";
 import { getEmployeeSummary, getPlayerEmployees } from "@/domains/employees";
 import { getBusinessInventory, getPersonalInventory, getShippingQueue } from "@/domains/inventory";
 import { getMarketListings, getMarketStorefrontSettings, getMarketTransactions } from "@/domains/market";
 import { getManufacturingStatus } from "@/domains/production";
+import { withTiming } from "@/lib/server-timing";
 import {
   buildBankingPageData,
   buildBusinessesPageData,
@@ -72,21 +71,6 @@ const getBankingSnapshotCached = cache(async (supabase: Awaited<ReturnType<typeo
   getBankingSnapshot(supabase, userId).catch(() => ({ accounts: [], activeLoan: null }))
 );
 
-const getStorefrontSettingsCached = cache(async (supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string) =>
-  getMarketStorefrontSettings(supabase, userId).catch(() => [])
-);
-
-function ensureCurrentPlayerOnline(
-  onlinePlayers: OnlinePlayerPreview[],
-  currentPlayer: OnlinePlayerPreview
-) {
-  if (onlinePlayers.some((player) => player.player_id === currentPlayer.player_id)) {
-    return onlinePlayers;
-  }
-
-  return [currentPlayer, ...onlinePlayers];
-}
-
 export type AuthenticatedShellInitialData = {
   identity: {
     playerId: string;
@@ -105,21 +89,6 @@ export type AuthenticatedShellInitialData = {
 
 export async function loadAuthenticatedShellInitialData(): Promise<AuthenticatedShellInitialData> {
   const { supabase, user, character } = await requireAuthedPageContext();
-  await touchPlayerPresence(supabase, user.id).catch(() => null);
-
-  const [onlinePlayersRaw, storefrontSettings, unreadChatCount, unreadMailCount] = await Promise.all([
-    getOnlinePlayerPreviews(supabase, 300).catch(() => []),
-    getStorefrontSettingsCached(supabase, user.id),
-    getUnreadChatCount(supabase, user.id).catch(() => 0),
-    getUnreadMailCount(supabase, user.id).catch(() => 0),
-  ]);
-  const onlinePlayers = ensureCurrentPlayerOnline(onlinePlayersRaw, {
-    player_id: user.id,
-    character_name: `${character.first_name} ${character.last_name}`.trim(),
-    business_level: Number(character.business_level),
-    wealth: 0,
-    last_seen_at: new Date().toISOString(),
-  });
 
   return {
     identity: {
@@ -129,134 +98,157 @@ export async function loadAuthenticatedShellInitialData(): Promise<Authenticated
       lastName: character.last_name,
     },
     appShell: {
-      playerCount: onlinePlayers.length,
-      onlinePlayers,
-      notificationsCount: storefrontSettings.filter((row: { is_ad_enabled: boolean }) => row.is_ad_enabled).length,
-      unreadChatCount,
-      unreadMailCount,
+      playerCount: 0,
+      onlinePlayers: [],
+      notificationsCount: 0,
+      unreadChatCount: 0,
+      unreadMailCount: 0,
     },
   };
 }
 
 export async function loadBusinessesPageData() {
-  const { supabase, user, character } = await requireAuthedPageContext();
-  const [businesses, cities, activeTravel, canBuyBusiness, resolvedCurrentCity] = await Promise.all([
-    getBusinessesWithBalancesCached(supabase, user.id),
-    getCitiesCached(supabase),
-    getActiveTravel(supabase, user.id).catch(() => null),
-    canPurchaseBusiness(supabase, user.id).catch(() => false),
-    character.current_city_id ? getCityById(supabase, character.current_city_id).catch(() => null) : Promise.resolve(null),
-  ]);
+  return withTiming("page-loader", "/businesses", async (timing) => {
+    const { supabase, user, character } = await timing.measure("auth-context", () => requireAuthedPageContext());
+    const [businesses, cities, activeTravel, canBuyBusiness, resolvedCurrentCity] = await Promise.all([
+      timing.measure("businesses-with-balances", () => getBusinessesWithBalancesCached(supabase, user.id)),
+      timing.measure("cities", () => getCitiesCached(supabase)),
+      timing.measure("active-travel", () => getActiveTravel(supabase, user.id).catch(() => null)),
+      timing.measure("can-purchase-business", () => canPurchaseBusiness(supabase, user.id).catch(() => false)),
+      character.current_city_id
+        ? timing.measure("current-city", () => getCityById(supabase, character.current_city_id!).catch(() => null))
+        : Promise.resolve(null),
+    ]);
 
-  const travelState: TravelState = {
-    currentCity: resolvedCurrentCity,
-    activeTravel,
-    canPurchaseBusiness: canBuyBusiness,
-  };
+    const travelState: TravelState = {
+      currentCity: resolvedCurrentCity,
+      activeTravel,
+      canPurchaseBusiness: canBuyBusiness,
+    };
 
-  return buildBusinessesPageData({ businesses, cities, travelState });
+    return buildBusinessesPageData({ businesses, cities, travelState });
+  });
 }
 
 export async function loadBankingPageData() {
-  const { supabase, user, character } = await requireAuthedPageContext();
-  const [snapshot, loanSummary, transactions, businesses] = await Promise.all([
-    getBankingSnapshotCached(supabase, user.id),
-    getLoanSummary(supabase, user.id, character.business_level).catch(() => null),
-    getTransactionHistory(supabase, user.id, { limit: 30 }).catch(() => []),
-    getBusinessesWithBalancesCached(supabase, user.id),
-  ]);
-  const loanData: BankingLoanState = {
-    summary: loanSummary,
-    maxLoanAvailable: calculateMaxLoanForBusinessLevel(character.business_level),
-  };
+  return withTiming("page-loader", "/banking", async (timing) => {
+    const { supabase, user, character } = await timing.measure("auth-context", () => requireAuthedPageContext());
+    const [snapshot, loanSummary, transactions, businesses] = await Promise.all([
+      timing.measure("banking-snapshot", () => getBankingSnapshotCached(supabase, user.id)),
+      timing.measure("loan-summary", () => getLoanSummary(supabase, user.id, character.business_level).catch(() => null)),
+      timing.measure("transaction-history", () => getTransactionHistory(supabase, user.id, { limit: 30 }).catch(() => [])),
+      timing.measure("businesses-with-balances", () => getBusinessesWithBalancesCached(supabase, user.id)),
+    ]);
+    const loanData: BankingLoanState = {
+      summary: loanSummary,
+      maxLoanAvailable: calculateMaxLoanForBusinessLevel(character.business_level),
+    };
 
-  return buildBankingPageData({
-    accounts: snapshot.accounts ?? [],
-    loanData,
-    transactions,
-    businesses,
+    return buildBankingPageData({
+      accounts: snapshot.accounts ?? [],
+      loanData,
+      transactions,
+      businesses,
+    });
   });
 }
 
 export async function loadInventoryPageData() {
-  const { supabase, user } = await requireAuthedPageContext();
-  const [personalInventory, businessInventory, shippingQueue, accountsSnapshot, businesses, cities] =
-    await Promise.all([
-      getPersonalInventory(supabase, user.id).catch(() => []),
-      getBusinessInventory(supabase, user.id).catch(() => []),
-      getShippingQueue(supabase, user.id).catch(() => []),
-      getBankingSnapshotCached(supabase, user.id),
-      getBusinessesWithBalancesCached(supabase, user.id),
-      getCitiesCached(supabase),
-    ]);
+  return withTiming("page-loader", "/inventory", async (timing) => {
+    const { supabase, user } = await timing.measure("auth-context", () => requireAuthedPageContext());
+    const [personalInventory, businessInventory, shippingQueue, accountsSnapshot, businesses, cities] =
+      await Promise.all([
+        timing.measure("personal-inventory", () => getPersonalInventory(supabase, user.id).catch(() => [])),
+        timing.measure("business-inventory", () => getBusinessInventory(supabase, user.id).catch(() => [])),
+        timing.measure("shipping-queue", () => getShippingQueue(supabase, user.id).catch(() => [])),
+        timing.measure("banking-snapshot", () => getBankingSnapshotCached(supabase, user.id)),
+        timing.measure("businesses-with-balances", () => getBusinessesWithBalancesCached(supabase, user.id)),
+        timing.measure("cities", () => getCitiesCached(supabase)),
+      ]);
 
-  return buildInventoryPageData({
-    personalInventory,
-    businessInventory,
-    shippingQueue,
-    accounts: accountsSnapshot.accounts ?? [],
-    businesses,
-    cities,
+    return buildInventoryPageData({
+      personalInventory,
+      businessInventory,
+      shippingQueue,
+      accounts: accountsSnapshot.accounts ?? [],
+      businesses,
+      cities,
+    });
   });
 }
 
 export async function loadEmployeesPageData() {
-  const { supabase, user } = await requireAuthedPageContext();
-  const [employees, summary, businesses] = await Promise.all([
-    getPlayerEmployees(supabase, user.id).catch(() => []),
-    getEmployeeSummary(supabase, user.id).catch(() => null),
-    getBusinessesWithBalancesCached(supabase, user.id),
-  ]);
+  return withTiming("page-loader", "/employees", async (timing) => {
+    const { supabase, user } = await timing.measure("auth-context", () => requireAuthedPageContext());
+    const [employees, summary, businesses] = await Promise.all([
+      timing.measure("employees", () => getPlayerEmployees(supabase, user.id).catch(() => [])),
+      timing.measure("employee-summary", () => getEmployeeSummary(supabase, user.id).catch(() => null)),
+      timing.measure("businesses-with-balances", () => getBusinessesWithBalancesCached(supabase, user.id)),
+    ]);
 
-  return buildEmployeesPageData({
-    employees,
-    summary,
-    businesses,
+    return buildEmployeesPageData({
+      employees,
+      summary,
+      businesses,
+    });
   });
 }
 
 export async function loadContractsPageData() {
-  const { supabase, user } = await requireAuthedPageContext();
-  const [businesses, contracts] = await Promise.all([
-    getBusinessesWithBalancesCached(supabase, user.id),
-    getContracts(supabase, user.id).catch(() => []),
-  ]);
+  return withTiming("page-loader", "/contracts", async (timing) => {
+    const { supabase, user } = await timing.measure("auth-context", () => requireAuthedPageContext());
+    const [businesses, contracts] = await Promise.all([
+      timing.measure("businesses-with-balances", () => getBusinessesWithBalancesCached(supabase, user.id)),
+      timing.measure("contracts", () => getContracts(supabase, user.id).catch(() => [])),
+    ]);
 
-  return buildContractsPageData({ businesses, contracts });
+    return buildContractsPageData({ businesses, contracts });
+  });
 }
 
 export async function loadProductionPageData() {
-  const { supabase, user } = await requireAuthedPageContext();
-  const businesses = await getBusinessesWithBalancesCached(supabase, user.id);
-  const selectedBusinessId = buildProductionPageData({ businesses, manufacturing: null }).selectedBusinessId;
-  const manufacturing = selectedBusinessId
-    ? await getManufacturingStatus(supabase, user.id, selectedBusinessId).catch(() => null)
-    : null;
+  return withTiming("page-loader", "/production", async (timing) => {
+    const { supabase, user } = await timing.measure("auth-context", () => requireAuthedPageContext());
+    const businesses = await timing.measure("businesses-with-balances", () => getBusinessesWithBalancesCached(supabase, user.id));
+    const selectedBusinessId = buildProductionPageData({ businesses, manufacturing: null }).selectedBusinessId;
+    const manufacturing = selectedBusinessId
+      ? await timing.measure("manufacturing-status", () => getManufacturingStatus(supabase, user.id, selectedBusinessId).catch(() => null))
+      : null;
 
-  return buildProductionPageData({
-    businesses,
-    selectedBusinessId,
-    manufacturing,
+    return buildProductionPageData({
+      businesses,
+      selectedBusinessId,
+      manufacturing,
+    });
   });
 }
 
 export async function loadMarketPageData() {
-  const { supabase, user, character } = await requireAuthedPageContext();
-  const [businesses, listings, transactions, personalInventory, businessInventory] = await Promise.all([
-    getBusinessesWithBalancesCached(supabase, user.id),
-    getMarketListings(supabase, user.id).catch(() => []),
-    getMarketTransactions(supabase, user.id, 40, { buyerType: "player" }).catch(() => []),
-    getPersonalInventory(supabase, user.id).catch(() => []),
-    getBusinessInventory(supabase, user.id).catch(() => []),
-  ]);
+  return withTiming("page-loader", "/market", async (timing) => {
+    const { supabase, user, character } = await timing.measure("auth-context", () => requireAuthedPageContext());
+    const marketLimit = 50;
+    const [businesses, listingsWithLookahead, transactions, personalInventory, businessInventory] = await Promise.all([
+      timing.measure("businesses-with-balances", () => getBusinessesWithBalancesCached(supabase, user.id)),
+      timing.measure("market-listings", () => getMarketListings(supabase, user.id, { status: "active", limit: marketLimit + 1, offset: 0 }).catch(() => [])),
+      timing.measure("market-transactions", () => getMarketTransactions(supabase, user.id, 40, { buyerType: "player" }).catch(() => [])),
+      timing.measure("personal-inventory", () => getPersonalInventory(supabase, user.id).catch(() => [])),
+      timing.measure("business-inventory", () => getBusinessInventory(supabase, user.id).catch(() => [])),
+    ]);
+    const listings = listingsWithLookahead.slice(0, marketLimit);
 
-  return buildMarketPageData({
-    businesses,
-    listings,
-    transactions,
-    personalInventory,
-    businessInventory,
-    currentCityId: character.current_city_id ?? null,
+    return buildMarketPageData({
+      businesses,
+      listings,
+      transactions,
+      personalInventory,
+      businessInventory,
+      currentCityId: character.current_city_id ?? null,
+      page: {
+        limit: marketLimit,
+        offset: 0,
+        hasMore: listingsWithLookahead.length > marketLimit,
+      },
+    });
   });
 }
 

@@ -6,12 +6,15 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { OnlinePlayerPreview } from "@/domains/auth-character";
 import type { ChatMessage } from "@/domains/chat";
 import type { MailRecipientPreview, MailThreadPreview } from "@/domains/mail";
-import { apiDelete, apiPatch, apiPost } from "@/lib/client/api";
+import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/client/api";
 import { fetchAppShell, fetchChatMessages, fetchMailbox, searchMailRecipients } from "@/lib/client/queries";
 import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency } from "@/lib/formatters";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 import { useAppShellSlice, useChatSlice, useGameStore, useMailSlice, usePlayerSlice } from "@/stores/game-store";
+
+const PRESENCE_HEARTBEAT_KEY = "lifecraft:last-presence-heartbeat";
+const PRESENCE_HEARTBEAT_MS = 60_000;
 
 function formatChatTimestamp(value: string) {
   const date = new Date(value);
@@ -52,6 +55,7 @@ export function Topbar() {
   const pathname = usePathname();
   const identity = usePlayerSlice();
   const appShell = useAppShellSlice();
+  const appShellLoaded = useGameStore((state) => state.appShell.lastUpdated !== null && state.appShell.data.onlinePlayers.length > 0);
   const chatMessages = useChatSlice();
   const mail = useMailSlice();
   const patchChat = useGameStore((state) => state.patchChat);
@@ -89,7 +93,7 @@ export function Topbar() {
   const hasLoadedInitialChatRef = useRef(false);
   const latestTrackedChatAtRef = useRef<string | null>(null);
   const markReadRequestRef = useRef<string | null>(null);
-  const playerCount = appShell.playerCount;
+  const playerCount = appShellLoaded ? appShell.playerCount : null;
   const onlinePlayers = appShell.onlinePlayers as OnlinePlayerPreview[];
   const notificationsCount = appShell.notificationsCount;
   const chatUnreadCount = appShell.unreadChatCount ?? 0;
@@ -191,13 +195,29 @@ export function Topbar() {
 
   useEffect(() => {
     function refreshPresence() {
-      void apiPost<{
-        playerCount?: number;
-        onlinePlayers?: OnlinePlayerPreview[];
-        notificationsCount?: number;
-        unreadChatCount?: number;
-        unreadMailCount?: number;
-      }>("/api/app-shell")
+      const lastHeartbeatAt = Number(window.localStorage.getItem(PRESENCE_HEARTBEAT_KEY) ?? "0");
+      const shouldTouchPresence = !Number.isFinite(lastHeartbeatAt) || Date.now() - lastHeartbeatAt >= PRESENCE_HEARTBEAT_MS;
+      const request = shouldTouchPresence
+        ? apiPost<{
+            playerCount?: number;
+            onlinePlayers?: OnlinePlayerPreview[];
+            notificationsCount?: number;
+            unreadChatCount?: number;
+            unreadMailCount?: number;
+          }>("/api/app-shell")
+        : apiGet<{
+            playerCount?: number;
+            onlinePlayers?: OnlinePlayerPreview[];
+            notificationsCount?: number;
+            unreadChatCount?: number;
+            unreadMailCount?: number;
+          }>("/api/app-shell");
+
+      if (shouldTouchPresence) {
+        window.localStorage.setItem(PRESENCE_HEARTBEAT_KEY, String(Date.now()));
+      }
+
+      void request
         .then((shell) => {
           patchAppShell({
             playerCount: shell.playerCount ?? useGameStore.getState().appShell.data.playerCount,
@@ -207,7 +227,11 @@ export function Topbar() {
             unreadMailCount: shell.unreadMailCount ?? useGameStore.getState().appShell.data.unreadMailCount,
           });
         })
-        .catch(() => null);
+        .catch(() => {
+          if (shouldTouchPresence) {
+            window.localStorage.removeItem(PRESENCE_HEARTBEAT_KEY);
+          }
+        });
     }
 
     refreshPresence();

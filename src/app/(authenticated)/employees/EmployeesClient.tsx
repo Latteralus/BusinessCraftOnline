@@ -106,7 +106,7 @@ export default function EmployeesClient({ initialData }: Props) {
     const { firstName, lastName } = makeHireName();
     const optimisticId = `optimistic-employee-${Date.now()}`;
     try {
-      await runOptimisticUpdate("employees", () => {
+      const payload = await runOptimisticUpdate("employees", () => {
         patchEmployees({
           id: optimisticId,
           player_id: "",
@@ -152,6 +152,9 @@ export default function EmployeesClient({ initialData }: Props) {
         employees: true,
         businessDetails: detailSyncTarget(hireBusinessId),
       });
+      if (payload.employee) {
+        patchEmployees(payload.employee);
+      }
       setSpecialtySkillKey("");
       setSuccess("Employee hired successfully.");
     } catch (err) {
@@ -168,7 +171,7 @@ export default function EmployeesClient({ initialData }: Props) {
     setSuccess(null);
     try {
       const existingEmployee = employees.find((employee) => employee.id === assignEmployeeId) ?? null;
-      await runOptimisticUpdate("employees", () => {
+      const payload = await runOptimisticUpdate("employees", () => {
         patchEmployees({
           id: assignEmployeeId,
           employer_business_id:
@@ -196,6 +199,9 @@ export default function EmployeesClient({ initialData }: Props) {
         employees: true,
         businessDetails: detailSyncTarget(assignBusinessId),
       });
+      if (payload.employee) {
+        patchEmployees(payload.employee);
+      }
       setSuccess("Employee assigned successfully.");
       setAssignEmployeeId("");
       setAssignBusinessId("");
@@ -211,7 +217,7 @@ export default function EmployeesClient({ initialData }: Props) {
     setSuccess(null);
     try {
       const existingEmployee = employees.find((employee) => employee.id === employeeId) ?? null;
-      await runOptimisticUpdate("employees", () => {
+      const payload = await runOptimisticUpdate("employees", () => {
         patchEmployees({
           id: employeeId,
           status: "available",
@@ -238,6 +244,9 @@ export default function EmployeesClient({ initialData }: Props) {
         employees: true,
         businessDetails: detailSyncTarget(businessId),
       });
+      if (payload.employee) {
+        patchEmployees(payload.employee);
+      }
       setSuccess("Employee re-activated.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reactivate employee.");
@@ -249,7 +258,7 @@ export default function EmployeesClient({ initialData }: Props) {
     setSuccess(null);
     try {
       const existingEmployee = employees.find((employee) => employee.id === employeeId) ?? null;
-      await runOptimisticUpdate("employees", () => {
+      const payload = await runOptimisticUpdate("employees", () => {
         patchEmployees({
           id: employeeId,
           status: "available",
@@ -276,6 +285,9 @@ export default function EmployeesClient({ initialData }: Props) {
         employees: true,
         businessDetails: detailSyncTarget(businessId),
       });
+      if (payload.employee) {
+        patchEmployees(payload.employee);
+      }
       setSuccess("Employee unassigned.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to unassign employee.");
@@ -287,12 +299,8 @@ export default function EmployeesClient({ initialData }: Props) {
     setSuccess(null);
     try {
       const existingEmployee = employees.find((employee) => employee.id === employeeId) ?? null;
-      await runOptimisticUpdate("employees", () => {
-        patchEmployees({
-          id: employeeId,
-          status: "fired",
-          updated_at: new Date().toISOString(),
-        });
+      const payload = await runOptimisticUpdate("employees", () => {
+        removeEmployee(employeeId);
         return () => {
           if (existingEmployee) {
             patchEmployees(existingEmployee);
@@ -305,7 +313,7 @@ export default function EmployeesClient({ initialData }: Props) {
           { fallbackError: "Failed to fire employee." }
         );
         if (payload.employee) {
-          patchEmployees(payload.employee);
+          removeEmployee(payload.employee.id);
         }
         return payload;
       });
@@ -316,6 +324,7 @@ export default function EmployeesClient({ initialData }: Props) {
         employees: true,
         businessDetails: detailSyncTarget(businessId),
       });
+      removeEmployee(payload.employee?.id ?? employeeId);
       setSuccess("Employee fired.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fire employee.");

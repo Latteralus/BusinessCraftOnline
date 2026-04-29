@@ -815,12 +815,17 @@ export async function getBusinessFinanceDashboard(
 ): Promise<BusinessFinanceDashboard> {
   const ranges = getPeriodRanges();
   const isStore = supportsStorefront(business.type);
+  const oldestRangeStart = ranges
+    .map((range) => range.since)
+    .filter((value): value is string => Boolean(value))
+    .sort()[0];
 
   const [ledgerRes, inventoryRes, financialEventsRes, balanceValue, storefrontSnapshotsRes, storefrontTransactionsRes] = await Promise.all([
     client
       .from("business_accounts")
       .select("*")
       .eq("business_id", business.id)
+      .gte("created_at", oldestRangeStart)
       .order("created_at", { ascending: true }),
     client
       .from("business_inventory")
@@ -831,6 +836,7 @@ export async function getBusinessFinanceDashboard(
       .from("business_financial_events")
       .select("*")
       .eq("business_id", business.id)
+      .gte("effective_at", oldestRangeStart)
       .order("effective_at", { ascending: true }),
     client.rpc("get_business_account_balance", { p_business_id: business.id }),
     isStore
@@ -838,6 +844,7 @@ export async function getBusinessFinanceDashboard(
           .from("market_storefront_performance_snapshots")
           .select("id, business_id, shoppers_generated, sales_count, units_sold, gross_revenue, fee_total, ad_spend, captured_at")
           .eq("business_id", business.id)
+          .gte("captured_at", oldestRangeStart)
           .order("captured_at", { ascending: true })
       : Promise.resolve({ data: [], error: null }),
     isStore
@@ -846,6 +853,7 @@ export async function getBusinessFinanceDashboard(
           .select("id, seller_business_id, buyer_type, item_key, quantity, gross_total, market_fee, created_at")
           .eq("seller_business_id", business.id)
           .eq("buyer_type", "npc")
+          .gte("created_at", oldestRangeStart)
           .order("created_at", { ascending: true })
       : Promise.resolve({ data: [], error: null }),
   ]);

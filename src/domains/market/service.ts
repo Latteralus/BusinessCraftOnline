@@ -429,7 +429,13 @@ export async function getMarketListings(
   playerId: string,
   filter: MarketListingFilter = {}
 ): Promise<MarketListing[]> {
-  let query = client.from("market_listings").select("*, business:businesses(name)").order("created_at", { ascending: false });
+  const limit = Math.max(1, Math.min(100, filter.limit ?? 50));
+  const offset = Math.max(0, filter.offset ?? 0);
+  let query = client
+    .from("market_listings")
+    .select("*, business:businesses(name)")
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
 
   if (filter.ownOnly) {
     query = query.eq("owner_player_id", playerId);

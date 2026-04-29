@@ -6,6 +6,7 @@ import {
   marketListingFilterSchema,
 } from "@/domains/market";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { withTiming } from "@/lib/server-timing";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -22,15 +23,19 @@ export async function GET(request: Request) {
   const includeTransactions = url.searchParams.get("includeTransactions") === "true";
   const transactionsLimit = Number(url.searchParams.get("transactionsLimit") ?? "50");
   const buyerType = url.searchParams.get("buyerType");
+  const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") ?? "50") || 50));
+  const offset = Math.max(0, Number(url.searchParams.get("offset") ?? "0") || 0);
 
   const parsed = marketListingFilterSchema.safeParse({
     cityId: url.searchParams.get("cityId") ?? undefined,
     itemKey: url.searchParams.get("itemKey") ?? undefined,
-    status: url.searchParams.get("status") ?? undefined,
+    status: url.searchParams.get("status") ?? "active",
     ownOnly:
       url.searchParams.get("ownOnly") === null
         ? undefined
         : url.searchParams.get("ownOnly") === "true",
+    limit: limit + 1,
+    offset,
   });
 
   if (!parsed.success) {
@@ -41,16 +46,28 @@ export async function GET(request: Request) {
   }
 
   try {
-    const listings = await getMarketListings(supabase, user.id, parsed.data);
+    return await withTiming("api-route", "/api/market GET", async (timing) => {
+      const listingsWithLookahead = await timing.measure("market-listings", () =>
+        getMarketListings(supabase, user.id, parsed.data)
+      );
+      const listings = listingsWithLookahead.slice(0, limit);
+      const page = {
+        limit,
+        offset,
+        hasMore: listingsWithLookahead.length > limit,
+      };
 
-    if (!includeTransactions) {
-      return NextResponse.json({ listings });
-    }
+      if (!includeTransactions) {
+        return NextResponse.json({ listings, page });
+      }
 
-    const transactions = await getMarketTransactions(supabase, user.id, transactionsLimit, {
-      buyerType: buyerType === "player" || buyerType === "npc" ? buyerType : undefined,
+      const transactions = await timing.measure("market-transactions", () =>
+        getMarketTransactions(supabase, user.id, transactionsLimit, {
+          buyerType: buyerType === "player" || buyerType === "npc" ? buyerType : undefined,
+        })
+      );
+      return NextResponse.json({ listings, transactions, page });
     });
-    return NextResponse.json({ listings, transactions });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load market listings." },

@@ -1,11 +1,11 @@
-import { type FinancePeriod } from "@/config/finance";
 import {
   getBusinessById,
   getBusinessesWithBalances,
 } from "@/domains/businesses";
 import { getCityById } from "@/domains/cities-travel";
 import { formatBusinessType } from "@/lib/businesses";
-import { loadBusinessDetailsEntry } from "@/lib/business-details-data";
+import { createBusinessDetailsShell } from "@/lib/business-details-data";
+import { withTiming } from "@/lib/server-timing";
 import { GameHydrationProvider } from "@/providers/game-hydration-provider";
 import { requireAuthedPageContext } from "../../server-data";
 import { redirect } from "next/navigation";
@@ -25,19 +25,16 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
     redirect("/businesses"); // Redirect if it doesn't exist or isn't theirs
   }
 
-  const requestedPeriod = (["1h", "24h", "7d", "30d"].includes(searchParams.period ?? "")
-    ? searchParams.period
-    : "1h") as FinancePeriod;
-
-  const [city, detail, ownedBusinesses] = await Promise.all([
-    getCityById(supabase, business.city_id).catch(() => null),
-    loadBusinessDetailsEntry(supabase, user.id, business.id, requestedPeriod),
-    getBusinessesWithBalances(supabase, user.id).catch(() => []),
-  ]);
-
-  if (!detail) {
-    redirect("/businesses");
-  }
+  const [city, ownedBusinesses] = await withTiming("page-loader", `/businesses/${business.id}`, async (timing) =>
+    Promise.all([
+      timing.measure("city", () => getCityById(supabase, business.city_id).catch(() => null)),
+      timing.measure("owned-businesses", () => getBusinessesWithBalances(supabase, user.id).catch(() => [])),
+    ])
+  );
+  const detail = createBusinessDetailsShell({
+    business,
+    ownedBusinesses,
+  });
 
   return (
     <>
@@ -67,9 +64,7 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
         initialData={{
           businesses: ownedBusinesses,
           businessDetails: {
-            [business.id]: {
-              ...detail,
-            },
+            [business.id]: detail,
           },
         }}
       >

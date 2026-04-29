@@ -16,6 +16,8 @@ export const marketListingFilterSchema = z.object({
     .optional(),
   status: marketListingStatusSchema.optional(),
   ownOnly: z.boolean().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  offset: z.number().int().min(0).optional(),
 });
 
 export const createMarketListingSchema = z
