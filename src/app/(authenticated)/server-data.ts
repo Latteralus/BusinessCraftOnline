@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { getCharacter, getOnlinePlayerPreviews, getPlayer } from "@/domains/auth-character";
+import { getCharacter, getOnlinePlayerPreviews, getPlayer, touchPlayerPresence } from "@/domains/auth-character";
 import type { OnlinePlayerPreview } from "@/domains/auth-character";
 import {
   type BankingLoanState,
@@ -76,6 +76,17 @@ const getStorefrontSettingsCached = cache(async (supabase: Awaited<ReturnType<ty
   getMarketStorefrontSettings(supabase, userId).catch(() => [])
 );
 
+function ensureCurrentPlayerOnline(
+  onlinePlayers: OnlinePlayerPreview[],
+  currentPlayer: OnlinePlayerPreview
+) {
+  if (onlinePlayers.some((player) => player.player_id === currentPlayer.player_id)) {
+    return onlinePlayers;
+  }
+
+  return [currentPlayer, ...onlinePlayers];
+}
+
 export type AuthenticatedShellInitialData = {
   identity: {
     playerId: string;
@@ -94,12 +105,21 @@ export type AuthenticatedShellInitialData = {
 
 export async function loadAuthenticatedShellInitialData(): Promise<AuthenticatedShellInitialData> {
   const { supabase, user, character } = await requireAuthedPageContext();
-  const [onlinePlayers, storefrontSettings, unreadChatCount, unreadMailCount] = await Promise.all([
+  await touchPlayerPresence(supabase, user.id).catch(() => null);
+
+  const [onlinePlayersRaw, storefrontSettings, unreadChatCount, unreadMailCount] = await Promise.all([
     getOnlinePlayerPreviews(supabase, 300).catch(() => []),
     getStorefrontSettingsCached(supabase, user.id),
     getUnreadChatCount(supabase, user.id).catch(() => 0),
     getUnreadMailCount(supabase, user.id).catch(() => 0),
   ]);
+  const onlinePlayers = ensureCurrentPlayerOnline(onlinePlayersRaw, {
+    player_id: user.id,
+    character_name: `${character.first_name} ${character.last_name}`.trim(),
+    business_level: Number(character.business_level),
+    wealth: 0,
+    last_seen_at: new Date().toISOString(),
+  });
 
   return {
     identity: {

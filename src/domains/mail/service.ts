@@ -33,19 +33,10 @@ type MailMessageRow = {
   created_at: string;
 };
 
-type CharacterNameRow = {
+type MailCharacterNameRpcRow = {
   player_id: string;
-  first_name: string;
-  last_name: string;
+  character_name: string;
 };
-
-function formatCharacterName(row: CharacterNameRow | undefined | null) {
-  if (!row) {
-    return "Unknown Player";
-  }
-
-  return `${row.first_name} ${row.last_name}`.trim();
-}
 
 function mapMessage(
   row: MailMessageRow,
@@ -116,17 +107,16 @@ async function getCharacterNames(
     return new Map();
   }
 
-  const { data, error } = await client
-    .from("characters")
-    .select("player_id, first_name, last_name")
-    .in("player_id", uniquePlayerIds);
+  const { data, error } = await client.rpc("get_mail_character_names", {
+    p_player_ids: uniquePlayerIds,
+  });
 
   if (error) {
     throw error;
   }
 
   return new Map(
-    ((data as CharacterNameRow[]) ?? []).map((row) => [row.player_id, formatCharacterName(row)])
+    ((data as MailCharacterNameRpcRow[]) ?? []).map((row) => [row.player_id, row.character_name])
   );
 }
 
@@ -230,7 +220,48 @@ export async function getMailboxData(
 
   let activeThread: MailThreadDetail | null = null;
   if (activeThreadId) {
-    const preview = previews.find((thread) => thread.id === activeThreadId) ?? null;
+    let preview = previews.find((thread) => thread.id === activeThreadId) ?? null;
+
+    if (!preview) {
+      const { data: activeThreadData, error: activeThreadError } = await client
+        .from("mail_threads")
+        .select("id, kind, subject, system_key, created_at, updated_at")
+        .eq("id", activeThreadId)
+        .maybeSingle();
+
+      if (activeThreadError) {
+        throw activeThreadError;
+      }
+
+      const activeThreadRow = activeThreadData as MailThreadRow | null;
+      if (activeThreadRow) {
+        const [activeParticipants, activeLatestMessagesByThreadId] = await Promise.all([
+          getVisibleThreadParticipants(client, [activeThreadId]),
+          getLatestMessagesForThreads(client, [activeThreadId]),
+        ]);
+        const activeCharacterNames = await getCharacterNames(
+          client,
+          activeParticipants.map((participant) => participant.player_id).concat(
+            Array.from(activeLatestMessagesByThreadId.values())
+              .map((message) => message.sender_player_id ?? "")
+              .filter(Boolean)
+          )
+        );
+
+        for (const [playerIdKey, characterName] of activeCharacterNames) {
+          characterNamesByPlayerId.set(playerIdKey, characterName);
+        }
+
+        preview = buildThreadPreview(
+          activeThreadRow,
+          playerId,
+          activeParticipants,
+          activeLatestMessagesByThreadId.get(activeThreadId) ?? null,
+          characterNamesByPlayerId
+        );
+      }
+    }
+
     if (preview) {
       const { data: messagesData, error: messagesError } = await client
         .from("mail_messages")
@@ -377,23 +408,17 @@ export async function searchMailRecipients(
   query: string,
   excludePlayerId?: string
 ): Promise<MailRecipientPreview[]> {
-  let request = client
-    .from("characters")
-    .select("player_id, first_name, last_name")
-    .or(`first_name.ilike.%${query}%,last_name.ilike.%${query}%`)
-    .limit(10);
+  const { data, error } = await client.rpc("search_mail_recipients", {
+    p_query: query,
+    p_exclude_player_id: excludePlayerId ?? null,
+  });
 
-  if (excludePlayerId) {
-    request = request.neq("player_id", excludePlayerId);
-  }
-
-  const { data, error } = await request;
   if (error) {
     throw error;
   }
 
-  return ((data as CharacterNameRow[]) ?? []).map((row) => ({
+  return ((data as MailCharacterNameRpcRow[]) ?? []).map((row) => ({
     playerId: row.player_id,
-    characterName: formatCharacterName(row),
+    characterName: row.character_name,
   }));
 }

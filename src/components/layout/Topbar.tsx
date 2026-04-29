@@ -190,12 +190,33 @@ export function Topbar() {
   }, [setChat, patchAppShell]);
 
   useEffect(() => {
+    function refreshPresence() {
+      void apiPost<{
+        playerCount?: number;
+        onlinePlayers?: OnlinePlayerPreview[];
+        notificationsCount?: number;
+        unreadChatCount?: number;
+        unreadMailCount?: number;
+      }>("/api/app-shell")
+        .then((shell) => {
+          patchAppShell({
+            playerCount: shell.playerCount ?? useGameStore.getState().appShell.data.playerCount,
+            onlinePlayers: shell.onlinePlayers ?? useGameStore.getState().appShell.data.onlinePlayers,
+            notificationsCount: shell.notificationsCount ?? useGameStore.getState().appShell.data.notificationsCount,
+            unreadChatCount: shell.unreadChatCount ?? useGameStore.getState().appShell.data.unreadChatCount,
+            unreadMailCount: shell.unreadMailCount ?? useGameStore.getState().appShell.data.unreadMailCount,
+          });
+        })
+        .catch(() => null);
+    }
+
+    refreshPresence();
     const heartbeat = window.setInterval(() => {
-      void fetch("/api/app-shell", { method: "POST" }).catch(() => null);
+      refreshPresence();
     }, 60 * 1000);
 
     return () => window.clearInterval(heartbeat);
-  }, []);
+  }, [patchAppShell]);
 
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;

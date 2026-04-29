@@ -5,6 +5,14 @@ import {
   type EmployeeStatus,
   type EmployeeType,
 } from "@/config/employees";
+import type { BusinessType } from "@/config/businesses";
+import {
+  EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
+  EXTRACTION_REQUIRED_TOOL_BY_BUSINESS,
+  isExtractionBusinessType,
+  isManufacturingBusinessType,
+  type ExtractionBusinessType,
+} from "@/config/production";
 import { addBusinessAccountEntry, getBusinessBalance } from "@/domains/businesses";
 import { syncManufacturingWorkerAssigned } from "@/domains/_shared/manufacturing-workers";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
@@ -55,6 +63,25 @@ function addHoursToNow(hours: number): string {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
+type BusinessTypeRow = {
+  id: string;
+  type: BusinessType;
+};
+
+type OpenExtractionSlotRow = {
+  id: string;
+  slot_number: number | string;
+  tool_item_key: string | null;
+  pending_item_key: string | null;
+  retool_complete_at: string | null;
+};
+
+type OpenManufacturingLineRow = {
+  id: string;
+  line_number: number | string;
+  configured_recipe_key: string | null;
+};
+
 async function ensureBusinessBelongsToPlayer(
   client: QueryClient,
   playerId: string,
@@ -97,6 +124,162 @@ async function clearEmployeeExtractionSlots(client: QueryClient, employeeId: str
     .eq("employee_id", employeeId)
     .neq("status", "retooling");
   if (idleLineError) throw idleLineError;
+}
+
+function getRestoredExtractionStatus(
+  slot: OpenExtractionSlotRow,
+  businessType: ExtractionBusinessType
+): "active" | "idle" | "retooling" {
+  if (slot.retool_complete_at || slot.pending_item_key) return "retooling";
+
+  const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType] ?? null;
+  const supportsMissingToolOutput =
+    EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS[businessType] !== undefined;
+
+  if (!requiredTool || slot.tool_item_key === requiredTool || supportsMissingToolOutput) {
+    return "active";
+  }
+
+  return "idle";
+}
+
+async function restoreSettledEmployeeToOpenSpot(
+  client: QueryClient,
+  employee: Employee
+): Promise<EmployeeAssignment | null> {
+  if (!employee.employer_business_id) return null;
+
+  const existingAssignment = await getEmployeeAssignment(client, employee.player_id, employee.id).catch(() => null);
+  if (existingAssignment) return existingAssignment;
+
+  const { data: businessRow, error: businessError } = await client
+    .from("businesses")
+    .select("id, type")
+    .eq("id", employee.employer_business_id)
+    .eq("player_id", employee.player_id)
+    .maybeSingle();
+
+  if (businessError) throw businessError;
+  const business = businessRow as BusinessTypeRow | null;
+  if (!business) throw new Error("Business not found.");
+
+  const now = new Date().toISOString();
+
+  if (isExtractionBusinessType(business.type)) {
+    const businessType = business.type as ExtractionBusinessType;
+    const { data: slotRows, error: slotError } = await client
+      .from("extraction_slots")
+      .select("id, slot_number, tool_item_key, pending_item_key, retool_complete_at")
+      .eq("business_id", business.id)
+      .is("employee_id", null)
+      .neq("status", "retooling")
+      .order("slot_number", { ascending: true })
+      .limit(1);
+
+    if (slotError) throw slotError;
+    const slot = ((slotRows as OpenExtractionSlotRow[] | null) ?? [])[0] ?? null;
+    if (!slot) return null;
+
+    const { data: assignmentRow, error: assignmentError } = await client
+      .from("employee_assignments")
+      .insert({
+        employee_id: employee.id,
+        business_id: business.id,
+        role: "production",
+        slot_number: Number(slot.slot_number),
+        wage_per_hour: employee.wage_per_hour,
+      })
+      .select("*")
+      .single();
+
+    if (assignmentError) throw assignmentError;
+
+    const { data: updatedSlot, error: slotUpdateError } = await client
+      .from("extraction_slots")
+      .update({
+        employee_id: employee.id,
+        status: getRestoredExtractionStatus(slot, businessType),
+        updated_at: now,
+      })
+      .eq("id", slot.id)
+      .is("employee_id", null)
+      .select("id")
+      .maybeSingle();
+
+    if (slotUpdateError) throw slotUpdateError;
+    if (!updatedSlot) {
+      await client.from("employee_assignments").delete().eq("id", (assignmentRow as EmployeeAssignment).id);
+      return null;
+    }
+
+    return normalizeAssignment(assignmentRow as EmployeeAssignment);
+  }
+
+  if (isManufacturingBusinessType(business.type)) {
+    const { data: previousLineRows, error: previousLineError } = await client
+      .from("manufacturing_lines")
+      .select("id, line_number, configured_recipe_key")
+      .eq("business_id", business.id)
+      .eq("employee_id", employee.id)
+      .neq("status", "retooling")
+      .order("line_number", { ascending: true })
+      .limit(1);
+
+    if (previousLineError) throw previousLineError;
+
+    const previousLine = ((previousLineRows as OpenManufacturingLineRow[] | null) ?? [])[0] ?? null;
+    const { data: lineRows, error: lineError } = previousLine
+      ? { data: null, error: null }
+      : await client
+          .from("manufacturing_lines")
+          .select("id, line_number, configured_recipe_key")
+          .eq("business_id", business.id)
+          .is("employee_id", null)
+          .neq("status", "retooling")
+          .order("line_number", { ascending: true });
+
+    if (lineError) throw lineError;
+    const lines = (lineRows as OpenManufacturingLineRow[] | null) ?? [];
+    const line = previousLine ?? lines.find((entry) => entry.configured_recipe_key) ?? lines[0] ?? null;
+    if (!line) return null;
+
+    const { data: assignmentRow, error: assignmentError } = await client
+      .from("employee_assignments")
+      .insert({
+        employee_id: employee.id,
+        business_id: business.id,
+        role: "production",
+        slot_number: Number(line.line_number),
+        wage_per_hour: employee.wage_per_hour,
+      })
+      .select("*")
+      .single();
+
+    if (assignmentError) throw assignmentError;
+
+    const { data: updatedLine, error: lineUpdateError } = await client
+      .from("manufacturing_lines")
+      .update({
+        employee_id: employee.id,
+        worker_assigned: true,
+        status: line.configured_recipe_key ? "active" : "idle",
+        updated_at: now,
+      })
+      .eq("id", line.id)
+      .or(`employee_id.is.null,employee_id.eq.${employee.id}`)
+      .select("id")
+      .maybeSingle();
+
+    if (lineUpdateError) throw lineUpdateError;
+    if (!updatedLine) {
+      await client.from("employee_assignments").delete().eq("id", (assignmentRow as EmployeeAssignment).id);
+      return null;
+    }
+
+    return normalizeAssignment(assignmentRow as EmployeeAssignment);
+  }
+
+  return null;
 }
 
 export async function getPlayerEmployees(
@@ -497,14 +680,16 @@ export async function settleEmployeeWages(
   }
 
   const nowIso = new Date().toISOString();
+  const restoredAssignment = await restoreSettledEmployeeToOpenSpot(client, employee);
+  const nextStatus: EmployeeStatus = restoredAssignment ? "assigned" : "available";
   const { data: updatedEmployeeRow, error: updateError } = await client
     .from("employees")
     .update({
-      status: "available",
+      status: nextStatus,
       unpaid_wage_due: 0,
       unpaid_since: null,
       last_unassigned_for_unpaid_at: null,
-      shift_ends_at: null,
+      shift_ends_at: restoredAssignment ? addHoursToNow(SHIFT_LIMIT_HOURS[employee.employee_type]) : null,
       last_wage_charged_at: nowIso,
       updated_at: nowIso,
     })
@@ -515,9 +700,15 @@ export async function settleEmployeeWages(
 
   if (updateError) throw updateError;
 
+  if (restoredAssignment) {
+    await syncManufacturingWorkerAssigned(client, restoredAssignment.business_id);
+  }
+
   const [skills, assignment] = await Promise.all([
     getEmployeeSkills(client, playerId, employee.id),
-    getEmployeeAssignment(client, playerId, employee.id).catch(() => null),
+    restoredAssignment
+      ? Promise.resolve(restoredAssignment)
+      : getEmployeeAssignment(client, playerId, employee.id).catch(() => null),
   ]);
 
   return {
