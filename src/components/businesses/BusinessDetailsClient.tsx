@@ -2,7 +2,7 @@
 
 import { getExtractionProductOptionsForBusinessType } from "@/config/production";
 import { type FinancePeriod } from "@/config/finance";
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, Fragment, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supportsStorefront, type Business, type BusinessUpgradeProject } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
@@ -80,6 +80,8 @@ export default function BusinessDetailsClient({
     options: true,
   });
   const [loadingSection, setLoadingSection] = useState<BusinessDetailsSection | null>(null);
+  const patchDetailRef = useRef<ReturnType<typeof useBusinessDetailsController>["patchDetail"] | null>(null);
+  const sectionRequestsRef = useRef<Partial<Record<BusinessDetailsSection, boolean>>>({});
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
   const [slotRetoolSelections, setSlotRetoolSelections] = useState<Record<string, string>>({});
   const [manufacturingAssignSelections, setManufacturingAssignSelections] = useState<Record<string, string>>({});
@@ -136,18 +138,23 @@ export default function BusinessDetailsClient({
   const activeSection = (activeTab === "options" ? "options" : activeTab) as BusinessDetailsSection;
 
   useEffect(() => {
-    if (loadedSections[activeSection] || loadingSection === activeSection) {
+    patchDetailRef.current = patchDetail;
+  }, [patchDetail]);
+
+  useEffect(() => {
+    if (loadedSections[activeSection] || sectionRequestsRef.current[activeSection]) {
       return;
     }
 
     let cancelled = false;
+    sectionRequestsRef.current[activeSection] = true;
     setLoadingSection(activeSection);
     setError(null);
 
     void fetchBusinessDetailsSection(businessId, activeSection, selectedFinancePeriod)
       .then((detailPatch) => {
         if (cancelled) return;
-        patchDetail(detailPatch as Parameters<typeof patchDetail>[0]);
+        patchDetailRef.current?.(detailPatch as Parameters<typeof patchDetail>[0]);
         setLoadedSections((current) => ({ ...current, [activeSection]: true }));
       })
       .catch((err) => {
@@ -156,15 +163,16 @@ export default function BusinessDetailsClient({
         }
       })
       .finally(() => {
+        delete sectionRequestsRef.current[activeSection];
         if (!cancelled) {
-          setLoadingSection(null);
+          setLoadingSection((current) => (current === activeSection ? null : current));
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [activeSection, businessId, loadedSections, loadingSection, patchDetail, selectedFinancePeriod]);
+  }, [activeSection, businessId, loadedSections, selectedFinancePeriod]);
 
   useEffect(() => {
     if (initialTab && ["overview", "finance", "operations", "employees", "inventory", "upgrades", "options"].includes(initialTab)) {
