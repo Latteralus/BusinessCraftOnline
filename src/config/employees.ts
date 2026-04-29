@@ -46,10 +46,10 @@ export const HIRE_COSTS: Record<EmployeeType, number> = {
 };
 
 export const BASE_WAGE_PER_HOUR: Record<EmployeeType, number> = {
-  temp: 15,
-  part_time: 10,
-  full_time: 9,
-  specialist: 14,
+  temp: 40,
+  part_time: 28,
+  full_time: 25,
+  specialist: 55,
 };
 
 export const WAGE_TICK_MINUTES = 15;
