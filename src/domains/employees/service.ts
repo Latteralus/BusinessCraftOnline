@@ -1,10 +1,6 @@
 import {
-  BASE_WAGE_PER_HOUR,
   calculateHourlyWage,
-  HIRE_COSTS,
-  EMPLOYEE_SKILL_KEYS,
   SHIFT_LIMIT_HOURS,
-  STARTING_SKILL_LEVEL_BY_TYPE,
   type EmployeeSkillKey,
   type EmployeeStatus,
   type EmployeeType,
@@ -14,6 +10,7 @@ import { syncManufacturingWorkerAssigned } from "@/domains/_shared/manufacturing
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
 import { getWorkerEffectiveStatus } from "./worker-state";
 import type { QueryClient } from "@/lib/db/query-client";
+import { toNumber } from "@/lib/core/number";
 import type {
   AssignEmployeeInput,
   Employee,
@@ -28,12 +25,6 @@ import type {
   SettleEmployeeWagesInput,
   UnassignEmployeeInput,
 } from "./types";
-
-function toNumber(value: number | string | null | undefined): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value);
-  return 0;
-}
 
 function normalizeEmployee(row: Employee): Employee {
   return {
@@ -234,51 +225,25 @@ export async function hireEmployee(
   playerId: string,
   input: HireEmployeeInput
 ): Promise<EmployeeWithDetails> {
-  const employeeType: EmployeeType = input.employeeType;
-  const hireCost = HIRE_COSTS[employeeType];
-
-  const { data, error } = await client
-    .from("employees")
-    .insert({
-      player_id: playerId,
-      employer_business_id: input.businessId,
-      first_name: input.firstName,
-      last_name: input.lastName,
-      employee_type: employeeType,
-      status: "available",
-      specialty_skill_key: input.specialtySkillKey ?? null,
-      hire_cost: hireCost,
-      wage_per_hour: BASE_WAGE_PER_HOUR[employeeType],
-      last_wage_charged_at: null,
-      shift_ends_at: null,
-    })
-    .select("*")
-    .single();
+  const { data, error } = await client.rpc("hire_employee_atomic", {
+    p_player_id: playerId,
+    p_business_id: input.businessId,
+    p_first_name: input.firstName,
+    p_last_name: input.lastName,
+    p_employee_type: input.employeeType,
+    p_specialty_skill_key: input.specialtySkillKey ?? null,
+  });
 
   if (error) throw error;
-  const employee = normalizeEmployee(data as Employee);
-
-  const baseLevel = STARTING_SKILL_LEVEL_BY_TYPE[employeeType];
-  const specialistSkill = input.specialtySkillKey ?? "logistics";
-
-  const skillRows = EMPLOYEE_SKILL_KEYS.map((skillKey) => ({
-    employee_id: employee.id,
-    skill_key: skillKey,
-    level: skillKey === specialistSkill ? baseLevel : Math.max(1, baseLevel - 4),
-    xp: 0,
-  }));
-
-  const { data: insertedSkills, error: skillsError } = await client
-    .from("employee_skills")
-    .insert(skillRows)
-    .select("*");
-
-  if (skillsError) throw skillsError;
+  const result = data as { employee?: Employee; skills?: EmployeeSkill[] } | null;
+  if (!result?.employee) {
+    throw new Error("Employee hire did not return an employee.");
+  }
 
   return {
-    ...employee,
+    ...normalizeEmployee(result.employee),
     assignment: null,
-    skills: ((insertedSkills as EmployeeSkill[]) ?? []).map(normalizeSkill),
+    skills: (result.skills ?? []).map(normalizeSkill),
   };
 }
 

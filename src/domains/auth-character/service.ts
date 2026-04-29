@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import type { QueryClient } from "@/lib/db/query-client";
 import type {
   Character,
   CharacterRecipientPreview,
@@ -8,11 +9,6 @@ import type {
   PlayerProfilePreview,
   PublicPlayerBusiness,
 } from "./types";
-
-type QueryClient = {
-  from: (table: string) => any;
-  rpc: (fn: string, args?: Record<string, unknown>) => any;
-};
 
 export async function getPlayerCount(
   client: QueryClient

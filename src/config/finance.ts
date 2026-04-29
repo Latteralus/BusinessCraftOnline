@@ -10,6 +10,7 @@ export const BUSINESS_LEDGER_CATEGORY_CLASSIFICATION = {
   npc_sale: "revenue",
   market_sale: "revenue",
   contract_payout: "revenue",
+  contract_acceptance: "operating_expense",
   market_fee: "operating_expense",
   wage_payment: "operating_expense",
   employee_hire: "operating_expense",

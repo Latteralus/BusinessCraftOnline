@@ -581,7 +581,8 @@ export function RealtimeProvider() {
             .subscribe();
           channels.push(extractionToolChannel);
         }
-      } catch {
+      } catch (err) {
+        console.error("[realtime] connection failed:", err);
         if (!cancelled) {
           setConnectionStatus("disconnected");
         }

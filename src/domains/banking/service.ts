@@ -23,17 +23,8 @@ import type {
   TransferBetweenOwnAccountsInput,
   TransferBetweenPersonalAndBusinessInput,
 } from "./types";
-
-type QueryClient = {
-  from: (table: string) => any;
-  rpc: (fn: string, args?: Record<string, unknown>) => any;
-};
-
-function toNumber(value: number | string | null | undefined) {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value);
-  return 0;
-}
+import type { QueryClient } from "@/lib/db/query-client";
+import { toNumber } from "@/lib/core/number";
 
 export async function appendPersonalTransaction(
   client: QueryClient,
@@ -159,21 +150,15 @@ export async function getAccountsWithBalances(
     return [];
   }
 
-  const accountIds = accounts.map((account) => account.id);
-  const { data, error } = await client
-    .from("transactions")
-    .select("account_id,amount,direction")
-    .in("account_id", accountIds);
+  const { data, error } = await client.rpc("get_player_account_balances", {
+    p_player_id: playerId,
+  });
 
   if (error) throw error;
 
   const balancesByAccountId = new Map<string, number>();
-
-  for (const row of (data as Array<{ account_id: string; amount: number | string; direction: string }>) ?? []) {
-    const current = balancesByAccountId.get(row.account_id) ?? 0;
-    const amount = toNumber(row.amount);
-    const next = row.direction === "credit" ? current + amount : current - amount;
-    balancesByAccountId.set(row.account_id, next);
+  for (const row of (data as Array<{ account_id: string; balance: number | string }>) ?? []) {
+    balancesByAccountId.set(row.account_id, toNumber(row.balance));
   }
 
   return accounts.map((account) => ({

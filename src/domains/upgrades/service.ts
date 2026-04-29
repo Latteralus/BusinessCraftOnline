@@ -5,13 +5,10 @@ import {
 } from "@/config/business-upgrades";
 import { calculateUpgradeCost } from "@/config/upgrades";
 import { formatUpgradeEffectValue } from "./formatting";
+import type { QueryClient } from "@/lib/db/query-client";
 import type { BusinessUpgradeKey, BusinessType } from "./types";
 import type { UpgradeDefinition, UpgradePreview, UpgradePreviewInput } from "./types";
 import { resolveUpgradeEffectValue } from "../../../shared/upgrades/effects";
-
-type QueryClient = {
-  from: (table: string) => any;
-};
 
 function mapDefinitionToRow(definition: ReturnType<typeof getBusinessUpgradeDefinition>): UpgradeDefinition {
   if (!definition) {

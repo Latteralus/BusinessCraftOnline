@@ -14,6 +14,7 @@ import {
   getUpgradePreviewForBusiness,
 } from "@/domains/upgrades";
 import { round2, toNumber } from "@/lib/core/number";
+import type { QueryClient } from "@/lib/db/query-client";
 import { isProductionBusinessType } from "./capabilities";
 import { getBusinessFinanceDashboard as buildBusinessFinanceDashboard } from "./finance";
 import type {
@@ -28,11 +29,6 @@ import type {
   CreateBusinessInput,
   PurchaseUpgradeResult,
 } from "./types";
-
-type QueryClient = {
-  from: (table: string) => any;
-  rpc: (fn: string, args?: Record<string, unknown>) => any;
-};
 
 type PersonalAccountRow = {
   id: string;

@@ -1,4 +1,4 @@
-import { STORE_BUSINESS_TYPES } from "@/config/businesses";
+import { STORE_BUSINESS_TYPES, type BusinessType } from "@/config/businesses";
 import {
   MARKET_TRANSACTION_FEE,
   STOREFRONT_DEFAULT_SETTINGS,
@@ -152,7 +152,7 @@ async function ensurePersistedStorefrontSettings(
   if (storesError) throw storesError;
 
   const stores = ((storeRows as Array<{ id: string; type: string }>) ?? []).filter((store) =>
-    supportsStorefront(store.type as any)
+    supportsStorefront(store.type as BusinessType)
   );
   if (stores.length === 0) {
     return;

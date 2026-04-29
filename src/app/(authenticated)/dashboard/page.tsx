@@ -26,8 +26,6 @@ import { requireAuthedPageContext } from "../server-data";
 async function logout() {
   "use server";
 
-  const supabase = await createSupabaseServerClient();
-  await supabase.auth.signOut();
   const cookieStore = await cookies();
   cookieStore.delete(CUSTOM_SESSION_COOKIE_NAME);
   redirect("/login");
@@ -113,6 +111,10 @@ const loadDeferredDashboardData = cache(async (userId: string) => {
       .order("updated_at", { ascending: false })
       .limit(20),
   ]);
+
+  if (shippingRes.error) console.error("[dashboard] shipping_queue query failed:", shippingRes.error);
+  if (mfgRes.error) console.error("[dashboard] manufacturing_jobs query failed:", mfgRes.error);
+  if (extRes.error) console.error("[dashboard] extraction_slots query failed:", extRes.error);
 
   const extSlots = (extRes.data ?? []) as Array<any>;
   const extractionEmployeeIds = Array.from(

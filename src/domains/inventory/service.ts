@@ -5,6 +5,7 @@ import { insertBusinessFinancialEvents } from "@/domains/businesses/financial-ev
 import type { NewBusinessFinancialEvent } from "@/domains/businesses/financial-events";
 import { toNumber } from "@/lib/core/number";
 import { nowIso } from "@/lib/core/time";
+import type { QueryClient } from "@/lib/db/query-client";
 import type {
   BusinessInventoryItem,
   PersonalInventoryItem,
@@ -12,100 +13,6 @@ import type {
   TransferItemsInput,
   TransferOutcome,
 } from "./types";
-
-type QueryClient = {
-  from: (table: string) => any;
-  rpc: (fn: string, args?: Record<string, unknown>) => any;
-};
-
-type RpcErrorLike = {
-  code?: string;
-  message?: string;
-  hint?: string;
-};
-
-function isMissingTransferSignatureError(error: RpcErrorLike | null | undefined) {
-  const message = `${error?.message ?? ""} ${error?.hint ?? ""}`;
-  return (
-    error?.code === "PGRST202" ||
-    message.includes("execute_inventory_transfer") ||
-    message.includes("Could not find the function public.execute_inventory_transfer")
-  );
-}
-
-async function executeInventoryTransferRpc(
-  client: QueryClient,
-  input: TransferItemsInput,
-  shippingPlan: { transferType: "same_city" | "shipping"; shippingCost: number; shippingMinutes: number }
-) {
-  const fullArgs = {
-    p_source_type: input.sourceType,
-    p_source_business_id: input.sourceBusinessId ?? null,
-    p_source_city_id: input.sourceCityId ?? null,
-    p_destination_type: input.destinationType,
-    p_destination_business_id: input.destinationBusinessId ?? null,
-    p_destination_city_id: input.destinationCityId ?? null,
-    p_item_key: input.itemKey,
-    p_quality: input.quality,
-    p_quantity: input.quantity,
-    p_shipping_cost: shippingPlan.shippingCost,
-    p_shipping_minutes: shippingPlan.shippingMinutes,
-    p_funding_account_id: input.fundingAccountId ?? null,
-    p_unit_price: input.unitPrice ?? null,
-  };
-
-  const firstAttempt = await client.rpc("execute_inventory_transfer", fullArgs);
-  if (!firstAttempt.error || !isMissingTransferSignatureError(firstAttempt.error)) {
-    return firstAttempt;
-  }
-
-  const isCrossCityBusinessTransfer =
-    shippingPlan.transferType === "shipping" &&
-    input.sourceType === "business" &&
-    input.destinationType === "business";
-
-  if (isCrossCityBusinessTransfer && !input.fundingAccountId) {
-    throw new Error(
-      "Inventory transfer is blocked because the Supabase API is using an outdated execute_inventory_transfer signature. The database migration is recorded, but the API schema cache needs to be reloaded on the hosted project."
-    );
-  }
-
-  const legacyArgsWithFunding = {
-    p_source_type: input.sourceType,
-    p_source_business_id: input.sourceBusinessId ?? null,
-    p_source_city_id: input.sourceCityId ?? null,
-    p_destination_type: input.destinationType,
-    p_destination_business_id: input.destinationBusinessId ?? null,
-    p_destination_city_id: input.destinationCityId ?? null,
-    p_item_key: input.itemKey,
-    p_quality: input.quality,
-    p_quantity: input.quantity,
-    p_shipping_cost: shippingPlan.shippingCost,
-    p_shipping_minutes: shippingPlan.shippingMinutes,
-    p_funding_account_id: input.fundingAccountId ?? null,
-  };
-
-  const secondAttempt = await client.rpc("execute_inventory_transfer", legacyArgsWithFunding);
-  if (!secondAttempt.error || !isMissingTransferSignatureError(secondAttempt.error)) {
-    return secondAttempt;
-  }
-
-  const legacyArgs = {
-    p_source_type: input.sourceType,
-    p_source_business_id: input.sourceBusinessId ?? null,
-    p_source_city_id: input.sourceCityId ?? null,
-    p_destination_type: input.destinationType,
-    p_destination_business_id: input.destinationBusinessId ?? null,
-    p_destination_city_id: input.destinationCityId ?? null,
-    p_item_key: input.itemKey,
-    p_quality: input.quality,
-    p_quantity: input.quantity,
-    p_shipping_cost: shippingPlan.shippingCost,
-    p_shipping_minutes: shippingPlan.shippingMinutes,
-  };
-
-  return client.rpc("execute_inventory_transfer", legacyArgs);
-}
 
 function normalizePersonalRow(row: PersonalInventoryItem): PersonalInventoryItem {
   return {
@@ -347,7 +254,21 @@ export async function transferItems(
           .maybeSingle()
       : null;
 
-  const { data, error } = await executeInventoryTransferRpc(client, input, shippingPlan);
+  const { data, error } = await client.rpc("execute_inventory_transfer", {
+    p_source_type: input.sourceType,
+    p_source_business_id: input.sourceBusinessId ?? null,
+    p_source_city_id: input.sourceCityId ?? null,
+    p_destination_type: input.destinationType,
+    p_destination_business_id: input.destinationBusinessId ?? null,
+    p_destination_city_id: input.destinationCityId ?? null,
+    p_item_key: input.itemKey,
+    p_quality: input.quality,
+    p_quantity: input.quantity,
+    p_shipping_cost: shippingPlan.shippingCost,
+    p_shipping_minutes: shippingPlan.shippingMinutes,
+    p_funding_account_id: input.fundingAccountId ?? null,
+    p_unit_price: input.unitPrice ?? null,
+  });
 
   if (error) throw error;
 

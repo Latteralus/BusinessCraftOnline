@@ -2,18 +2,13 @@ import { isStoreBusinessType } from "@/config/businesses";
 import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
 import { reconcileBusinessInventoryReservations } from "@/domains/inventory";
 import type { QueryClient } from "@/lib/db/query-client";
+import { toNumber } from "@/lib/core/number";
 import type {
   RemoveStoreShelfItemInput,
   StoreShelfItem,
   StoreShelfItemFilter,
   UpsertStoreShelfItemInput,
 } from "./types";
-
-function toNumber(value: number | string | null | undefined): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value);
-  return 0;
-}
 
 function normalizeStoreShelfItem(row: StoreShelfItem): StoreShelfItem {
   return {

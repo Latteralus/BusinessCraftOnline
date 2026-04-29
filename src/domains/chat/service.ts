@@ -1,9 +1,5 @@
+import type { QueryClient } from "@/lib/db/query-client";
 import type { ChatMessage } from "./types";
-
-type QueryClient = {
-  from: (table: string) => any;
-  rpc: (fn: string, args?: Record<string, unknown>) => any;
-};
 
 export async function getRecentChatMessages(
   client: QueryClient,

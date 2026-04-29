@@ -54,8 +54,8 @@ export async function POST(request: Request) {
     // `createSupabaseServerClient` reads from cookies(), but we need the token
     // active immediately, so we use a direct client with the JWT as a header.
     const authClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     );
 

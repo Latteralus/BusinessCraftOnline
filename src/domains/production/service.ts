@@ -26,6 +26,7 @@ import { addBusinessAccountEntry, getBusinessBalance } from "@/domains/businesse
 import { getEmployeeAssignment, getEmployeeById, getEmployeesByIds, getEmployeeStatusFromShift } from "@/domains/employees";
 import { getResolvedUpgradeEffects } from "@/domains/upgrades";
 import type { QueryClient } from "@/lib/db/query-client";
+import { toNumber } from "@/lib/core/number";
 import type {
   AssignExtractionSlotInput,
   AssignManufacturingLineInput,
@@ -47,12 +48,6 @@ import type {
   UnassignExtractionSlotInput,
   UnassignManufacturingLineInput,
 } from "./types";
-
-function toNumber(value: number | string | null | undefined): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value);
-  return 0;
-}
 
 function plusMinutes(minutes: number): string {
   return new Date(Date.now() + minutes * 60 * 1000).toISOString();

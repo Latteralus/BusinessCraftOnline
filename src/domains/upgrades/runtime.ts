@@ -2,10 +2,7 @@ import { resolveBusinessUpgradeEffects, type BusinessUpgradeEffects } from "../.
 import type { BusinessType } from "@/config/businesses";
 import { applyCompletedUpgradeProjects, getBusinessUpgradeProjects } from "./projects";
 import type { BusinessUpgradeProject } from "@/domains/businesses/types";
-
-type QueryClient = {
-  from: (table: string) => any;
-};
+import type { QueryClient } from "@/lib/db/query-client";
 
 type BusinessUpgradeRow = {
   upgrade_key: string;

@@ -5,6 +5,7 @@ import {
 } from "@/domains/businesses/financial-events";
 import { addBusinessAccountEntry } from "@/domains/businesses";
 import type { QueryClient } from "@/lib/db/query-client";
+import { toNumber } from "@/lib/core/number";
 import type {
   AcceptContractInput,
   CancelContractInput,
@@ -13,12 +14,6 @@ import type {
   CreateContractInput,
   FulfillContractInput,
 } from "./types";
-
-function toNumber(value: number | string | null | undefined): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value);
-  return 0;
-}
 
 function normalizeContract(row: Contract): Contract {
   return {
@@ -152,35 +147,10 @@ export async function acceptContract(
   playerId: string,
   input: AcceptContractInput
 ): Promise<Contract> {
-  const contract = await getContractOrThrow(client, playerId, input.contractId);
-
-  if (contract.status !== "open") {
-    throw new Error("Only open contracts can be accepted.");
-  }
-
-  if (contract.expires_at && new Date(contract.expires_at).getTime() <= Date.now()) {
-    const { error: expireError } = await client
-      .from("contracts")
-      .update({ status: "expired", updated_at: new Date().toISOString() })
-      .eq("id", contract.id);
-    if (expireError) throw expireError;
-    throw new Error("Contract has expired.");
-  }
-
-  const acceptedAt = new Date().toISOString();
-  const dueAt = contract.due_at ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
-  const { data, error } = await client
-    .from("contracts")
-    .update({
-      status: "accepted",
-      accepted_at: acceptedAt,
-      due_at: dueAt,
-      updated_at: acceptedAt,
-    })
-    .eq("id", contract.id)
-    .select("*")
-    .single();
+  const { data, error } = await client.rpc("accept_contract_atomic", {
+    p_player_id: playerId,
+    p_contract_id: input.contractId,
+  });
 
   if (error) throw error;
   return normalizeContract(data as Contract);

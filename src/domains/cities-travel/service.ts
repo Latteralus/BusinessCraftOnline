@@ -1,13 +1,10 @@
+import type { QueryClient } from "@/lib/db/query-client";
 import type {
   City,
   StartTravelInput,
   TravelLog,
 } from "./types";
 import { calculateTravelQuote } from "./topology";
-
-type QueryClient = {
-  from: (table: string) => any;
-};
 
 export async function getCities(client: QueryClient): Promise<City[]> {
   const { data, error } = await client

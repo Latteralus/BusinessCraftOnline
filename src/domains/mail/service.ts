@@ -1,3 +1,4 @@
+import type { QueryClient } from "@/lib/db/query-client";
 import type {
   MailMessage,
   MailRecipientPreview,
@@ -5,11 +6,6 @@ import type {
   MailThreadPreview,
   MailboxData,
 } from "./types";
-
-type QueryClient = {
-  from: (table: string) => any;
-  rpc: (fn: string, args?: Record<string, unknown>) => any;
-};
 
 type MailThreadRow = {
   id: string;

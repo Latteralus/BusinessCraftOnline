@@ -12,12 +12,8 @@ import { getBusinessInventory } from "@/domains/inventory";
 import { getManufacturingStatus, getProductionStatus } from "@/domains/production";
 import { getStoreShelfItems } from "@/domains/stores";
 import { getUpgradeDefinitionsForBusinessType, type BusinessType } from "@/domains/upgrades";
+import type { QueryClient } from "@/lib/db/query-client";
 import type { BusinessDetailsEntry } from "@/stores/game-store";
-
-type QueryClient = {
-  from: (table: string) => any;
-  rpc: (fn: string, args?: Record<string, unknown>) => any;
-};
 
 export async function loadBusinessDetailsEntry(
   client: QueryClient,

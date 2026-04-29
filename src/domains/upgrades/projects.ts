@@ -1,17 +1,9 @@
 import { getBusinessUpgradeDefinition } from "@/config/business-upgrades";
 import { nowIso } from "@/lib/core/time";
+import { toNumber } from "@/lib/core/number";
+import type { QueryClient } from "@/lib/db/query-client";
 import type { BusinessUpgradeKey } from "./types";
 import type { BusinessUpgradeProject } from "@/domains/businesses/types";
-
-type QueryClient = {
-  from: (table: string) => any;
-};
-
-function toNumber(value: number | string | null | undefined): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value);
-  return 0;
-}
 
 function normalizeProject(row: BusinessUpgradeProject): BusinessUpgradeProject {
   return {
