@@ -9,6 +9,29 @@ export const CONTRACT_STATUSES = [
 
 export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
 
+export const CONTRACT_DEFAULT_EXPIRY_HOURS = 72;
+export const CONTRACT_ACCEPTED_DUE_HOURS = 24;
+
+export const CONTRACT_LIVE_STATUSES = ["open", "accepted", "in_progress"] as const satisfies readonly ContractStatus[];
+export const CONTRACT_FULFILLABLE_STATUSES = ["accepted", "in_progress"] as const satisfies readonly ContractStatus[];
+export const CONTRACT_CLOSED_STATUSES = ["fulfilled", "cancelled", "expired"] as const satisfies readonly ContractStatus[];
+
+export function isLiveContractStatus(status: ContractStatus): boolean {
+  return (CONTRACT_LIVE_STATUSES as readonly ContractStatus[]).includes(status);
+}
+
+export function isFulfillableContractStatus(status: ContractStatus): boolean {
+  return (CONTRACT_FULFILLABLE_STATUSES as readonly ContractStatus[]).includes(status);
+}
+
+export function isClosedContractStatus(status: ContractStatus): boolean {
+  return (CONTRACT_CLOSED_STATUSES as readonly ContractStatus[]).includes(status);
+}
+
+export function formatContractStatus(status: ContractStatus): string {
+  return status.replace("_", " ");
+}
+
 export type Contract = {
   id: string;
   owner_player_id: string;

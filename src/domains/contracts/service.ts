@@ -14,6 +14,11 @@ import type {
   CreateContractInput,
   FulfillContractInput,
 } from "./types";
+import {
+  CONTRACT_DEFAULT_EXPIRY_HOURS,
+  isClosedContractStatus,
+  isFulfillableContractStatus,
+} from "./types";
 
 function normalizeContract(row: Contract): Contract {
   return {
@@ -119,7 +124,7 @@ export async function createContract(
   await ensureOwnedBusiness(client, playerId, input.businessId);
 
   const now = new Date();
-  const expiresAt = input.expiresAt ?? new Date(now.getTime() + 72 * 60 * 60 * 1000).toISOString();
+  const expiresAt = input.expiresAt ?? new Date(now.getTime() + CONTRACT_DEFAULT_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
 
   const { data, error } = await client
     .from("contracts")
@@ -163,7 +168,7 @@ export async function cancelContract(
 ): Promise<Contract> {
   const contract = await getContractOrThrow(client, playerId, input.contractId);
 
-  if (["fulfilled", "cancelled", "expired"].includes(contract.status)) {
+  if (isClosedContractStatus(contract.status)) {
     throw new Error("This contract can no longer be cancelled.");
   }
 
@@ -190,7 +195,7 @@ export async function fulfillContract(
 ): Promise<Contract> {
   const contract = await getContractOrThrow(client, playerId, input.contractId);
 
-  if (!["accepted", "in_progress"].includes(contract.status)) {
+  if (!isFulfillableContractStatus(contract.status)) {
     throw new Error("Only accepted or in-progress contracts can be fulfilled.");
   }
 

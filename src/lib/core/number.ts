@@ -1,1 +1,1 @@
-export { round2, round4, roundTo, toNumber } from "../../../shared/core/number";
+export { clamp, round2, round4, roundTo, toNumber } from "../../../shared/core/number";

@@ -2,6 +2,7 @@
 
 import { getExtractionProductOptionsForBusinessType } from "@/config/production";
 import { type FinancePeriod } from "@/config/finance";
+import { NPC_STOREFRONT_FEE } from "@/config/market";
 import { useState, useEffect, Fragment, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supportsStorefront, type Business, type BusinessUpgradeProject } from "@/domains/businesses";
@@ -22,6 +23,7 @@ import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatter
 import type { StorefrontPerformanceBusinessSummary } from "@/domains/market";
 import { formatItemKey } from "@/lib/items";
 import { formatPayrollRateWithTick, formatPayrollTickAmount, formatPayrollTickLabel } from "@/lib/payroll";
+import { clamp } from "@/lib/core/number";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
 import { makeNpcShopperName } from "../../../shared/core/npc-shopper-names";
@@ -38,10 +40,6 @@ import {
 import { useBusinessDetailsController } from "./useBusinessDetailsController";
 
 type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades" | "options";
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function makeHireName() {
   const fullName = makeNpcShopperName(Math.random);
@@ -72,6 +70,7 @@ export default function BusinessDetailsClient({
   const tempPayrollRate = formatPayrollRateWithTick(BASE_WAGE_PER_HOUR.temp);
   const partTimePayrollRate = formatPayrollRateWithTick(BASE_WAGE_PER_HOUR.part_time);
   const fullTimePayrollRate = formatPayrollRateWithTick(BASE_WAGE_PER_HOUR.full_time);
+  const storefrontFeeLabel = `${Number((NPC_STOREFRONT_FEE * 100).toFixed(2))}%`;
   const businessId = initialBusiness.id;
   
   const defaultTab = (initialTab as TabType) || "overview";
@@ -1048,7 +1047,7 @@ export default function BusinessDetailsClient({
                             sub: "Gross ÷ total visitors",
                           },
                           { label: "Gross Revenue", value: formatCurrency(storefrontMetrics.gross_revenue), sub: "Before storefront fee" },
-                          { label: "Net Revenue", value: formatCurrency(storefrontMetrics.net_revenue), sub: "After 5% fee" },
+                          { label: "Net Revenue", value: formatCurrency(storefrontMetrics.net_revenue), sub: `After ${storefrontFeeLabel} fee` },
                           { label: "Stock-outs", value: storefrontMetrics.stock_out_count.toLocaleString(), sub: "Items that hit zero stock" },
                           {
                             label: "Ad ROI",

@@ -1,7 +1,16 @@
 "use client";
 
 import { NPC_PRICE_CEILINGS } from "@/config/items";
-import type { Contract, ContractStatus } from "@/domains/contracts";
+import {
+  CONTRACT_ACCEPTED_DUE_HOURS,
+  CONTRACT_DEFAULT_EXPIRY_HOURS,
+  formatContractStatus,
+  isClosedContractStatus,
+  isFulfillableContractStatus,
+  isLiveContractStatus,
+  type Contract,
+  type ContractStatus,
+} from "@/domains/contracts";
 import { formatCurrency } from "@/lib/formatters";
 import { apiPost } from "@/lib/client/api";
 import { apiRoutes } from "@/lib/client/routes";
@@ -11,110 +20,35 @@ import { useBusinessesSlice, useContractsSlice, useGameStore } from "@/stores/ga
 import { detailSyncTarget, syncMutationViews } from "@/stores/mutation-sync";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 import { TooltipLabel } from "@/components/ui/tooltip";
+import {
+  DashboardMetricCard,
+  DashboardPanel,
+  FieldLabel,
+  StatusBadge,
+  type StatusBadgeTone,
+} from "@/components/ui/primitives";
+import { formatShortTimestamp } from "@/lib/core/time-display";
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
 
 type Props = {
   initialData: ContractsPageData;
 };
 
-const ACTIVE_STATUSES: ContractStatus[] = ["open", "accepted", "in_progress"];
+function getContractStatusTone(status: ContractStatus): StatusBadgeTone {
+  if (status === "fulfilled") return "good";
+  if (status === "cancelled") return "bad";
+  if (status === "accepted") return "warn";
+  if (status === "in_progress") return "accent";
+  return "neutral";
+}
 
-function Panel(props: { title: string; eyebrow?: string; children: ReactNode; style?: CSSProperties }) {
+function ContractStatusBadge({ status }: { status: ContractStatus }) {
   return (
-    <section
-      style={{
-        marginTop: 0,
-        background: "linear-gradient(180deg, rgba(9, 14, 25, 0.98), rgba(5, 10, 19, 0.98))",
-        border: "1px solid rgba(148, 163, 184, 0.16)",
-        borderRadius: 18,
-        padding: 18,
-        ...props.style,
-      }}
-    >
-      <div style={{ marginBottom: 14 }}>
-        {props.eyebrow ? (
-          <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 6 }}>
-            {props.eyebrow}
-          </div>
-        ) : null}
-        <h2 style={{ margin: 0, fontSize: "1.05rem" }}>{props.title}</h2>
-      </div>
-      {props.children}
-    </section>
+    <StatusBadge tone={getContractStatusTone(status)}>
+      {formatContractStatus(status)}
+    </StatusBadge>
   );
-}
-
-function MetricCard(props: { label: string; value: string; sub: string; tone?: "neutral" | "positive" | "negative" | "accent" }) {
-  const color =
-    props.tone === "positive"
-      ? "#86efac"
-      : props.tone === "negative"
-        ? "#fca5a5"
-        : props.tone === "accent"
-          ? "#c4b5fd"
-          : "#f8fafc";
-
-  return (
-    <div
-      style={{
-        background: "linear-gradient(180deg, rgba(10, 17, 31, 0.95), rgba(6, 10, 19, 0.94))",
-        border: "1px solid rgba(148, 163, 184, 0.14)",
-        borderRadius: 14,
-        padding: 16,
-      }}
-    >
-      <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>
-        {props.label}
-      </div>
-      <div style={{ fontSize: "1.35rem", fontWeight: 800, color }}>{props.value}</div>
-      <div style={{ marginTop: 6, color: "var(--text-secondary)", fontSize: 12 }}>{props.sub}</div>
-    </div>
-  );
-}
-
-function FieldLabel(props: { children: ReactNode }) {
-  return <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.14em", color: "var(--text-muted)", marginBottom: 6 }}>{props.children}</div>;
-}
-
-function StatusBadge(props: { status: ContractStatus }) {
-  const styles: Record<ContractStatus, CSSProperties> = {
-    open: { border: "1px solid rgba(96, 165, 250, 0.28)", background: "rgba(96, 165, 250, 0.12)", color: "#bfdbfe" },
-    accepted: { border: "1px solid rgba(251, 191, 36, 0.28)", background: "rgba(251, 191, 36, 0.12)", color: "#fde68a" },
-    in_progress: { border: "1px solid rgba(168, 85, 247, 0.28)", background: "rgba(168, 85, 247, 0.12)", color: "#d8b4fe" },
-    fulfilled: { border: "1px solid rgba(34, 197, 94, 0.28)", background: "rgba(34, 197, 94, 0.12)", color: "#86efac" },
-    cancelled: { border: "1px solid rgba(248, 113, 113, 0.28)", background: "rgba(248, 113, 113, 0.12)", color: "#fca5a5" },
-    expired: { border: "1px solid rgba(148, 163, 184, 0.24)", background: "rgba(148, 163, 184, 0.1)", color: "#cbd5e1" },
-  };
-
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        borderRadius: 999,
-        padding: "4px 9px",
-        fontSize: 11,
-        fontWeight: 700,
-        letterSpacing: "0.08em",
-        textTransform: "uppercase",
-        ...styles[props.status],
-      }}
-    >
-      {props.status.replace("_", " ")}
-    </span>
-  );
-}
-
-function formatTimestamp(value: string | null) {
-  if (!value) return "Not scheduled";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "2-digit",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
 }
 
 export default function ContractsClient({ initialData }: Props) {
@@ -137,7 +71,7 @@ export default function ContractsClient({ initialData }: Props) {
 
   const summary = useMemo(() => {
     const open = contracts.filter((contract) => contract.status === "open").length;
-    const live = contracts.filter((contract) => ACTIVE_STATUSES.includes(contract.status)).length;
+    const live = contracts.filter((contract) => isLiveContractStatus(contract.status)).length;
     const fulfilled = contracts.filter((contract) => contract.status === "fulfilled").length;
     const totalValue = contracts.reduce((sum, contract) => sum + contract.required_quantity * contract.unit_price, 0);
     const remainingUnits = contracts.reduce(
@@ -153,8 +87,8 @@ export default function ContractsClient({ initialData }: Props) {
   const pipeline = useMemo(() => {
     return {
       open: contracts.filter((contract) => contract.status === "open"),
-      execution: contracts.filter((contract) => contract.status === "accepted" || contract.status === "in_progress"),
-      closed: contracts.filter((contract) => ["fulfilled", "cancelled", "expired"].includes(contract.status)),
+      execution: contracts.filter((contract) => isFulfillableContractStatus(contract.status)),
+      closed: contracts.filter((contract) => isClosedContractStatus(contract.status)),
     };
   }, [contracts]);
 
@@ -178,7 +112,7 @@ export default function ContractsClient({ initialData }: Props) {
           notes: null,
           accepted_at: null,
           due_at: null,
-          expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+          expires_at: new Date(Date.now() + CONTRACT_DEFAULT_EXPIRY_HOURS * 60 * 60 * 1000).toISOString(),
           completed_at: null,
           cancelled_at: null,
           created_at: new Date().toISOString(),
@@ -237,7 +171,7 @@ export default function ContractsClient({ initialData }: Props) {
             id: contractId,
             status: "accepted",
             accepted_at: new Date().toISOString(),
-            due_at: existing.due_at ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            due_at: existing.due_at ?? new Date(Date.now() + CONTRACT_ACCEPTED_DUE_HOURS * 60 * 60 * 1000).toISOString(),
             updated_at: new Date().toISOString(),
           });
           return () => {
@@ -322,7 +256,7 @@ export default function ContractsClient({ initialData }: Props) {
           </div>
           <div style={{ display: "grid", gap: 8, minWidth: 220 }}>
             <div style={{ color: "#cbd5e1", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.18em" }}>Contract Status</div>
-            <StatusBadge status={busy ? "accepted" : "fulfilled"} />
+            <ContractStatusBadge status={busy ? "accepted" : "fulfilled"} />
             <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
               {summary.live} live agreements across {businesses.length} businesses
             </div>
@@ -330,11 +264,11 @@ export default function ContractsClient({ initialData }: Props) {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 18 }}>
-          <MetricCard label="Open Solicitations" value={`${summary.open}`} sub="Awaiting acceptance" tone="accent" />
-          <MetricCard label="Live Pipeline" value={`${summary.live}`} sub="Open, accepted, or in progress" />
-          <MetricCard label="Booked Contract Value" value={formatCurrency(summary.totalValue)} sub="Notional value across all agreements" tone="positive" />
-          <MetricCard label="Remaining Units" value={`${summary.remainingUnits}`} sub="Outstanding delivery commitment" />
-          <MetricCard label="Fulfillment Rate" value={`${summary.completionRate.toFixed(0)}%`} sub={`${summary.fulfilled} contracts closed successfully`} tone="positive" />
+          <DashboardMetricCard label="Open Solicitations" value={`${summary.open}`} sub="Awaiting acceptance" tone="accent" />
+          <DashboardMetricCard label="Live Pipeline" value={`${summary.live}`} sub="Open, accepted, or in progress" />
+          <DashboardMetricCard label="Booked Contract Value" value={formatCurrency(summary.totalValue)} sub="Notional value across all agreements" tone="positive" />
+          <DashboardMetricCard label="Remaining Units" value={`${summary.remainingUnits}`} sub="Outstanding delivery commitment" />
+          <DashboardMetricCard label="Fulfillment Rate" value={`${summary.completionRate.toFixed(0)}%`} sub={`${summary.fulfilled} contracts closed successfully`} tone="positive" />
         </div>
       </section>
 
@@ -346,7 +280,7 @@ export default function ContractsClient({ initialData }: Props) {
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) minmax(320px, 0.92fr)", gap: 18 }}>
         <div style={{ display: "grid", gap: 18 }}>
-          <Panel title="Issuer Desk" eyebrow="Create Agreement">
+          <DashboardPanel title="Issuer Desk" eyebrow="Create Agreement">
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(260px, 0.85fr)", gap: 18 }}>
               <div style={{ display: "grid", gap: 12 }}>
                 <label>
@@ -413,16 +347,17 @@ export default function ContractsClient({ initialData }: Props) {
                 </div>
               </div>
             </div>
-          </Panel>
+          </DashboardPanel>
 
-          <Panel title="Agreement Board" eyebrow="Pipeline">
+          <DashboardPanel title="Agreement Board" eyebrow="Pipeline">
             {contracts.length === 0 ? (
               <div style={{ color: "var(--text-muted)", fontSize: 14 }}>No contracts yet. Issue a supply agreement to start the pipeline.</div>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
                 {contracts.map((contract) => {
                   const remaining = Math.max(0, contract.required_quantity - contract.delivered_quantity);
-                  const isActive = ACTIVE_STATUSES.includes(contract.status);
+                  const isLive = isLiveContractStatus(contract.status);
+                  const canFulfill = isFulfillableContractStatus(contract.status);
                   const progress = contract.required_quantity > 0 ? (contract.delivered_quantity / contract.required_quantity) * 100 : 0;
                   const contractValue = contract.required_quantity * contract.unit_price;
                   const deliveredValue = contract.delivered_quantity * contract.unit_price;
@@ -433,10 +368,10 @@ export default function ContractsClient({ initialData }: Props) {
                         <div>
                           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
                             <h3 style={{ margin: 0, fontSize: "1.05rem" }}>{contract.title}</h3>
-                            <StatusBadge status={contract.status} />
+                            <ContractStatusBadge status={contract.status} />
                           </div>
                           <div style={{ color: "var(--text-secondary)", fontSize: 13 }}>
-                            {formatItemKey(contract.item_key)} delivery agreement created {formatTimestamp(contract.created_at)}
+                            {formatItemKey(contract.item_key)} delivery agreement created {formatShortTimestamp(contract.created_at)}
                           </div>
                         </div>
                         <div style={{ textAlign: "right" }}>
@@ -467,18 +402,18 @@ export default function ContractsClient({ initialData }: Props) {
                         </div>
                         <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
                           <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Accepted</div>
-                          <div style={{ marginTop: 6, fontWeight: 700 }}>{formatTimestamp(contract.accepted_at)}</div>
+                          <div style={{ marginTop: 6, fontWeight: 700 }}>{formatShortTimestamp(contract.accepted_at)}</div>
                         </div>
                         <div style={{ padding: 12, borderRadius: 12, background: "rgba(15, 23, 42, 0.58)", border: "1px solid rgba(148,163,184,0.08)" }}>
                           <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>Due / Expiry</div>
-                          <div style={{ marginTop: 6, fontWeight: 700 }}>{formatTimestamp(contract.due_at ?? contract.expires_at)}</div>
+                          <div style={{ marginTop: 6, fontWeight: 700 }}>{formatShortTimestamp(contract.due_at ?? contract.expires_at)}</div>
                         </div>
                       </div>
 
                       <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                         {contract.status === "open" ? <button onClick={() => void action(contract.id, "accept")} disabled={busy}>Accept</button> : null}
-                        {isActive ? <button onClick={() => void action(contract.id, "fulfill")} disabled={busy}>Fulfill</button> : null}
-                        {isActive || contract.status === "open" ? (
+                        {canFulfill ? <button onClick={() => void action(contract.id, "fulfill")} disabled={busy}>Fulfill</button> : null}
+                        {isLive ? (
                           <button onClick={() => void action(contract.id, "cancel")} disabled={busy} style={{ border: "1px solid rgba(148, 163, 184, 0.16)", background: "rgba(15, 23, 42, 0.72)", color: "#e2e8f0" }}>
                             Cancel
                           </button>
@@ -489,11 +424,11 @@ export default function ContractsClient({ initialData }: Props) {
                 })}
               </div>
             )}
-          </Panel>
+          </DashboardPanel>
         </div>
 
         <div style={{ display: "grid", gap: 18 }}>
-          <Panel title="Pipeline Snapshot" eyebrow="Board Readout">
+          <DashboardPanel title="Pipeline Snapshot" eyebrow="Board Readout">
             <div style={{ display: "grid", gap: 14 }}>
               <div style={{ padding: 14, borderRadius: 14, border: "1px solid rgba(148, 163, 184, 0.12)", background: "rgba(8, 13, 24, 0.7)" }}>
                 <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>Pipeline Mix</div>
@@ -526,7 +461,7 @@ export default function ContractsClient({ initialData }: Props) {
                 </div>
               </div>
             </div>
-          </Panel>
+          </DashboardPanel>
         </div>
       </div>
     </div>

@@ -12,10 +12,13 @@ import {
 } from "../_shared/manufacturing-config.ts";
 import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
 import { NPC_PRICE_CEILINGS } from "../../../shared/economy.ts";
+import {
+  CONTRACT_FULFILLABLE_STATUSES,
+  CONTRACT_LIVE_STATUSES,
+} from "../../../src/domains/contracts/types.ts";
 
 const XP_PER_TICK = 5;
 const XP_PER_LEVEL = 100;
-const CONTRACT_ACTIVE_STATUSES = ["accepted", "in_progress"];
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
@@ -533,7 +536,7 @@ Deno.serve(async (request) => {
   const { data: expiredContracts } = await supabase
     .from("contracts")
     .select("id")
-    .in("status", ["open", ...CONTRACT_ACTIVE_STATUSES])
+    .in("status", CONTRACT_LIVE_STATUSES)
     .not("expires_at", "is", null)
     .lt("expires_at", nowIso);
 
@@ -549,7 +552,7 @@ Deno.serve(async (request) => {
   const { data: activeContracts } = await supabase
     .from("contracts")
     .select("id, owner_player_id, business_id, item_key, required_quantity, delivered_quantity, unit_price, due_at")
-    .in("status", CONTRACT_ACTIVE_STATUSES)
+    .in("status", CONTRACT_FULFILLABLE_STATUSES)
     .order("created_at", { ascending: true });
 
   for (const contract of activeContracts ?? []) {

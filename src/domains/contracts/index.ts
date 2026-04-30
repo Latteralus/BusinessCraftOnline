@@ -24,3 +24,16 @@ export type {
   CreateContractInput,
   FulfillContractInput,
 } from "./types";
+
+export {
+  CONTRACT_ACCEPTED_DUE_HOURS,
+  CONTRACT_CLOSED_STATUSES,
+  CONTRACT_DEFAULT_EXPIRY_HOURS,
+  CONTRACT_FULFILLABLE_STATUSES,
+  CONTRACT_LIVE_STATUSES,
+  CONTRACT_STATUSES,
+  formatContractStatus,
+  isClosedContractStatus,
+  isFulfillableContractStatus,
+  isLiveContractStatus,
+} from "./types";

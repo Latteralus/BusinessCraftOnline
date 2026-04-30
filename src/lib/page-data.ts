@@ -7,6 +7,7 @@ import type { Employee, EmployeeSummary } from "@/domains/employees";
 import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } from "@/domains/inventory";
 import type { MarketListing, MarketTransaction } from "@/domains/market";
 import type { ManufacturingStatusView } from "@/domains/production";
+import { isManufacturingBusinessType } from "@/config/production";
 
 type BusinessOption = {
   id: string;
@@ -67,14 +68,6 @@ export type ProductionPageData = {
   selectedBusinessId: string;
   manufacturing: ManufacturingStatusView | null;
 };
-
-const MANUFACTURING_BUSINESS_TYPES = new Set([
-  "sawmill",
-  "metalworking_factory",
-  "food_processing_plant",
-  "winery_distillery",
-  "carpentry_workshop",
-]);
 
 export function buildBusinessesPageData(input: {
   businesses: BusinessWithBalance[];
@@ -161,7 +154,7 @@ export function buildContractsPageData(input: {
 }
 
 export function selectDefaultProductionBusinessId(businesses: BusinessWithBalance[]): string {
-  return businesses.find((business) => MANUFACTURING_BUSINESS_TYPES.has(business.type))?.id ?? "";
+  return businesses.find((business) => isManufacturingBusinessType(business.type))?.id ?? "";
 }
 
 export function buildProductionPageData(input: {

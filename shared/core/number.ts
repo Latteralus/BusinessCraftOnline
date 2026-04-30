@@ -4,6 +4,10 @@ export function toNumber(value: number | string | null | undefined): number {
   return 0;
 }
 
+export function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 export function roundTo(value: number, digits: number): number {
   return Number(value.toFixed(digits));
 }

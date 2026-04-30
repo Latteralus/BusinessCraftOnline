@@ -8,9 +8,16 @@ import { apiRoutes } from "@/lib/client/routes";
 import { fetchMarketListingsPage, type MarketPageData } from "@/lib/client/queries";
 import { formatItemKey } from "@/lib/items";
 import { TooltipLabel } from "@/components/ui/tooltip";
+import {
+  DashboardMetricCard as MarketMetric,
+  DashboardPanel as Panel,
+  FieldLabel,
+  StatusBadge,
+} from "@/components/ui/primitives";
 import type { MarketListing, MarketTransaction } from "@/domains/market";
+import { clamp } from "@/lib/core/number";
+import { formatClockTime, formatDurationCountdown, formatShortTimestamp } from "@/lib/core/time-display";
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useGameStore, useInventorySlice, useMarketSlice } from "@/stores/game-store";
 import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
@@ -20,133 +27,6 @@ import type { MarketSliceData } from "@/stores/game-store";
 type Props = {
   initialData: MarketPageData;
 };
-
-function MarketMetric(props: {
-  label: string;
-  value: string;
-  sub: string;
-  tone?: "neutral" | "positive" | "negative" | "accent";
-}) {
-  const color =
-    props.tone === "positive"
-      ? "#86efac"
-      : props.tone === "negative"
-        ? "#fca5a5"
-        : props.tone === "accent"
-          ? "#7dd3fc"
-          : "#f8fafc";
-
-  return (
-    <div
-      style={{
-        background: "linear-gradient(180deg, rgba(10, 17, 31, 0.95), rgba(6, 10, 19, 0.94))",
-        border: "1px solid rgba(148, 163, 184, 0.14)",
-        borderRadius: 14,
-        padding: 16,
-      }}
-    >
-      <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>
-        {props.label}
-      </div>
-      <div style={{ fontSize: "1.35rem", fontWeight: 800, color }}>{props.value}</div>
-      <div style={{ marginTop: 6, color: "var(--text-secondary)", fontSize: 12 }}>{props.sub}</div>
-    </div>
-  );
-}
-
-function Panel(props: { title: string; eyebrow?: string; children: ReactNode; style?: CSSProperties }) {
-  return (
-    <section
-      style={{
-        marginTop: 0,
-        background: "linear-gradient(180deg, rgba(9, 14, 25, 0.98), rgba(5, 10, 19, 0.98))",
-        border: "1px solid rgba(148, 163, 184, 0.16)",
-        borderRadius: 18,
-        padding: 18,
-        ...props.style,
-      }}
-    >
-      <div style={{ marginBottom: 14 }}>
-        {props.eyebrow ? (
-          <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 6 }}>
-            {props.eyebrow}
-          </div>
-        ) : null}
-        <h2 style={{ margin: 0, fontSize: "1.05rem" }}>{props.title}</h2>
-      </div>
-      {props.children}
-    </section>
-  );
-}
-
-function FieldLabel(props: { children: ReactNode }) {
-  return (
-    <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.14em", color: "var(--text-muted)", marginBottom: 6 }}>
-      {props.children}
-    </div>
-  );
-}
-
-function StatusBadge(props: { children: ReactNode; tone?: "good" | "bad" | "neutral" | "warn" }) {
-  const styles =
-    props.tone === "good"
-      ? { border: "1px solid rgba(34, 197, 94, 0.3)", background: "rgba(34, 197, 94, 0.12)", color: "#86efac" }
-      : props.tone === "bad"
-        ? { border: "1px solid rgba(248, 113, 113, 0.3)", background: "rgba(248, 113, 113, 0.12)", color: "#fca5a5" }
-        : props.tone === "warn"
-          ? { border: "1px solid rgba(251, 191, 36, 0.3)", background: "rgba(251, 191, 36, 0.12)", color: "#fcd34d" }
-          : { border: "1px solid rgba(96, 165, 250, 0.28)", background: "rgba(96, 165, 250, 0.12)", color: "#bfdbfe" };
-
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        borderRadius: 999,
-        padding: "4px 9px",
-        fontSize: 11,
-        fontWeight: 700,
-        letterSpacing: "0.08em",
-        textTransform: "uppercase",
-        ...styles,
-      }}
-    >
-      {props.children}
-    </span>
-  );
-}
-
-function formatClock(value: string) {
-  return new Date(value).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatTimestamp(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "2-digit",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function formatCountdown(ms: number) {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  return `${minutes}m ${seconds}s`;
-}
 
 function MiniSparkline(props: { points: number[]; tone?: string }) {
   const { path, latestX, latestY } = useMemo(() => {
@@ -329,7 +209,7 @@ export default function MarketClient({ initialData }: Props) {
       line: formatMarketTransactionLine({
         transaction: tx,
         businessNameById,
-        formatTimestamp: formatClock,
+        formatTimestamp: formatClockTime,
       }),
       kind: "trade" as const,
     }))
@@ -851,7 +731,7 @@ export default function MarketClient({ initialData }: Props) {
                             <StatusBadge tone="warn">Q{listing.quality}</StatusBadge>
                           </div>
                           <div style={{ color: "var(--text-secondary)", fontSize: 13 }}>
-                            {listingSourceLabel} posted this lot on {formatTimestamp(listing.created_at)}
+                            {listingSourceLabel} posted this lot on {formatShortTimestamp(listing.created_at)}
                           </div>
                         </div>
                         <div style={{ textAlign: "right" }}>
@@ -882,7 +762,7 @@ export default function MarketClient({ initialData }: Props) {
                             Order Book Motion
                           </div>
                           <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
-                            Fresh on floor {formatCountdown(listingAgeMs)}
+                            Fresh on floor {formatDurationCountdown(listingAgeMs)}
                           </div>
                         </div>
                         <div
@@ -1092,7 +972,7 @@ export default function MarketClient({ initialData }: Props) {
                       <StatusBadge tone={entry.kind === "trade" ? "good" : "neutral"}>{entry.kind === "trade" ? "Trade" : "Listing"}</StatusBadge>
                     </div>
                     <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>{entry.line}</div>
-                    <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{formatTimestamp(entry.createdAt)}</div>
+                    <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{formatShortTimestamp(entry.createdAt)}</div>
                   </article>
                 ))}
               </div>
