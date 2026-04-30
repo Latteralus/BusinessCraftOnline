@@ -26,7 +26,12 @@ export function RealtimeProvider() {
   const pathname = usePathname();
   const hydrated = useGameStore((state) => state.hydrated);
   const playerId = useGameStore((state) => state.player.data.playerId);
-  const bankingAccounts = useGameStore((state) => state.banking.data.accounts);
+  const bankingAccountIdsKey = useGameStore((state) =>
+    state.banking.data.accounts
+      .map((account) => account.id)
+      .sort()
+      .join("|")
+  );
   const ownedBusinessIdsKey = useGameStore((state) =>
     state.businesses.data
       .map((business) => business.id)
@@ -34,10 +39,20 @@ export function RealtimeProvider() {
       .join("|")
   );
   const selectedProductionBusinessId = useGameStore((state) => state.production.data.selectedBusinessId);
-  const trackedBusinessDetails = useGameStore((state) => state.businessDetails.data);
   const trackedBusinessDetailKey = useGameStore((state) =>
     Object.keys(state.businessDetails.data).sort().join("|")
   );
+  const trackedExtractionSlotIdsKey = useGameStore((state) => {
+    const slotIds = new Set<string>();
+    for (const detail of Object.values(state.businessDetails.data)) {
+      for (const slot of detail.production?.slots ?? []) {
+        if (slot.id) {
+          slotIds.add(String(slot.id));
+        }
+      }
+    }
+    return Array.from(slotIds).sort().join("|");
+  });
   const activeMailThreadId = useGameStore((state) => state.mail.data.activeThread?.id ?? null);
   const mailLoadedAt = useGameStore((state) => state.mail.lastUpdated);
   const setBusinesses = useGameStore((state) => state.setBusinesses);
@@ -65,8 +80,8 @@ export function RealtimeProvider() {
   const setMail = useGameStore((state) => state.setMail);
   const patchAppShell = useGameStore((state) => state.patchAppShell);
   const bankingAccountIds = useMemo(
-    () => bankingAccounts.map((account) => account.id),
-    [bankingAccounts]
+    () => (bankingAccountIdsKey ? bankingAccountIdsKey.split("|") : []),
+    [bankingAccountIdsKey]
   );
   const ownedBusinessIds = useMemo(
     () => (ownedBusinessIdsKey ? ownedBusinessIdsKey.split("|") : []),
@@ -76,17 +91,10 @@ export function RealtimeProvider() {
     () => (trackedBusinessDetailKey ? trackedBusinessDetailKey.split("|") : []),
     [trackedBusinessDetailKey]
   );
-  const trackedExtractionSlotIds = useMemo(() => {
-    const slotIds = new Set<string>();
-    for (const detail of Object.values(trackedBusinessDetails)) {
-      for (const slot of detail.production?.slots ?? []) {
-        if (slot.id) {
-          slotIds.add(String(slot.id));
-        }
-      }
-    }
-    return Array.from(slotIds).sort();
-  }, [trackedBusinessDetails]);
+  const trackedExtractionSlotIds = useMemo(
+    () => (trackedExtractionSlotIdsKey ? trackedExtractionSlotIdsKey.split("|") : []),
+    [trackedExtractionSlotIdsKey]
+  );
   const activeRealtimeModules = useMemo(() => {
     const path = pathname ?? "";
     return {
@@ -717,9 +725,9 @@ export function RealtimeProvider() {
       }
     };
   }, [
-    bankingAccountIds,
+    bankingAccountIdsKey,
     hydrated,
-    ownedBusinessIds,
+    ownedBusinessIdsKey,
     patchAppShell,
     patchBanking,
     patchBusinesses,
@@ -748,8 +756,8 @@ export function RealtimeProvider() {
     patchProduction,
     setProduction,
     setTravel,
-    trackedBusinessDetailIds,
-    trackedExtractionSlotIds,
+    trackedBusinessDetailKey,
+    trackedExtractionSlotIdsKey,
     selectedProductionBusinessId,
   ]);
 

@@ -46,7 +46,7 @@ function formatStorefrontWarning(warning: StorefrontPerformanceBusinessSummary["
     buyers_gt_visitors: "Buyers exceed visitors in this window.",
     conversion_gt_100: "Conversion is above 100%, so visitor ratios are suppressed.",
     net_revenue_mismatch: "Net revenue does not match gross minus fees.",
-    transaction_snapshot_divergence: "Snapshot and transaction audit totals differ.",
+    transaction_snapshot_divergence: "Transaction audit totals differ from the snapshot KPI source; dashboard ratios are using snapshots only.",
     missing_snapshot_traffic: "Transaction fallback has no visitor traffic snapshot.",
   };
 
@@ -1057,7 +1057,7 @@ export default function BusinessDetailsClient({
                         <strong style={{ color: storefrontMetrics.warnings.length > 0 ? "#fcd34d" : "#e2e8f0" }}>
                           Data quality:
                         </strong>{" "}
-                        {formatStorefrontSource(storefrontMetrics.source)} from {storefrontMetrics.snapshot_count.toLocaleString()} snapshots and {storefrontMetrics.transaction_count.toLocaleString()} audited transactions.
+                        {formatStorefrontSource(storefrontMetrics.source)} from {storefrontMetrics.snapshot_count.toLocaleString()} snapshots, with {storefrontMetrics.transaction_count.toLocaleString()} transactions audited separately.
                         {storefrontMetrics.warnings.length > 0 ? (
                           <div style={{ marginTop: 4 }}>
                             {storefrontMetrics.warnings.map(formatStorefrontWarning).join(" ")}
