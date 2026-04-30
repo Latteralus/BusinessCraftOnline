@@ -25,11 +25,11 @@ export {
 } from "./validations";
 
 export {
+  buildStorefrontAnalytics,
   buildStorefrontMetricSummary,
   calculateStorefrontRatios,
-  reconcileStorefrontTotals,
   summarizeStorefrontSnapshots,
-  summarizeStorefrontTransactions,
+  summarizeStorefrontTransactionAggregate,
 } from "./storefront-metrics";
 
 export type {
@@ -50,6 +50,10 @@ export type {
   RecordNpcPurchaseInput,
   StorefrontPerformanceBusinessSummary,
   StorefrontPerformanceSummary,
+  StorefrontMetricAudit,
+  StorefrontMetricAuditTotals,
+  StorefrontMetricSource,
+  StorefrontMetricWarning,
   TickHealthSummary,
   TickRunLog,
   UpdateMarketStorefrontSettingsInput,
@@ -58,4 +62,5 @@ export type {
   StorefrontMetricRatios,
   StorefrontMetricSummary,
   StorefrontMetricTotals,
+  StorefrontTransactionAggregate,
 } from "./storefront-metrics";

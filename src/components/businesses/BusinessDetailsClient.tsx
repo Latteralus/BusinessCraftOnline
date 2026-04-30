@@ -41,6 +41,24 @@ import { useBusinessDetailsController } from "./useBusinessDetailsController";
 
 type TabType = "overview" | "finance" | "operations" | "employees" | "inventory" | "upgrades" | "options";
 
+function formatStorefrontWarning(warning: StorefrontPerformanceBusinessSummary["warnings"][number]) {
+  const labels: Record<StorefrontPerformanceBusinessSummary["warnings"][number], string> = {
+    buyers_gt_visitors: "Buyers exceed visitors in this window.",
+    conversion_gt_100: "Conversion is above 100%, so visitor ratios are suppressed.",
+    net_revenue_mismatch: "Net revenue does not match gross minus fees.",
+    transaction_snapshot_divergence: "Snapshot and transaction audit totals differ.",
+    missing_snapshot_traffic: "Transaction fallback has no visitor traffic snapshot.",
+  };
+
+  return labels[warning] ?? warning;
+}
+
+function formatStorefrontSource(source: StorefrontPerformanceBusinessSummary["source"]) {
+  if (source === "snapshot") return "Snapshot metrics";
+  if (source === "transaction") return "Transaction fallback";
+  return "No storefront data";
+}
+
 function makeHireName() {
   const fullName = makeNpcShopperName(Math.random);
   const [firstName, ...rest] = fullName.split(" ");
@@ -1020,6 +1038,32 @@ export default function BusinessDetailsClient({
 
                   {storefrontMetrics ? (
                     <>
+                      <div
+                        style={{
+                          marginBottom: 12,
+                          padding: "10px 12px",
+                          borderRadius: 10,
+                          border: storefrontMetrics.warnings.length > 0
+                            ? "1px solid rgba(251, 191, 36, 0.28)"
+                            : "1px solid rgba(148, 163, 184, 0.14)",
+                          background: storefrontMetrics.warnings.length > 0
+                            ? "rgba(251, 191, 36, 0.08)"
+                            : "rgba(15, 23, 42, 0.48)",
+                          color: storefrontMetrics.warnings.length > 0 ? "#fde68a" : "var(--text-secondary)",
+                          fontSize: 12,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        <strong style={{ color: storefrontMetrics.warnings.length > 0 ? "#fcd34d" : "#e2e8f0" }}>
+                          Data quality:
+                        </strong>{" "}
+                        {formatStorefrontSource(storefrontMetrics.source)} from {storefrontMetrics.snapshot_count.toLocaleString()} snapshots and {storefrontMetrics.transaction_count.toLocaleString()} audited transactions.
+                        {storefrontMetrics.warnings.length > 0 ? (
+                          <div style={{ marginTop: 4 }}>
+                            {storefrontMetrics.warnings.map(formatStorefrontWarning).join(" ")}
+                          </div>
+                        ) : null}
+                      </div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
                         {[
                           { label: "Visitors", value: storefrontMetrics.shoppers_generated.toLocaleString(), sub: "NPC shoppers who entered" },

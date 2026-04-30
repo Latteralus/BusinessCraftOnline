@@ -112,6 +112,36 @@ export type MarketStorefrontPerformanceSnapshot = {
   captured_at: string;
 };
 
+export type StorefrontMetricSource = "snapshot" | "transaction" | "empty";
+
+export type StorefrontMetricWarning =
+  | "buyers_gt_visitors"
+  | "conversion_gt_100"
+  | "net_revenue_mismatch"
+  | "transaction_snapshot_divergence"
+  | "missing_snapshot_traffic";
+
+export type StorefrontMetricAuditTotals = {
+  ad_spend: number;
+  gross_revenue: number;
+  fee_total: number;
+  net_revenue: number;
+  sales_count: number;
+  buyers_count: number;
+  units_sold: number;
+  shoppers_generated: number;
+  stock_out_count: number;
+  count: number;
+};
+
+export type StorefrontMetricAudit = {
+  snapshot: StorefrontMetricAuditTotals;
+  transaction: StorefrontMetricAuditTotals & {
+    first_transaction_at: string | null;
+    last_transaction_at: string | null;
+  };
+};
+
 export type StorefrontPerformanceBusinessSummary = {
   business_id: string;
   business_name: string;
@@ -129,6 +159,13 @@ export type StorefrontPerformanceBusinessSummary = {
   avg_basket_size: number | null;
   avg_transaction_value: number | null;
   revenue_per_visitor: number | null;
+  source: StorefrontMetricSource;
+  warnings: StorefrontMetricWarning[];
+  snapshot_count: number;
+  transaction_count: number;
+  captured_from: string;
+  captured_to: string;
+  audit: StorefrontMetricAudit;
 };
 
 export type StorefrontPerformanceSummary = {
@@ -145,6 +182,11 @@ export type StorefrontPerformanceSummary = {
   shoppers_generated: number;
   stock_out_count: number;
   roi: number | null;
+  source: StorefrontMetricSource;
+  warnings: StorefrontMetricWarning[];
+  snapshot_count: number;
+  transaction_count: number;
+  audit: StorefrontMetricAudit;
   businesses: StorefrontPerformanceBusinessSummary[];
 };
 

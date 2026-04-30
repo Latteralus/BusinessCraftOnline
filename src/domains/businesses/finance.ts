@@ -63,15 +63,11 @@ type StorefrontSnapshotRow = {
   captured_at: string;
 };
 
-type StorefrontTransactionRow = {
-  id: string;
-  seller_business_id: string | null;
-  buyer_type: "player" | "npc";
-  item_key: string;
-  quantity: number | string;
-  gross_total: number | string;
-  market_fee: number | string;
-  created_at: string;
+type StorefrontTransactionAggregateRow = {
+  transaction_count: number | string | null;
+  units_sold: number | string | null;
+  gross_revenue: number | string | null;
+  fee_total: number | string | null;
 };
 
 type StorefrontPeriodEvidence = {
@@ -461,13 +457,32 @@ function normalizeStorefrontSnapshotRow(row: StorefrontSnapshotRow) {
   };
 }
 
-function normalizeStorefrontTransactionRow(row: StorefrontTransactionRow) {
+function normalizeStorefrontTransactionAggregate(row: Partial<StorefrontTransactionAggregateRow> | null | undefined) {
   return {
-    ...row,
-    quantity: Number(row.quantity),
-    gross_total: toNumber(row.gross_total),
-    market_fee: toNumber(row.market_fee),
+    salesCount: Number(row?.transaction_count ?? 0),
+    unitsSold: Number(row?.units_sold ?? 0),
+    grossRevenue: round2(toNumber(row?.gross_revenue)),
+    feeTotal: round2(toNumber(row?.fee_total)),
   };
+}
+
+async function getStorefrontTransactionAggregate(
+  client: QueryClient,
+  input: {
+    businessId: string;
+    from: string;
+    to: string;
+  }
+) {
+  const { data, error } = await client.rpc("get_storefront_transaction_aggregate", {
+    p_seller_player_id: null,
+    p_seller_business_id: input.businessId,
+    p_from: input.from,
+    p_to: input.to,
+  });
+  if (error) return normalizeStorefrontTransactionAggregate(null);
+  const row = Array.isArray(data) ? data[0] : data;
+  return normalizeStorefrontTransactionAggregate(row as Partial<StorefrontTransactionAggregateRow> | null | undefined);
 }
 
 function buildStorefrontEvidence(input: {
@@ -487,26 +502,33 @@ function buildStorefrontEvidence(input: {
   ledgerGrossRevenue: number;
   ledgerFeeTotal: number;
 }): StorefrontPeriodEvidence {
-  // Prefer transaction rows because they are written atomically per sale. Fall
-  // back to snapshots, then ledger cash entries, without inflating across sources.
-  const salesCount = input.transactionSalesCount > 0
-    ? input.transactionSalesCount
-    : Math.max(input.snapshotSalesCount, input.ledgerSalesCount);
-  const unitsSold = input.transactionUnitsSold > 0
-    ? input.transactionUnitsSold
-    : input.snapshotUnitsSold;
+  // Prefer snapshots when present because they include traffic, buyers, sales,
+  // revenue, ad spend, and stockouts from the same storefront tick source.
+  const hasSnapshotSource =
+    input.snapshotShoppersGenerated > 0 ||
+    input.snapshotSalesCount > 0 ||
+    input.snapshotUnitsSold > 0 ||
+    input.snapshotGrossRevenue > 0;
+  const salesCount = hasSnapshotSource
+    ? input.snapshotSalesCount
+    : input.transactionSalesCount > 0
+      ? input.transactionSalesCount
+      : input.ledgerSalesCount;
+  const unitsSold = hasSnapshotSource
+    ? input.snapshotUnitsSold
+    : input.transactionUnitsSold;
   const grossRevenue = round2(
-    input.transactionGrossRevenue > 0
-      ? input.transactionGrossRevenue
-      : input.snapshotGrossRevenue > 0
-        ? input.snapshotGrossRevenue
+    hasSnapshotSource
+      ? input.snapshotGrossRevenue
+      : input.transactionGrossRevenue > 0
+        ? input.transactionGrossRevenue
         : input.ledgerGrossRevenue
   );
   const feeTotal = round2(
-    input.transactionFeeTotal > 0
-      ? input.transactionFeeTotal
-      : input.snapshotFeeTotal > 0
-        ? input.snapshotFeeTotal
+    hasSnapshotSource
+      ? input.snapshotFeeTotal
+      : input.transactionFeeTotal > 0
+        ? input.transactionFeeTotal
         : input.ledgerFeeTotal
   );
 
@@ -826,7 +848,7 @@ export async function getBusinessFinanceDashboard(
     .filter((value): value is string => Boolean(value))
     .sort()[0];
 
-  const [ledgerRes, inventoryRes, financialEventsRes, balanceValue, storefrontSnapshotsRes, storefrontTransactionsRes] = await Promise.all([
+  const [ledgerRes, inventoryRes, financialEventsRes, balanceValue, storefrontSnapshotsRes] = await Promise.all([
     client
       .from("business_accounts")
       .select("*")
@@ -853,15 +875,6 @@ export async function getBusinessFinanceDashboard(
           .gte("captured_at", oldestRangeStart)
           .order("captured_at", { ascending: true })
       : Promise.resolve({ data: [], error: null }),
-    isStore
-      ? client
-          .from("market_transactions")
-          .select("id, seller_business_id, buyer_type, item_key, quantity, gross_total, market_fee, created_at")
-          .eq("seller_business_id", business.id)
-          .eq("buyer_type", "npc")
-          .gte("created_at", oldestRangeStart)
-          .order("created_at", { ascending: true })
-      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (ledgerRes.error) throw ledgerRes.error;
@@ -876,10 +889,20 @@ export async function getBusinessFinanceDashboard(
     storefrontSnapshotsRes.error || !isStore
       ? []
       : ((storefrontSnapshotsRes.data as StorefrontSnapshotRow[]) ?? []).map(normalizeStorefrontSnapshotRow);
-  const storefrontTransactions =
-    storefrontTransactionsRes.error || !isStore
-      ? []
-      : ((storefrontTransactionsRes.data as StorefrontTransactionRow[]) ?? []).map(normalizeStorefrontTransactionRow);
+  const storefrontTransactionAggregates = Object.fromEntries(
+    await Promise.all(
+      ranges.map(async (range) => [
+        range.key,
+        isStore && range.since
+          ? await getStorefrontTransactionAggregate(client, {
+              businessId: business.id,
+              from: range.since,
+              to: nowIso(),
+            })
+          : normalizeStorefrontTransactionAggregate(null),
+      ])
+    )
+  ) as Record<FinancePeriod, ReturnType<typeof normalizeStorefrontTransactionAggregate>>;
   const cashBalance = round2(toNumber(balanceValue.data));
   const { inventoryAssetValue, estimatedRows } = buildInventorySnapshot(
     (inventoryRes.data as InventorySnapshotRow[]) ?? []
@@ -900,17 +923,11 @@ export async function getBusinessFinanceDashboard(
         (row) => row.accountCode === "revenue" && row.referenceType === "inventory_transfer",
         (row) => row.amount
       );
-      const storefrontTransactionsInRange = storefrontTransactions.filter(
-        (row) => !range.since || row.created_at >= range.since
-      );
-      const storefrontFallbackGrossRevenue = round2(
-        storefrontTransactionsInRange.reduce((sum, row) => sum + row.gross_total, 0)
-      );
-      const storefrontFallbackFeeTotal = round2(
-        storefrontTransactionsInRange.reduce((sum, row) => sum + row.market_fee, 0)
-      );
-      const storefrontFallbackSalesCount = storefrontTransactionsInRange.length;
-      const storefrontFallbackUnitsSold = storefrontTransactionsInRange.reduce((sum, row) => sum + row.quantity, 0);
+      const storefrontTransactionAggregate = storefrontTransactionAggregates[range.key];
+      const storefrontFallbackGrossRevenue = storefrontTransactionAggregate.grossRevenue;
+      const storefrontFallbackFeeTotal = storefrontTransactionAggregate.feeTotal;
+      const storefrontFallbackSalesCount = storefrontTransactionAggregate.salesCount;
+      const storefrontFallbackUnitsSold = storefrontTransactionAggregate.unitsSold;
       const storefrontLedgerInRange = ledgerInRange.filter((row) => row.category === "npc_sale" || row.category === "market_fee");
       const storefrontLedgerSales = storefrontLedgerInRange.filter((row) => row.category === "npc_sale");
       const storefrontLedgerFees = storefrontLedgerInRange.filter((row) => row.category === "market_fee");

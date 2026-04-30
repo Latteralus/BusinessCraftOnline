@@ -421,10 +421,10 @@ export default function BusinessOperationsDashboard(props: Props) {
           Storefloor Control Room
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-          <MiniOpStat label={<TooltipLabel label="Shelf Throughput" content="Units currently displayed for retail sale on the store floor." />} value={`${inventorySummary.shelfUnits} units live`} sub={`${props.shelfItems.length} active facings`} tone="positive" />
+          <MiniOpStat label={<TooltipLabel label="Shelf Stock" content="Units currently displayed for retail sale on the store floor." />} value={`${inventorySummary.shelfUnits} units live`} sub={`${props.shelfItems.length} active facings`} tone="positive" />
           <MiniOpStat label={<TooltipLabel label="Shelf Fill" content="How much of the combined shelf-plus-backroom stock is currently staged on shelves." />} value={formatPercent(inventorySummary.shelfFill * 100)} sub={`${inventorySummary.shelfUnits} shelf / ${inventorySummary.backroomUnits} backroom`} />
           <MiniOpStat label={<TooltipLabel label="Assortment Depth" content="How many distinct shelf rows or SKUs are actively merchandised." />} value={`${props.shelfItems.length} SKUs`} sub={`${props.inventory.length} inventory lines`} />
-          <MiniOpStat label={<TooltipLabel label="Average Ticket" content="Average price per shelf row, useful as a quick signal of store positioning." />} value={props.shelfItems.length > 0 ? formatCurrency(averageShelfPrice) : "$0.00"} sub="Average shelf price" />
+          <MiniOpStat label={<TooltipLabel label="Average Shelf Price" content="Average price per shelf row, useful as a quick signal of store positioning." />} value={props.shelfItems.length > 0 ? formatCurrency(averageShelfPrice) : "$0.00"} sub="Average shelf price" />
           <MiniOpStat label={<TooltipLabel label="Crew Attached" content="Workers currently attached to this store location." />} value={`${assignedEmployees.length}`} sub="Workers attached to this site" />
         </div>
       </div>
