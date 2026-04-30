@@ -312,7 +312,7 @@ async function settleStoreInventorySale(
   const { error: ledgerError } = await supabase.from("business_accounts").insert(ledgerEntries);
   if (ledgerError) throw ledgerError;
 
-  const { error: financialEventsError } = await supabase.from("business_financial_events").insert([
+  const financialEvents = [
     {
       business_id: shelfRow.business_id,
       account_code: "revenue",
@@ -350,7 +350,9 @@ async function settleStoreInventorySale(
         unitCost: inventoryUnitCost,
       },
     },
-    {
+  ];
+  if (fee > 0) {
+    financialEvents.push({
       business_id: shelfRow.business_id,
       account_code: "operating_expense",
       amount: fee,
@@ -360,8 +362,10 @@ async function settleStoreInventorySale(
       reference_id: transactionId,
       description: `Storefront fee expense: ${soldQty}x ${shelfRow.item_key}`,
       metadata: null,
-    },
-  ]);
+    });
+  }
+
+  const { error: financialEventsError } = await supabase.from("business_financial_events").insert(financialEvents);
   if (financialEventsError) throw financialEventsError;
 
   return { gross, fee, net };

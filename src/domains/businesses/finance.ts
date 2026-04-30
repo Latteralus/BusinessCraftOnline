@@ -487,10 +487,8 @@ function buildStorefrontEvidence(input: {
   ledgerGrossRevenue: number;
   ledgerFeeTotal: number;
 }): StorefrontPeriodEvidence {
-  // Prefer the transaction table as the authoritative source for counts/revenue —
-  // it is written atomically per-sale and is the most reliable signal.  Fall back
-  // to snapshot (aggregate per-subtick) or ledger (cash basis) when transactions
-  // are unavailable, but never inflate by taking Math.max across all sources.
+  // Prefer transaction rows because they are written atomically per sale. Fall
+  // back to snapshots, then ledger cash entries, without inflating across sources.
   const salesCount = input.transactionSalesCount > 0
     ? input.transactionSalesCount
     : Math.max(input.snapshotSalesCount, input.ledgerSalesCount);
@@ -500,12 +498,16 @@ function buildStorefrontEvidence(input: {
   const grossRevenue = round2(
     input.transactionGrossRevenue > 0
       ? input.transactionGrossRevenue
-      : Math.max(input.snapshotGrossRevenue, input.ledgerGrossRevenue)
+      : input.snapshotGrossRevenue > 0
+        ? input.snapshotGrossRevenue
+        : input.ledgerGrossRevenue
   );
   const feeTotal = round2(
     input.transactionFeeTotal > 0
       ? input.transactionFeeTotal
-      : Math.max(input.snapshotFeeTotal, input.ledgerFeeTotal)
+      : input.snapshotFeeTotal > 0
+        ? input.snapshotFeeTotal
+        : input.ledgerFeeTotal
   );
 
   return {
@@ -846,7 +848,7 @@ export async function getBusinessFinanceDashboard(
     isStore
       ? client
           .from("market_storefront_performance_snapshots")
-          .select("id, business_id, shoppers_generated, sales_count, units_sold, gross_revenue, fee_total, ad_spend, captured_at")
+          .select("id, business_id, shoppers_generated, buyers_count, sales_count, units_sold, gross_revenue, fee_total, ad_spend, stock_out_count, captured_at")
           .eq("business_id", business.id)
           .gte("captured_at", oldestRangeStart)
           .order("captured_at", { ascending: true })
@@ -912,14 +914,8 @@ export async function getBusinessFinanceDashboard(
       const storefrontLedgerInRange = ledgerInRange.filter((row) => row.category === "npc_sale" || row.category === "market_fee");
       const storefrontLedgerSales = storefrontLedgerInRange.filter((row) => row.category === "npc_sale");
       const storefrontLedgerFees = storefrontLedgerInRange.filter((row) => row.category === "market_fee");
-      const storefrontRevenueEventsInRange = financialInRange.filter(
-        (row) => row.accountCode === "revenue" && row.referenceType === "storefront_sale"
-      );
       const storefrontCogsEventsInRange = financialInRange.filter(
         (row) => row.accountCode === "cogs" && row.referenceType === "storefront_sale"
-      );
-      const storefrontExpenseEventsInRange = financialInRange.filter(
-        (row) => row.accountCode === "operating_expense" && row.referenceType === "storefront_sale"
       );
       const operatingExpense = sumAmounts(
         ledgerInRange,
@@ -928,6 +924,7 @@ export async function getBusinessFinanceDashboard(
       );
       const storefrontInRange = storefrontSnapshots.filter((row) => !range.since || row.captured_at >= range.since);
       const snapshotShoppersGenerated = storefrontInRange.reduce((sum, row) => sum + row.shoppers_generated, 0);
+      const snapshotBuyersCount = storefrontInRange.reduce((sum, row) => sum + row.buyers_count, 0);
       const snapshotSalesCount = storefrontInRange.reduce((sum, row) => sum + row.sales_count, 0);
       const snapshotUnitsSold = storefrontInRange.reduce((sum, row) => sum + row.units_sold, 0);
       const snapshotGrossRevenue = round2(
@@ -939,13 +936,16 @@ export async function getBusinessFinanceDashboard(
       const snapshotAdSpend = round2(
         storefrontInRange.reduce((sum, row) => sum + row.ad_spend, 0)
       );
+      const snapshotStockOutCount = storefrontInRange.reduce((sum, row) => sum + row.stock_out_count, 0);
       const storefrontEvidence = buildStorefrontEvidence({
         snapshotShoppersGenerated,
+        snapshotBuyersCount,
         snapshotSalesCount,
         snapshotUnitsSold,
         snapshotGrossRevenue,
         snapshotFeeTotal,
         snapshotAdSpend,
+        snapshotStockOutCount,
         transactionSalesCount: storefrontFallbackSalesCount,
         transactionUnitsSold: storefrontFallbackUnitsSold,
         transactionGrossRevenue: storefrontFallbackGrossRevenue,
@@ -953,13 +953,10 @@ export async function getBusinessFinanceDashboard(
         ledgerSalesCount: storefrontLedgerSales.length,
         ledgerGrossRevenue: sumAmounts(storefrontLedgerSales, () => true, (row) => row.amount),
         ledgerFeeTotal: sumAmounts(storefrontLedgerFees, () => true, (row) => row.amount),
-        eventRevenue: sumAmounts(storefrontRevenueEventsInRange, () => true, (row) => row.amount),
-        eventCogs: sumAmounts(storefrontCogsEventsInRange, () => true, (row) => row.amount),
-        eventFeeTotal: sumAmounts(storefrontExpenseEventsInRange, () => true, (row) => row.amount),
       });
       const recognizedStorefrontRevenue = isStore ? storefrontEvidence.grossRevenue : 0;
       const revenue = round2(
-        Math.max(revenueFromLedger + revenueFromTransfers, revenueFromTransfers + recognizedStorefrontRevenue)
+        revenueFromTransfers + (isStore ? recognizedStorefrontRevenue : revenueFromLedger)
       );
       const cogs = round2(
         Math.max(
@@ -991,11 +988,13 @@ export async function getBusinessFinanceDashboard(
       );
       const ownerEquity = round2(cashBalance + inventoryAssetValue - liabilities);
       const shoppersGenerated = storefrontEvidence.shoppersGenerated;
+      const buyersCount = storefrontEvidence.buyersCount;
       const salesCount = storefrontEvidence.salesCount;
       const unitsSold = storefrontEvidence.unitsSold;
       const storefrontGrossRevenue = storefrontEvidence.grossRevenue;
       const storefrontFeeTotal = storefrontEvidence.feeTotal;
       const storefrontAdSpend = storefrontEvidence.adSpend;
+      const storefrontStockOutCount = storefrontEvidence.stockOutCount;
       const storefrontNetRevenue = round2(storefrontGrossRevenue - storefrontFeeTotal - storefrontAdSpend);
       const transferRevenueReferenceIds = new Set(
         financialInRange
@@ -1052,13 +1051,15 @@ export async function getBusinessFinanceDashboard(
         },
         storefront: {
           shoppersGenerated,
+          buyersCount,
           salesCount,
           unitsSold,
           grossRevenue: storefrontGrossRevenue,
           feeTotal: storefrontFeeTotal,
           adSpend: storefrontAdSpend,
           netRevenue: storefrontNetRevenue,
-          conversionRate: shoppersGenerated > 0 ? round2((salesCount / shoppersGenerated) * 100) : null,
+          stockOutCount: storefrontStockOutCount,
+          conversionRate: shoppersGenerated > 0 ? round2((buyersCount / shoppersGenerated) * 100) : null,
           averageTicket: salesCount > 0 ? round2(storefrontGrossRevenue / salesCount) : null,
         },
         incomeStatement: [
@@ -1069,7 +1070,7 @@ export async function getBusinessFinanceDashboard(
           { label: "Operating Income", amount: operatingProfit, tone: operatingProfit >= 0 ? "positive" : "negative" },
         ],
         cashFlow: [
-          { label: "Operating Cash Flow", amount: round2(revenue - operatingExpense) },
+          { label: "Operating Cash Flow", amount: round2(revenue - cogs - operatingExpense) },
           { label: "Investing Cash Flow", amount: round2(-sumAmounts(ledgerInRange, (row) => row.accountCode === "inventory", (row) => row.amount)) },
           { label: "Financing Cash Flow", amount: round2(ownerContributions - ownerDraws) },
         ],

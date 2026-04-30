@@ -405,14 +405,14 @@ export default function BusinessFinanceDashboardPanel({ financeDashboard }: Prop
           tone={snapshot.storefront.salesCount > 0 ? "positive" : "neutral"}
         />
         <MiniStat
-          label={<TooltipLabel label="Conversion" content="Storefront sales divided by generated NPC shoppers in this period." />}
+          label={<TooltipLabel label="Conversion" content="Storefront buyers divided by generated NPC shoppers in this period." />}
           value={snapshot.storefront.conversionRate === null ? "N/A" : `${snapshot.storefront.conversionRate.toFixed(1)}%`}
           sub={
-            snapshot.storefront.shoppersGenerated > 0 && snapshot.storefront.salesCount === 0
+            snapshot.storefront.shoppersGenerated > 0 && snapshot.storefront.buyersCount === 0
               ? "Traffic reached the store but did not convert"
-              : "Sales per shopper"
+              : "Buyers per shopper"
           }
-          tone={snapshot.storefront.salesCount > 0 ? "positive" : "neutral"}
+          tone={snapshot.storefront.buyersCount > 0 ? "positive" : "neutral"}
         />
         <MiniStat
           label={<TooltipLabel label="Storefront Net" content="Gross storefront revenue after storefront fees and ad spend." />}

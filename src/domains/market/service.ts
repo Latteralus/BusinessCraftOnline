@@ -1,15 +1,12 @@
 import { STORE_BUSINESS_TYPES, type BusinessType } from "@/config/businesses";
 import {
-  MARKET_TRANSACTION_FEE,
   STOREFRONT_DEFAULT_SETTINGS,
 } from "@/config/market";
-import { appendPersonalTransaction } from "@/domains/banking";
 import { supportsStorefront } from "@/domains/businesses";
 import { addBusinessAccountEntry } from "@/domains/businesses/service";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
 import {
   computeWeightedAverageCost,
-  consumeInventoryCostByRowId,
   insertBusinessFinancialEvents,
   previewInventoryCostByRowId,
   refreshInventoryCostByRowId,
@@ -107,12 +104,6 @@ function normalizeStorefrontSnapshot(
     demand_multiplier: toNumber(row.demand_multiplier),
     stock_out_count: Number(row.stock_out_count ?? 0),
   };
-}
-
-async function getBusinessNameSafe(client: QueryClient, businessId: string | null | undefined): Promise<string | null> {
-  if (!businessId) return null;
-  const { data } = await client.from("businesses").select("name").eq("id", businessId).maybeSingle();
-  return data?.name ? String(data.name) : null;
 }
 
 async function getOwnedListing(client: QueryClient, playerId: string, listingId: string): Promise<MarketListing> {
@@ -252,179 +243,6 @@ async function restorePersonalListingToInventory(client: QueryClient, listing: M
     quantity: listing.quantity,
   });
   if (insertError) throw insertError;
-}
-
-async function settleSaleAccounting(
-  client: QueryClient,
-  listing: MarketListing,
-  soldQuantity: number,
-  buyerType: "player" | "npc",
-  buyerPlayerId: string | null,
-  buyerBusinessId: string | null,
-  meta?: {
-    shopperName?: string | null;
-    shopperTier?: string | null;
-    shopperBudget?: number | null;
-    subTickIndex?: number | null;
-    tickWindowStartedAt?: string | null;
-  }
-): Promise<MarketTransaction> {
-  const gross = round2(listing.unit_price * soldQuantity);
-  const fee = round2(gross * MARKET_TRANSACTION_FEE);
-  const net = round2(gross - fee);
-  const saleCost = listing.source_type === "business" && listing.source_inventory_id
-    ? await consumeInventoryCostByRowId(client, listing.source_inventory_id, soldQuantity)
-    : { totalCost: 0, itemKey: listing.item_key, quantity: soldQuantity, estimated: true };
-  const sellerBusinessName =
-    listing.source_type === "business"
-      ? await getBusinessNameSafe(client, listing.source_business_id)
-      : "Personal Inventory";
-  const buyerBusinessName = buyerType === "player" ? await getBusinessNameSafe(client, buyerBusinessId) : null;
-
-  if (listing.source_type === "business" && listing.source_business_id) {
-    await addBusinessAccountEntry(client, listing.owner_player_id, listing.source_business_id, {
-      amount: gross,
-      entryType: "credit",
-      category: buyerType === "npc" ? "npc_sale" : "market_sale",
-      referenceId: listing.id,
-      description: `${buyerType.toUpperCase()} market sale: ${soldQuantity}x ${listing.item_key}`,
-    });
-    await addBusinessAccountEntry(client, listing.owner_player_id, listing.source_business_id, {
-      amount: fee,
-      entryType: "debit",
-      category: "market_fee",
-      referenceId: listing.id,
-      description: `Market fee: ${soldQuantity}x ${listing.item_key}`,
-    });
-
-    await insertBusinessFinancialEvents(client, listing.owner_player_id, [
-      {
-        business_id: listing.source_business_id,
-        account_code: "revenue",
-        amount: gross,
-        quantity: soldQuantity,
-        item_key: listing.item_key,
-        reference_type: "market_transaction",
-        reference_id: listing.id,
-        description: `${buyerType.toUpperCase()} sale revenue: ${soldQuantity}x ${listing.item_key}`,
-        metadata: { buyerType },
-      },
-      {
-        business_id: listing.source_business_id,
-        account_code: "cogs",
-        amount: saleCost.totalCost,
-        quantity: soldQuantity,
-        item_key: listing.item_key,
-        reference_type: "market_transaction",
-        reference_id: listing.id,
-        description: `COGS on sale: ${soldQuantity}x ${listing.item_key}`,
-        metadata: { estimatedCost: saleCost.estimated },
-      },
-      {
-        business_id: listing.source_business_id,
-        account_code: "inventory",
-        amount: saleCost.totalCost,
-        quantity: soldQuantity,
-        item_key: listing.item_key,
-        reference_type: "market_transaction",
-        reference_id: listing.id,
-        description: `Inventory relieved on sale: ${soldQuantity}x ${listing.item_key}`,
-        metadata: { direction: "out", estimatedCost: saleCost.estimated },
-      },
-      {
-        business_id: listing.source_business_id,
-        account_code: "operating_expense",
-        amount: fee,
-        quantity: soldQuantity,
-        item_key: listing.item_key,
-        reference_type: "market_transaction",
-        reference_id: listing.id,
-        description: `Market fee expense: ${soldQuantity}x ${listing.item_key}`,
-      },
-    ]);
-  } else {
-    const { data: checkingAccount, error: checkingError } = await client
-      .from("bank_accounts")
-      .select("id")
-      .eq("player_id", listing.owner_player_id)
-      .eq("account_type", "checking")
-      .maybeSingle();
-    if (checkingError) throw checkingError;
-    if (!checkingAccount) throw new Error("Seller checking account not found.");
-
-    await appendPersonalTransaction(client, listing.owner_player_id, {
-      accountId: checkingAccount.id,
-      amount: net,
-      direction: "credit",
-      transactionType: "market_sale",
-      referenceId: listing.id,
-      description: `Market sale: ${soldQuantity}x ${listing.item_key}`,
-    });
-  }
-
-  if (buyerType === "player") {
-    if (buyerBusinessId && buyerPlayerId) {
-      await addBusinessAccountEntry(client, buyerPlayerId, buyerBusinessId, {
-        amount: gross,
-        entryType: "debit",
-        category: "market_purchase",
-        referenceId: listing.id,
-        description: `Market purchase: ${soldQuantity}x ${listing.item_key}`,
-      });
-    } else if (buyerPlayerId) {
-      const { data: bankAccounts, error: accountsError } = await client
-        .from("bank_accounts")
-        .select("id")
-        .eq("player_id", buyerPlayerId)
-        .eq("account_type", "checking")
-        .maybeSingle();
-
-      if (accountsError) throw accountsError;
-
-      if (bankAccounts) {
-        await appendPersonalTransaction(client, buyerPlayerId, {
-          accountId: bankAccounts.id,
-          amount: gross,
-          direction: "debit",
-          transactionType: "market_purchase",
-          referenceId: listing.id,
-          description: `Market purchase: ${soldQuantity}x ${listing.item_key}`,
-        });
-      }
-    }
-  }
-
-  const { data: txRow, error: txError } = await client
-    .from("market_transactions")
-    .insert({
-      listing_id: listing.id,
-      seller_player_id: listing.owner_player_id,
-      buyer_player_id: buyerPlayerId,
-      buyer_type: buyerType,
-      seller_source_type: listing.source_type,
-      seller_business_id: listing.source_business_id,
-      seller_business_name: sellerBusinessName,
-      buyer_business_id: buyerBusinessId,
-      buyer_business_name: buyerBusinessName,
-      city_id: listing.city_id,
-      item_key: listing.item_key,
-      quality: listing.quality,
-      quantity: soldQuantity,
-      unit_price: listing.unit_price,
-      gross_total: gross,
-      market_fee: fee,
-      net_total: net,
-      shopper_name: meta?.shopperName ?? null,
-      shopper_tier: meta?.shopperTier ?? null,
-      shopper_budget: meta?.shopperBudget ?? null,
-      sub_tick_index: meta?.subTickIndex ?? null,
-      tick_window_started_at: meta?.tickWindowStartedAt ?? null,
-    })
-    .select("*")
-    .single();
-
-  if (txError) throw txError;
-  return normalizeTransaction(txRow as MarketTransaction);
 }
 
 export async function getMarketListings(
