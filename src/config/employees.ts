@@ -54,7 +54,7 @@ export const SHIFT_LIMIT_HOURS: Record<EmployeeType, number> = {
   temp: 4,
   part_time: 8,
   full_time: 12,
-  specialist: 12,
+  specialist: 24,
 };
 
 export const HIRE_COSTS: Record<EmployeeType, number> = {

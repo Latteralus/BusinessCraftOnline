@@ -1,6 +1,6 @@
 "use client";
 
-import { BASE_WAGE_PER_HOUR } from "@/config/employees";
+import { BASE_WAGE_PER_HOUR, SHIFT_LIMIT_HOURS } from "@/config/employees";
 import type { Business } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
@@ -97,10 +97,11 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function formatCountdown(ms: number) {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  const totalMinutes = Math.max(0, Math.floor(ms / 1000 / 60));
+  const days = Math.floor(totalMinutes / 60 / 24);
+  const hours = Math.floor((totalMinutes / 60) % 24);
+  const minutes = totalMinutes % 60;
+  return `${days}:${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 function ShiftRail(props: { label: string; sub: string; progress: number; color: string }) {
@@ -197,7 +198,7 @@ export default function BusinessEmployeesDashboard({ business, employees }: Prop
           if (!employee.shift_ends_at) return null;
           const endsMs = new Date(employee.shift_ends_at).getTime();
           if (!Number.isFinite(endsMs) || endsMs <= nowMs) return null;
-          const totalShiftMs = 8 * 60 * 60 * 1000;
+          const totalShiftMs = SHIFT_LIMIT_HOURS[employee.employee_type] * 60 * 60 * 1000;
           const remainingMs = endsMs - nowMs;
           return {
             id: employee.id,
