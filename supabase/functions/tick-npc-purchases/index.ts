@@ -17,6 +17,7 @@ import {
 } from "../_shared/store-config.ts";
 import {
   NPC_BASKET_SIZE_DISTRIBUTION,
+  NPC_PRICE_CEILINGS,
   NPC_STOREFRONT_FEE,
   NPC_DEMAND_CURVE,
   NPC_PRICE_BAND_PERCENT,
@@ -192,10 +193,13 @@ async function settleStoreInventorySale(
   const explicitTotalCost = inventoryRow.total_cost === null || inventoryRow.total_cost === undefined
     ? null
     : toNumber(inventoryRow.total_cost);
+  // Baseline cost = 55% of NPC price ceiling, matching INVENTORY_BASELINE_UNIT_COSTS in finance config.
+  // Used when no cost basis was recorded on the inventory row (produced goods, not purchased).
+  const baselineUnitCost = round2((NPC_PRICE_CEILINGS[shelfRow.item_key as keyof typeof NPC_PRICE_CEILINGS] ?? 0) * 0.55);
   const inventoryUnitCost =
     explicitTotalCost !== null && inventoryQty > 0
       ? round2(explicitTotalCost / inventoryQty)
-      : explicitUnitCost ?? 0;
+      : explicitUnitCost ?? baselineUnitCost;
   const soldInventoryCost = round2(Math.max(0, inventoryUnitCost * soldQty));
 
   if (soldQty > availableBackedQty) {
@@ -318,7 +322,7 @@ async function settleStoreInventorySale(
       reference_type: "storefront_sale",
       reference_id: transactionId,
       description: `Storefront COGS: ${soldQty}x ${shelfRow.item_key}`,
-      metadata: { estimatedCost: explicitUnitCost === null && explicitTotalCost === null },
+      metadata: { estimatedCost: explicitUnitCost === null && explicitTotalCost === null, unitCost: inventoryUnitCost },
     },
     {
       business_id: shelfRow.business_id,
@@ -332,6 +336,7 @@ async function settleStoreInventorySale(
       metadata: {
         direction: "out",
         estimatedCost: explicitUnitCost === null && explicitTotalCost === null,
+        unitCost: inventoryUnitCost,
       },
     },
     {

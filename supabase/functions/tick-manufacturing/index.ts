@@ -11,6 +11,7 @@ import {
   getManufacturingRecipeByKey,
 } from "../_shared/manufacturing-config.ts";
 import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
+import { NPC_PRICE_CEILINGS } from "../../../shared/economy.ts";
 
 const XP_PER_TICK = 5;
 const XP_PER_LEVEL = 100;
@@ -30,7 +31,7 @@ async function getInventoryRows(
 ) {
   const { data } = await supabase
     .from("business_inventory")
-    .select("id, quantity, reserved_quantity, quality")
+    .select("id, quantity, reserved_quantity, quality, unit_cost, total_cost")
     .eq("business_id", businessId)
     .eq("owner_player_id", playerId)
     .eq("item_key", itemKey)
@@ -41,7 +42,23 @@ async function getInventoryRows(
     quantity: number | string;
     reserved_quantity: number | string;
     quality: number | string;
+    unit_cost: number | string | null;
+    total_cost: number | string | null;
   }>;
+}
+
+function resolveRowUnitCost(
+  row: { quantity: number | string; unit_cost: number | string | null; total_cost: number | string | null },
+  itemKey: string
+): number {
+  const qty = toNumber(row.quantity);
+  const totalCost = row.total_cost === null || row.total_cost === undefined ? null : toNumber(row.total_cost);
+  const unitCost = row.unit_cost === null || row.unit_cost === undefined ? null : toNumber(row.unit_cost);
+
+  if (totalCost !== null && totalCost > 0 && qty > 0) return totalCost / qty;
+  if (unitCost !== null && unitCost > 0) return unitCost;
+  // Baseline: 55% of NPC price ceiling, same as INVENTORY_BASELINE_UNIT_COSTS in src/config/finance.ts
+  return ((NPC_PRICE_CEILINGS as Record<string, number>)[itemKey] ?? 0) * 0.55;
 }
 
 function normalizeProgressMap(value: unknown): Record<string, number> {
@@ -354,7 +371,7 @@ Deno.serve(async (request) => {
     let canProduce = true;
     const inventoryConsumptionPlan = new Map<
       string,
-      { id: string; quantity: number; reserved_quantity: number; used: number; quality: number }
+      { id: string; quantity: number; reserved_quantity: number; used: number; quality: number; unitCost: number }
     >();
     const referenceInputQualities: number[] = [];
 
@@ -390,6 +407,7 @@ Deno.serve(async (request) => {
             reserved_quantity: reservedQuantity,
             used,
             quality: toNumber(row.quality),
+            unitCost: resolveRowUnitCost(row, input.itemKey),
           });
         }
         remainingRequired -= used;
@@ -458,6 +476,13 @@ Deno.serve(async (request) => {
     );
 
     if (outputQty > 0) {
+      // Compute absorption cost: total cost of inputs consumed divided by units produced.
+      let totalInputCost = 0;
+      for (const row of inventoryConsumptionPlan.values()) {
+        totalInputCost += row.used * row.unitCost;
+      }
+      const outputUnitCost = totalInputCost > 0 ? Number((totalInputCost / outputQty).toFixed(2)) : null;
+
       const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
         p_owner_player_id: business.player_id,
         p_business_id: business.id,
@@ -465,6 +490,7 @@ Deno.serve(async (request) => {
         p_item_key: recipe.outputItemKey,
         p_quality: quality,
         p_quantity: outputQty,
+        p_unit_cost: outputUnitCost,
       });
       if (addInventoryError) throw addInventoryError;
     }

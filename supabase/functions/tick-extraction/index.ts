@@ -19,6 +19,7 @@ import {
   EXTRACTION_XP_PER_LEVEL,
   EXTRACTION_XP_PER_TICK,
 } from "../_shared/extraction-config.ts";
+import { NPC_PRICE_CEILINGS } from "../../../shared/economy.ts";
 
 type ExtractionSlotRow = {
   id: string;
@@ -473,6 +474,8 @@ Deno.serve(async (request) => {
     const quality = Math.max(0, Math.min(100, Math.round(effects.extractionQualityBonus)));
 
     if (units > 0) {
+      const ceilingPrice = (NPC_PRICE_CEILINGS as Record<string, number>)[outputItem] ?? 0;
+      const baselineUnitCost = ceilingPrice > 0 ? Number((ceilingPrice * 0.55).toFixed(2)) : null;
       const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
         p_owner_player_id: typedBusiness.player_id,
         p_business_id: typedBusiness.id,
@@ -480,6 +483,7 @@ Deno.serve(async (request) => {
         p_item_key: outputItem,
         p_quality: quality,
         p_quantity: units,
+        p_unit_cost: baselineUnitCost,
       });
       if (addInventoryError) throw addInventoryError;
     }
