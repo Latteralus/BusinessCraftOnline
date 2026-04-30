@@ -8,6 +8,18 @@ import type { ManufacturingStatusView, ProductionStatus } from "./types";
 type ManufacturingLineView = NonNullable<ManufacturingStatusView["lines"]>[number];
 type ExtractionSlotView = NonNullable<ProductionStatus["slots"]>[number];
 
+export function summarizeProductionSlots(slots: ExtractionSlotView[]): ProductionStatus["summary"] {
+  return {
+    total: slots.length,
+    active: slots.filter((slot) => slot.status === "active").length,
+    idle: slots.filter((slot) => slot.status === "idle").length,
+    resting: slots.filter((slot) => slot.status === "resting").length,
+    toolBroken: slots.filter((slot) => slot.status === "tool_broken").length,
+    retooling: slots.filter((slot) => slot.status === "retooling").length,
+    occupied: slots.filter((slot) => Boolean(slot.employee_id)).length,
+  };
+}
+
 export function summarizeManufacturingLines(
   lines: ManufacturingLineView[]
 ): ManufacturingStatusView["summary"] {

@@ -15,6 +15,12 @@ import { reconcileBusinessInventoryReservations } from "@/domains/inventory";
 import { round2, round4, toNumber } from "@/lib/core/number";
 import { addHoursToNowIso, nowIso, toIso } from "@/lib/core/time";
 import type { QueryClient } from "@/lib/db/query-client";
+import {
+  buildStorefrontMetricSummary,
+  reconcileStorefrontTotals,
+  summarizeStorefrontSnapshots,
+  summarizeStorefrontTransactions,
+} from "./storefront-metrics";
 import type {
   AdminEconomySummary,
   BuyMarketListingInput,
@@ -715,11 +721,6 @@ function toWindowHours(value: number): number {
   return Math.max(1, Math.min(168, Math.floor(value)));
 }
 
-function toRoi(adSpend: number, netRevenue: number): number | null {
-  if (adSpend <= 0) return null;
-  return round4(netRevenue / adSpend);
-}
-
 function summarizeTickRuns(
   rows: TickRunLog[],
   windowHours: number,
@@ -795,22 +796,31 @@ export async function getStorefrontPerformanceSummary(
   const from = addHoursToNowIso(-windowHours);
   const to = nowIso();
 
-  const [snapshotsResult, businessesResult] = await Promise.all([
+  const [snapshotsResult, transactionsResult, businessesResult] = await Promise.all([
     client
       .from("market_storefront_performance_snapshots")
       .select("*")
       .eq("owner_player_id", playerId)
       .gte("captured_at", from)
       .order("captured_at", { ascending: false }),
+    client
+      .from("market_transactions")
+      .select("*")
+      .eq("seller_player_id", playerId)
+      .eq("buyer_type", "npc")
+      .gte("created_at", from)
+      .order("created_at", { ascending: false }),
     client.from("businesses").select("id, name").eq("player_id", playerId),
   ]);
 
   if (snapshotsResult.error) throw snapshotsResult.error;
+  if (transactionsResult.error) throw transactionsResult.error;
   if (businessesResult.error) throw businessesResult.error;
 
   const snapshots = ((snapshotsResult.data as MarketStorefrontPerformanceSnapshot[]) ?? []).map(
     normalizeStorefrontSnapshot
   );
+  const transactions = ((transactionsResult.data as MarketTransaction[]) ?? []).map(normalizeTransaction);
   const businessNameById = new Map(
     (((businessesResult.data as Array<{ id: string; name: string }>) ?? []) as Array<{
       id: string;
@@ -818,88 +828,88 @@ export async function getStorefrontPerformanceSummary(
     }>).map((row) => [row.id, row.name])
   );
 
-  const totals = snapshots.reduce(
-    (acc, row) => {
-      acc.ad_spend += row.ad_spend;
-      acc.gross_revenue += row.gross_revenue;
-      acc.fee_total += row.fee_total;
-      acc.sales_count += row.sales_count;
-      acc.buyers_count += row.buyers_count;
-      acc.units_sold += row.units_sold;
-      acc.shoppers_generated += row.shoppers_generated;
-      acc.stock_out_count += row.stock_out_count;
-      return acc;
-    },
-    {
-      ad_spend: 0,
-      gross_revenue: 0,
-      fee_total: 0,
-      sales_count: 0,
-      buyers_count: 0,
-      units_sold: 0,
-      shoppers_generated: 0,
-      stock_out_count: 0,
-    }
-  );
+  const snapshotTotals = summarizeStorefrontSnapshots(snapshots);
+  const transactionTotals = summarizeStorefrontTransactions(transactions);
+  const totals = reconcileStorefrontTotals({
+    snapshotTotals,
+    transactionTotals,
+    hasTransactions: transactions.length > 0,
+  });
+
+  const transactionsByBusiness = new Map<string, MarketTransaction[]>();
+  for (const transaction of transactions) {
+    if (!transaction.seller_business_id) continue;
+    const existing = transactionsByBusiness.get(transaction.seller_business_id) ?? [];
+    existing.push(transaction);
+    transactionsByBusiness.set(transaction.seller_business_id, existing);
+  }
 
   const byBusiness = new Map<string, StorefrontPerformanceSummary["businesses"][number]>();
   for (const row of snapshots) {
+    const businessTransactions = transactionsByBusiness.get(row.business_id) ?? [];
+    const hasTransactionTotals = businessTransactions.length > 0;
+    const rowTotals = reconcileStorefrontTotals({
+      snapshotTotals: summarizeStorefrontSnapshots([row]),
+      transactionTotals: summarizeStorefrontTransactions(businessTransactions),
+      hasTransactions: hasTransactionTotals,
+    });
+    const rowSummary = buildStorefrontMetricSummary(rowTotals);
     const existing = byBusiness.get(row.business_id);
     if (!existing) {
-      const nr = round2(row.gross_revenue - row.fee_total);
       byBusiness.set(row.business_id, {
         business_id: row.business_id,
         business_name: businessNameById.get(row.business_id) ?? "Unknown Store",
-        ad_spend: row.ad_spend,
-        gross_revenue: row.gross_revenue,
-        fee_total: row.fee_total,
-        net_revenue: nr,
-        sales_count: row.sales_count,
-        buyers_count: row.buyers_count,
-        units_sold: row.units_sold,
-        shoppers_generated: row.shoppers_generated,
-        stock_out_count: row.stock_out_count,
-        roi: toRoi(row.ad_spend, nr),
-        conversion_rate: row.shoppers_generated > 0 ? round4(row.buyers_count / row.shoppers_generated) : null,
-        avg_basket_size: row.sales_count > 0 ? round4(row.units_sold / row.sales_count) : null,
-        avg_transaction_value: row.sales_count > 0 ? round2(row.gross_revenue / row.sales_count) : null,
-        revenue_per_visitor: row.shoppers_generated > 0 ? round4(row.gross_revenue / row.shoppers_generated) : null,
+        ...rowSummary,
       });
       continue;
     }
 
-    existing.ad_spend = round2(existing.ad_spend + row.ad_spend);
-    existing.gross_revenue = round2(existing.gross_revenue + row.gross_revenue);
-    existing.fee_total = round2(existing.fee_total + row.fee_total);
-    existing.net_revenue = round2(existing.gross_revenue - existing.fee_total);
-    existing.sales_count += row.sales_count;
-    existing.buyers_count += row.buyers_count;
-    existing.units_sold += row.units_sold;
-    existing.shoppers_generated += row.shoppers_generated;
-    existing.stock_out_count += row.stock_out_count;
-    existing.roi = toRoi(existing.ad_spend, existing.net_revenue);
-    existing.conversion_rate = existing.shoppers_generated > 0 ? round4(existing.buyers_count / existing.shoppers_generated) : null;
-    existing.avg_basket_size = existing.sales_count > 0 ? round4(existing.units_sold / existing.sales_count) : null;
-    existing.avg_transaction_value = existing.sales_count > 0 ? round2(existing.gross_revenue / existing.sales_count) : null;
-    existing.revenue_per_visitor = existing.shoppers_generated > 0 ? round4(existing.gross_revenue / existing.shoppers_generated) : null;
+    const nextTotals = reconcileStorefrontTotals({
+      snapshotTotals: summarizeStorefrontSnapshots([
+        {
+          ...(row as MarketStorefrontPerformanceSnapshot),
+          ad_spend: existing.ad_spend + row.ad_spend,
+          shoppers_generated: existing.shoppers_generated + row.shoppers_generated,
+          stock_out_count: existing.stock_out_count + row.stock_out_count,
+          gross_revenue: existing.gross_revenue + row.gross_revenue,
+          fee_total: existing.fee_total + row.fee_total,
+          sales_count: existing.sales_count + row.sales_count,
+          buyers_count: existing.buyers_count + row.buyers_count,
+          units_sold: existing.units_sold + row.units_sold,
+        },
+      ]),
+      transactionTotals: summarizeStorefrontTransactions(businessTransactions),
+      hasTransactions: hasTransactionTotals,
+    });
+    Object.assign(existing, buildStorefrontMetricSummary(nextTotals));
   }
 
-  const netRevenue = round2(totals.gross_revenue - totals.fee_total);
+  for (const [businessId, businessTransactions] of transactionsByBusiness) {
+    if (byBusiness.has(businessId)) continue;
+    const txSummary = buildStorefrontMetricSummary(summarizeStorefrontTransactions(businessTransactions));
+    byBusiness.set(businessId, {
+      business_id: businessId,
+      business_name: businessNameById.get(businessId) ?? "Unknown Store",
+      ...txSummary,
+    });
+  }
+
+  const summary = buildStorefrontMetricSummary(totals);
 
   return {
     window_hours: windowHours,
     captured_from: from,
     captured_to: to,
-    ad_spend: round2(totals.ad_spend),
-    gross_revenue: round2(totals.gross_revenue),
-    fee_total: round2(totals.fee_total),
-    net_revenue: netRevenue,
-    sales_count: totals.sales_count,
-    buyers_count: totals.buyers_count,
-    units_sold: totals.units_sold,
-    shoppers_generated: totals.shoppers_generated,
-    stock_out_count: totals.stock_out_count,
-    roi: toRoi(totals.ad_spend, netRevenue),
+    ad_spend: summary.ad_spend,
+    gross_revenue: summary.gross_revenue,
+    fee_total: summary.fee_total,
+    net_revenue: summary.net_revenue,
+    sales_count: summary.sales_count,
+    buyers_count: summary.buyers_count,
+    units_sold: summary.units_sold,
+    shoppers_generated: summary.shoppers_generated,
+    stock_out_count: summary.stock_out_count,
+    roi: summary.roi,
     businesses: Array.from(byBusiness.values()).sort((a, b) => b.gross_revenue - a.gross_revenue),
   };
 }
@@ -913,7 +923,7 @@ export async function getStorefrontPerformanceForBusiness(
   const windowHours = toWindowHours(windowHoursInput);
   const from = addHoursToNowIso(-windowHours);
 
-  const [snapshotsResult, businessResult] = await Promise.all([
+  const [snapshotsResult, transactionsResult, businessResult] = await Promise.all([
     client
       .from("market_storefront_performance_snapshots")
       .select("*")
@@ -921,52 +931,42 @@ export async function getStorefrontPerformanceForBusiness(
       .eq("business_id", businessId)
       .gte("captured_at", from)
       .order("captured_at", { ascending: false }),
+    client
+      .from("market_transactions")
+      .select("*")
+      .eq("seller_player_id", playerId)
+      .eq("seller_business_id", businessId)
+      .eq("buyer_type", "npc")
+      .gte("created_at", from)
+      .order("created_at", { ascending: false }),
     client.from("businesses").select("id, name").eq("id", businessId).eq("player_id", playerId).maybeSingle(),
   ]);
 
   if (snapshotsResult.error) throw snapshotsResult.error;
+  if (transactionsResult.error) throw transactionsResult.error;
 
   const snapshots = ((snapshotsResult.data as MarketStorefrontPerformanceSnapshot[]) ?? []).map(
     normalizeStorefrontSnapshot
   );
-  if (snapshots.length === 0) return null;
+  const transactions = ((transactionsResult.data as MarketTransaction[]) ?? []).map(normalizeTransaction);
+  if (snapshots.length === 0 && transactions.length === 0) return null;
 
   const businessName = (businessResult.data as { id: string; name: string } | null)?.name ?? "Unknown Store";
 
-  const totals = snapshots.reduce(
-    (acc, row) => {
-      acc.ad_spend += row.ad_spend;
-      acc.gross_revenue += row.gross_revenue;
-      acc.fee_total += row.fee_total;
-      acc.sales_count += row.sales_count;
-      acc.buyers_count += row.buyers_count;
-      acc.units_sold += row.units_sold;
-      acc.shoppers_generated += row.shoppers_generated;
-      acc.stock_out_count += row.stock_out_count;
-      return acc;
-    },
-    { ad_spend: 0, gross_revenue: 0, fee_total: 0, sales_count: 0, buyers_count: 0, units_sold: 0, shoppers_generated: 0, stock_out_count: 0 }
+  const snapshotTotals = summarizeStorefrontSnapshots(snapshots);
+  const transactionTotals = summarizeStorefrontTransactions(transactions);
+  const summary = buildStorefrontMetricSummary(
+    reconcileStorefrontTotals({
+      snapshotTotals,
+      transactionTotals,
+      hasTransactions: transactions.length > 0,
+    })
   );
-
-  const netRevenue = round2(totals.gross_revenue - totals.fee_total);
 
   return {
     business_id: businessId,
     business_name: businessName,
-    ad_spend: round2(totals.ad_spend),
-    gross_revenue: round2(totals.gross_revenue),
-    fee_total: round2(totals.fee_total),
-    net_revenue: netRevenue,
-    sales_count: totals.sales_count,
-    buyers_count: totals.buyers_count,
-    units_sold: totals.units_sold,
-    shoppers_generated: totals.shoppers_generated,
-    stock_out_count: totals.stock_out_count,
-    roi: toRoi(totals.ad_spend, netRevenue),
-    conversion_rate: totals.shoppers_generated > 0 ? round4(totals.buyers_count / totals.shoppers_generated) : null,
-    avg_basket_size: totals.sales_count > 0 ? round4(totals.units_sold / totals.sales_count) : null,
-    avg_transaction_value: totals.sales_count > 0 ? round2(totals.gross_revenue / totals.sales_count) : null,
-    revenue_per_visitor: totals.shoppers_generated > 0 ? round4(totals.gross_revenue / totals.shoppers_generated) : null,
+    ...summary,
   };
 }
 
@@ -998,7 +998,7 @@ export async function getAdminEconomySummary(
   const from = addHoursToNowIso(-windowHours);
   const to = nowIso();
 
-  const [tickRowsResult, snapshotsResult] = await Promise.all([
+  const [tickRowsResult, snapshotsResult, transactionsResult] = await Promise.all([
     client
       .from("tick_run_logs")
       .select("*")
@@ -1011,36 +1011,34 @@ export async function getAdminEconomySummary(
       .gte("captured_at", from)
       .order("captured_at", { ascending: false })
       .limit(3000),
+    client
+      .from("market_transactions")
+      .select("*")
+      .eq("buyer_type", "npc")
+      .gte("created_at", from)
+      .order("created_at", { ascending: false })
+      .limit(3000),
   ]);
 
   if (tickRowsResult.error) throw tickRowsResult.error;
   if (snapshotsResult.error) throw snapshotsResult.error;
+  if (transactionsResult.error) throw transactionsResult.error;
 
   const tickRows = ((tickRowsResult.data as TickRunLog[]) ?? []).map(normalizeTickRunLog);
   const snapshots = ((snapshotsResult.data as MarketStorefrontPerformanceSnapshot[]) ?? []).map(
     normalizeStorefrontSnapshot
   );
+  const transactions = ((transactionsResult.data as MarketTransaction[]) ?? []).map(normalizeTransaction);
 
-  const totals = snapshots.reduce(
-    (acc, row) => {
-      acc.ad_spend += row.ad_spend;
-      acc.gross_revenue += row.gross_revenue;
-      acc.fee_total += row.fee_total;
-      acc.sales_count += row.sales_count;
-      acc.units_sold += row.units_sold;
-      acc.shoppers_generated += row.shoppers_generated;
-      return acc;
-    },
-    {
-      ad_spend: 0,
-      gross_revenue: 0,
-      fee_total: 0,
-      sales_count: 0,
-      units_sold: 0,
-      shoppers_generated: 0,
-    }
+  const snapshotTotals = summarizeStorefrontSnapshots(snapshots);
+  const transactionTotals = summarizeStorefrontTransactions(transactions);
+  const totals = buildStorefrontMetricSummary(
+    reconcileStorefrontTotals({
+      snapshotTotals,
+      transactionTotals,
+      hasTransactions: transactions.length > 0,
+    })
   );
-  const netRevenue = round2(totals.gross_revenue - totals.fee_total);
 
   return {
     tick_health: summarizeTickRuns(tickRows, windowHours, from, to),
@@ -1049,14 +1047,14 @@ export async function getAdminEconomySummary(
       captured_from: from,
       captured_to: to,
       snapshots: snapshots.length,
-      ad_spend: round2(totals.ad_spend),
-      gross_revenue: round2(totals.gross_revenue),
-      fee_total: round2(totals.fee_total),
-      net_revenue: netRevenue,
+      ad_spend: totals.ad_spend,
+      gross_revenue: totals.gross_revenue,
+      fee_total: totals.fee_total,
+      net_revenue: totals.net_revenue,
       sales_count: totals.sales_count,
       units_sold: totals.units_sold,
       shoppers_generated: totals.shoppers_generated,
-      roi: toRoi(totals.ad_spend, netRevenue),
+      roi: totals.roi,
     },
   };
 }

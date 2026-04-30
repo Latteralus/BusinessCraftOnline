@@ -2,7 +2,7 @@
 
 import { DEFAULT_INVENTORY_UNIT_COST, INVENTORY_BASELINE_UNIT_COSTS } from "@/config/finance";
 import { TooltipLabel } from "@/components/ui/tooltip";
-import type { BusinessInventoryItem } from "@/domains/inventory";
+import { summarizeBusinessInventory, type BusinessInventoryItem } from "@/domains/inventory";
 import type { StoreShelfItem } from "@/domains/stores";
 import { formatCurrency } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
@@ -120,10 +120,7 @@ export default function BusinessInventoryDashboard({ inventory, shelfItems }: Pr
     return () => window.clearInterval(interval);
   }, []);
 
-  const availableUnits = inventory.reduce((sum, row) => sum + Math.max(0, row.quantity - row.reserved_quantity), 0);
-  const reservedUnits = inventory.reduce((sum, row) => sum + row.reserved_quantity, 0);
-  const totalUnits = inventory.reduce((sum, row) => sum + row.quantity, 0);
-  const shelfUnits = shelfItems.reduce((sum, row) => sum + row.quantity, 0);
+  const summary = summarizeBusinessInventory(inventory, shelfItems);
   const estimatedAssetValue = inventory.reduce((sum, row) => {
     const unitCost =
       row.unit_cost && row.unit_cost > 0
@@ -135,9 +132,6 @@ export default function BusinessInventoryDashboard({ inventory, shelfItems }: Pr
     .map((row) => ({ label: `${formatItemKey(row.item_key)} Q${row.quality}`, value: row.quantity }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 5);
-  const shelfFill = shelfUnits + availableUnits > 0 ? shelfUnits / (shelfUnits + availableUnits) : 0;
-  const reserveLoad = totalUnits > 0 ? reservedUnits / totalUnits : 0;
-  const freeFlow = totalUnits > 0 ? availableUnits / totalUnits : 0;
   const liveMarkerColor = ["#22c55e", "#60a5fa", "#f59e0b"][Math.floor((nowMs / 1200) % 3)];
 
   return (
@@ -154,11 +148,11 @@ export default function BusinessInventoryDashboard({ inventory, shelfItems }: Pr
           Inventory Control Room
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-          <InventoryCard label={<TooltipLabel label="Available Stock" content="Units currently free to move, sell, or feed into operations." />} value={`${availableUnits} units`} sub={`${inventory.length} inventory lines`} tone="positive" />
-          <InventoryCard label={<TooltipLabel label="Reserved Stock" content="Units already committed to shelves, listings, or other downstream obligations." />} value={`${reservedUnits} units`} sub="Committed to shelves or listings" tone={reservedUnits > 0 ? "negative" : "neutral"} />
-          <InventoryCard label={<TooltipLabel label="Shelf Staging" content="Units currently placed onto live shelves for retail sale." />} value={`${shelfUnits} units`} sub={`${shelfItems.length} shelf rows live`} />
+          <InventoryCard label={<TooltipLabel label="Available Stock" content="Units currently free to move, sell, or feed into operations." />} value={`${summary.availableUnits} units`} sub={`${inventory.length} inventory lines`} tone="positive" />
+          <InventoryCard label={<TooltipLabel label="Reserved Stock" content="Units already committed to shelves, listings, or other downstream obligations." />} value={`${summary.reservedUnits} units`} sub="Committed to shelves or listings" tone={summary.reservedUnits > 0 ? "negative" : "neutral"} />
+          <InventoryCard label={<TooltipLabel label="Shelf Staging" content="Units currently placed onto live shelves for retail sale." />} value={`${summary.shelfUnits} units`} sub={`${shelfItems.length} shelf rows live`} />
           <InventoryCard label={<TooltipLabel label="Asset Estimate" content="Approximate inventory value using observed unit cost or fallback baseline costs." />} value={formatCurrency(estimatedAssetValue)} sub="Based on observed or baseline cost" />
-          <InventoryCard label={<TooltipLabel label="Total Footprint" content="All units held by the business, regardless of whether they are free or reserved." />} value={`${totalUnits} units`} sub="Across all item grades" />
+          <InventoryCard label={<TooltipLabel label="Total Footprint" content="All units held by the business, regardless of whether they are free or reserved." />} value={`${summary.totalUnits} units`} sub="Across all item grades" />
         </div>
       </div>
 
@@ -166,9 +160,9 @@ export default function BusinessInventoryDashboard({ inventory, shelfItems }: Pr
         <InventoryBars
           title="Stock Position"
           rows={[
-            { label: "Available", value: availableUnits, color: "#22c55e" },
-            { label: "Reserved", value: reservedUnits, color: "#ef4444" },
-            { label: "Shelf Units", value: shelfUnits, color: "#60a5fa" },
+            { label: "Available", value: summary.availableUnits, color: "#22c55e" },
+            { label: "Reserved", value: summary.reservedUnits, color: "#ef4444" },
+            { label: "Shelf Units", value: summary.shelfUnits, color: "#60a5fa" },
           ]}
         />
         <InventoryTable
@@ -176,8 +170,8 @@ export default function BusinessInventoryDashboard({ inventory, shelfItems }: Pr
           rows={[
             { label: "Inventory Lines", value: `${inventory.length}` },
             { label: "Shelf Rows", value: `${shelfItems.length}` },
-            { label: "Available Units", value: `${availableUnits}` },
-            { label: "Reserved Units", value: `${reservedUnits}` },
+            { label: "Available Units", value: `${summary.availableUnits}` },
+            { label: "Reserved Units", value: `${summary.reservedUnits}` },
             { label: "Estimated Asset", value: formatCurrency(estimatedAssetValue) },
           ]}
         />
@@ -195,9 +189,9 @@ export default function BusinessInventoryDashboard({ inventory, shelfItems }: Pr
           Live Stock Flow
         </div>
         <div style={{ display: "grid", gap: 12 }}>
-          <FlowRail label="Shelf Pull" sub={`${shelfUnits} staged for sale or dispatch`} progress={shelfFill} color="#22c55e" />
-          <FlowRail label="Reserve Load" sub={`${reservedUnits} committed units locked`} progress={reserveLoad} color="#ef4444" />
-          <FlowRail label="Free Flow" sub={`${availableUnits} units ready to move`} progress={freeFlow} color={liveMarkerColor} />
+          <FlowRail label="Shelf Pull" sub={`${summary.shelfUnits} staged for sale or dispatch`} progress={summary.shelfFill} color="#22c55e" />
+          <FlowRail label="Reserve Load" sub={`${summary.reservedUnits} committed units locked`} progress={summary.reserveLoad} color="#ef4444" />
+          <FlowRail label="Free Flow" sub={`${summary.availableUnits} units ready to move`} progress={summary.freeFlow} color={liveMarkerColor} />
         </div>
       </div>
 

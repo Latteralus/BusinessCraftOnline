@@ -3,7 +3,7 @@
 import { TooltipLabel } from "@/components/ui/tooltip";
 import type { Business } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
-import type { BusinessInventoryItem } from "@/domains/inventory";
+import { summarizeBusinessInventory, type BusinessInventoryItem } from "@/domains/inventory";
 import {
   buildExtractionOperationsView,
   buildManufacturingOperationsView,
@@ -235,8 +235,7 @@ function OpsTable(props: { title: string; rows: Array<{ label: string; value: st
 export default function BusinessOperationsDashboard(props: Props) {
   const nowMs = useNowMs();
   const assignedEmployees = props.employees.filter((employee) => employee.employer_business_id === props.business.id);
-  const availableInventoryUnits = props.inventory.reduce((sum, item) => sum + Math.max(0, item.quantity - item.reserved_quantity), 0);
-  const shelfUnits = props.shelfItems.reduce((sum, item) => sum + item.quantity, 0);
+  const inventorySummary = summarizeBusinessInventory(props.inventory, props.shelfItems);
 
   if (props.production) {
     const { production } = props;
@@ -270,7 +269,7 @@ export default function BusinessOperationsDashboard(props: Props) {
             <MiniOpStat label={<TooltipLabel label="Slot Utilization" content="Share of total extraction slots that are actively running." />} value={formatPercent(utilization)} sub={`${production.summary.active}/${production.maxSlots} slots running`} />
             <MiniOpStat label={<TooltipLabel label="Crew Coverage" content="Share of slots that currently have a worker assigned." />} value={formatPercent(occupancy)} sub={`${production.summary.occupied} staffed`} />
             <MiniOpStat label={<TooltipLabel label="Tool Health" content="Average remaining tool uses across equipped slots. Missing or depleted tools can degrade output." />} value={averageToolHealth > 0 ? `${Math.round(averageToolHealth)} uses avg` : "No tools"} sub={degradedSlots > 0 ? `${degradedSlots} lane${degradedSlots === 1 ? "" : "s"} on fallback output` : "All lanes serviceable"} tone={degradedSlots > 0 ? "negative" : "neutral"} />
-            <MiniOpStat label={<TooltipLabel label="Output Buffer" content="Ready units already sitting in business inventory waiting for use or sale." />} value={`${availableInventoryUnits} units`} sub={`Ready stock in yard`} />
+            <MiniOpStat label={<TooltipLabel label="Output Buffer" content="Ready units already sitting in business inventory waiting for use or sale." />} value={`${inventorySummary.availableUnits} units`} sub={`Ready stock in yard`} />
           </div>
         </div>
 
@@ -291,7 +290,7 @@ export default function BusinessOperationsDashboard(props: Props) {
               { label: "Output Commodity", value: formatItemKey(outputItemKey) },
               { label: "Assigned Workers", value: `${production.summary.occupied}/${production.maxSlots}` },
               { label: "Idle Capacity", value: `${Math.max(0, production.maxSlots - production.summary.active)} slots` },
-              { label: "Inventory Ready", value: `${availableInventoryUnits} units` },
+              { label: "Inventory Ready", value: `${inventorySummary.availableUnits} units` },
             ]}
           />
         </div>
@@ -403,7 +402,6 @@ export default function BusinessOperationsDashboard(props: Props) {
     );
   }
 
-  const shelfFill = availableInventoryUnits + shelfUnits > 0 ? (shelfUnits / (availableInventoryUnits + shelfUnits)) * 100 : 0;
   const averageShelfPrice =
     props.shelfItems.length > 0
       ? props.shelfItems.reduce((sum, item) => sum + item.unit_price, 0) / props.shelfItems.length
@@ -423,8 +421,8 @@ export default function BusinessOperationsDashboard(props: Props) {
           Storefloor Control Room
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-          <MiniOpStat label={<TooltipLabel label="Shelf Throughput" content="Units currently displayed for retail sale on the store floor." />} value={`${shelfUnits} units live`} sub={`${props.shelfItems.length} active facings`} tone="positive" />
-          <MiniOpStat label={<TooltipLabel label="Shelf Fill" content="How much of the combined shelf-plus-backroom stock is currently staged on shelves." />} value={formatPercent(shelfFill)} sub={`${shelfUnits} shelf / ${availableInventoryUnits} backroom`} />
+          <MiniOpStat label={<TooltipLabel label="Shelf Throughput" content="Units currently displayed for retail sale on the store floor." />} value={`${inventorySummary.shelfUnits} units live`} sub={`${props.shelfItems.length} active facings`} tone="positive" />
+          <MiniOpStat label={<TooltipLabel label="Shelf Fill" content="How much of the combined shelf-plus-backroom stock is currently staged on shelves." />} value={formatPercent(inventorySummary.shelfFill * 100)} sub={`${inventorySummary.shelfUnits} shelf / ${inventorySummary.backroomUnits} backroom`} />
           <MiniOpStat label={<TooltipLabel label="Assortment Depth" content="How many distinct shelf rows or SKUs are actively merchandised." />} value={`${props.shelfItems.length} SKUs`} sub={`${props.inventory.length} inventory lines`} />
           <MiniOpStat label={<TooltipLabel label="Average Ticket" content="Average price per shelf row, useful as a quick signal of store positioning." />} value={props.shelfItems.length > 0 ? formatCurrency(averageShelfPrice) : "$0.00"} sub="Average shelf price" />
           <MiniOpStat label={<TooltipLabel label="Crew Attached" content="Workers currently attached to this store location." />} value={`${assignedEmployees.length}`} sub="Workers attached to this site" />
@@ -435,8 +433,8 @@ export default function BusinessOperationsDashboard(props: Props) {
         <HorizontalBarChart
           title="Store Readiness"
           rows={[
-            { label: "Shelf Units", value: shelfUnits, color: "#22c55e" },
-            { label: "Backroom Units", value: availableInventoryUnits, color: "#60a5fa" },
+            { label: "Shelf Units", value: inventorySummary.shelfUnits, color: "#22c55e" },
+            { label: "Backroom Units", value: inventorySummary.backroomUnits, color: "#60a5fa" },
             { label: "Active Facings", value: props.shelfItems.length, color: "#f59e0b" },
           ]}
         />
@@ -445,7 +443,7 @@ export default function BusinessOperationsDashboard(props: Props) {
           rows={[
             { label: "Business Type", value: formatBusinessType(props.business.type) },
             { label: "Shelf Items", value: `${props.shelfItems.length}` },
-            { label: "Backroom Inventory", value: `${availableInventoryUnits} units` },
+            { label: "Backroom Inventory", value: `${inventorySummary.backroomUnits} units` },
             { label: "Crew Attached", value: `${assignedEmployees.length}` },
             { label: "Average Shelf Price", value: props.shelfItems.length > 0 ? formatCurrency(averageShelfPrice) : "$0.00" },
           ]}

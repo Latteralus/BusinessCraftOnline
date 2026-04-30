@@ -6,7 +6,7 @@ import type {
 } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import type { BusinessInventoryItem } from "@/domains/inventory";
-import { summarizeManufacturingLines, type ManufacturingStatusView, type ProductionStatus } from "@/domains/production";
+import { summarizeManufacturingLines, summarizeProductionSlots, type ManufacturingStatusView, type ProductionStatus } from "@/domains/production";
 import type { StoreShelfItem } from "@/domains/stores";
 import type { UpgradeDefinition } from "@/domains/upgrades";
 import type { BusinessDetailsEntry } from "@/stores/game-store";
@@ -86,20 +86,6 @@ export function normalizeProductionStatus(
     ...production,
     slots,
     summary: summarizeProductionSlots(slots),
-  };
-}
-
-export function summarizeProductionSlots(
-  slots: NonNullable<ProductionStatus["slots"]>
-): ProductionStatus["summary"] {
-  return {
-    total: slots.length,
-    active: slots.filter((slot) => slot.status === "active").length,
-    idle: slots.filter((slot) => slot.status === "idle").length,
-    resting: slots.filter((slot) => slot.status === "resting").length,
-    toolBroken: slots.filter((slot) => slot.status === "tool_broken").length,
-    retooling: slots.filter((slot) => slot.status === "retooling").length,
-    occupied: slots.filter((slot) => Boolean(slot.employee_id)).length,
   };
 }
 

@@ -23,6 +23,7 @@ export {
   getLeadManufacturingLine,
   hasOperationalExtractionTool,
   summarizeManufacturingLines,
+  summarizeProductionSlots,
 } from "./view";
 
 export {

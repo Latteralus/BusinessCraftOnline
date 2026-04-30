@@ -3,7 +3,7 @@ import type { Business, BusinessFinanceDashboard, BusinessUpgrade, BusinessUpgra
 import type { FinancePeriod } from "@/config/finance";
 import type { Employee } from "@/domains/employees";
 import type { BusinessInventoryItem } from "@/domains/inventory";
-import { summarizeManufacturingLines, type ManufacturingStatusView, type ProductionStatus } from "@/domains/production";
+import { summarizeManufacturingLines, summarizeProductionSlots, type ManufacturingStatusView, type ProductionStatus } from "@/domains/production";
 import type { StoreShelfItem } from "@/domains/stores";
 import { fetchBusinessDetailsSection } from "@/lib/client/queries";
 import { useGameStore } from "@/stores/game-store";
@@ -11,7 +11,6 @@ import {
   createBusinessDetailsEntry,
   resolveBusinessDetailsView,
   shouldSyncBusinessDetailsEntry,
-  summarizeProductionSlots,
   normalizeManufacturingLine,
   type BusinessDetailsClientProps,
   type LocalEmployee,

@@ -6,7 +6,7 @@ import { useState, useEffect, Fragment, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supportsStorefront, type Business, type BusinessUpgradeProject } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
-import type { BusinessInventoryItem } from "@/domains/inventory";
+import { summarizeBusinessInventory, type BusinessInventoryItem } from "@/domains/inventory";
 import type { ManufacturingStatusView, ProductionStatus } from "@/domains/production";
 import type { StoreShelfItem } from "@/domains/stores";
 import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
@@ -79,6 +79,7 @@ export default function BusinessDetailsClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadedSections, setLoadedSections] = useState<Partial<Record<BusinessDetailsSection, boolean>>>({
+    [(defaultTab === "options" ? "options" : defaultTab) as BusinessDetailsSection]: true,
     options: true,
   });
   const [loadingSection, setLoadingSection] = useState<BusinessDetailsSection | null>(null);
@@ -176,6 +177,8 @@ export default function BusinessDetailsClient({
 
     return () => {
       cancelled = true;
+      delete sectionRequestsRef.current[activeSection];
+      setLoadingSection((current) => (current === activeSection ? null : current));
     };
   }, [activeSection, businessId, loadedSections, selectedFinancePeriod]);
 
@@ -234,10 +237,10 @@ export default function BusinessDetailsClient({
   const shelfByInventoryKey = Object.fromEntries(activeShelfItems.map((item) => [shelfKey(item.item_key, item.quality), item]));
   const activeUpgradeProject =
     upgradeProjects.find((project) => project.project_status === "installing") ?? null;
-  const totalShelfUnits = activeShelfItems.reduce((sum, item) => sum + item.quantity, 0);
-  const totalBackroomUnits = inventory.reduce((sum, item) => sum + Math.max(0, item.quantity - item.reserved_quantity), 0);
-  const shelfFillRatio = totalShelfUnits + totalBackroomUnits > 0 ? totalShelfUnits / (totalShelfUnits + totalBackroomUnits) : 0;
-  const shelfFlowRatio = totalShelfUnits > 0 ? totalBackroomUnits / Math.max(1, totalShelfUnits) : 0;
+  const inventorySummary = summarizeBusinessInventory(inventory, activeShelfItems);
+  const shelfFlowRatio = inventorySummary.shelfUnits > 0
+    ? inventorySummary.backroomUnits / Math.max(1, inventorySummary.shelfUnits)
+    : 0;
   const availableWorkersForSlots = thisBusinessEmployees
     .filter((employee) => {
       const assignment = getAssignmentForBusiness(employee);
@@ -1085,8 +1088,8 @@ export default function BusinessDetailsClient({
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 16 }}>
                     {[
-                      { label: "Shelf Fill", value: Math.round(shelfFillRatio * 100), color: "#22c55e", sub: `${totalShelfUnits} shelf / ${totalBackroomUnits} backroom` },
-                      { label: "Restock Readiness", value: Math.round(clamp(totalBackroomUnits / Math.max(1, totalShelfUnits + totalBackroomUnits), 0, 1) * 100), color: "#60a5fa", sub: `${totalBackroomUnits} units ready behind counter` },
+                      { label: "Shelf Fill", value: Math.round(inventorySummary.shelfFill * 100), color: "#22c55e", sub: `${inventorySummary.shelfUnits} shelf / ${inventorySummary.backroomUnits} backroom` },
+                      { label: "Restock Readiness", value: Math.round(clamp(inventorySummary.backroomUnits / Math.max(1, inventorySummary.shelfUnits + inventorySummary.backroomUnits), 0, 1) * 100), color: "#60a5fa", sub: `${inventorySummary.backroomUnits} units ready behind counter` },
                       { label: "Floor Flow", value: Math.round(clamp(shelfFlowRatio / 2, 0, 1) * 100), color: "#f59e0b", sub: shelfFlowRatio >= 1 ? "Backroom can fully refill floor" : "Shelf load running ahead of reserve" },
                     ].map((metric) => (
                       <div key={metric.label} style={{ display: "grid", gap: 6, padding: 12, borderRadius: 12, background: "var(--bg-elevated)" }}>

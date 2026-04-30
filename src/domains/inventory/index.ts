@@ -7,6 +7,7 @@ export {
 } from "./service";
 
 export { transferItemsSchema } from "./validations";
+export { summarizeBusinessInventory } from "./summary";
 
 export type {
   BusinessInventoryItem,
@@ -17,3 +18,4 @@ export type {
   TransferItemsInput,
   TransferOutcome,
 } from "./types";
+export type { BusinessInventorySummary } from "./summary";
