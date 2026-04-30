@@ -281,7 +281,15 @@ async function settleStoreInventorySale(
 
   const transactionId = String(txRow.id);
 
-  const { error: ledgerError } = await supabase.from("business_accounts").insert([
+  // business_accounts requires amount > 0; skip the fee debit when fee rounds to zero
+  const ledgerEntries: Array<{
+    business_id: string;
+    amount: number;
+    entry_type: string;
+    category: string;
+    description: string;
+    reference_id: string;
+  }> = [
     {
       business_id: shelfRow.business_id,
       amount: gross,
@@ -290,15 +298,18 @@ async function settleStoreInventorySale(
       description: `Storefront sale: ${soldQty}x ${shelfRow.item_key}`,
       reference_id: transactionId,
     },
-    {
+  ];
+  if (fee > 0) {
+    ledgerEntries.push({
       business_id: shelfRow.business_id,
       amount: fee,
       entry_type: "debit",
       category: "market_fee",
       description: `Storefront fee: ${soldQty}x ${shelfRow.item_key}`,
       reference_id: transactionId,
-    },
-  ]);
+    });
+  }
+  const { error: ledgerError } = await supabase.from("business_accounts").insert(ledgerEntries);
   if (ledgerError) throw ledgerError;
 
   const { error: financialEventsError } = await supabase.from("business_financial_events").insert([
@@ -400,7 +411,7 @@ async function writeStorefrontSnapshot(
     stockOutCount: number;
   }
 ) {
-  await supabase.from("market_storefront_performance_snapshots").insert({
+  const { error } = await supabase.from("market_storefront_performance_snapshots").insert({
     owner_player_id: input.ownerPlayerId,
     business_id: input.businessId,
     city_id: input.cityId,
@@ -417,6 +428,7 @@ async function writeStorefrontSnapshot(
     demand_multiplier: Number(input.demandMultiplier.toFixed(3)),
     stock_out_count: Math.max(0, Math.floor(input.stockOutCount)),
   });
+  if (error) throw error;
 }
 
 Deno.serve(async (request) => {
