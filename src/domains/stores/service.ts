@@ -1,6 +1,3 @@
-import { isStoreBusinessType } from "@/config/businesses";
-import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
-import { reconcileBusinessInventoryReservations } from "@/domains/inventory";
 import type { QueryClient } from "@/lib/db/query-client";
 import { toNumber } from "@/lib/core/number";
 import type {
@@ -17,35 +14,6 @@ function normalizeStoreShelfItem(row: StoreShelfItem): StoreShelfItem {
     quantity: Number(row.quantity),
     unit_price: toNumber(row.unit_price),
   };
-}
-
-async function updateInventoryReservation(
-  client: QueryClient,
-  inventoryRowId: string,
-  reservedQuantity: number
-) {
-  const { error } = await client
-    .from("business_inventory")
-    .update({
-      reserved_quantity: reservedQuantity,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", inventoryRowId);
-
-  if (error) throw error;
-}
-
-async function getOwnedShelfItem(client: QueryClient, playerId: string, shelfItemId: string): Promise<StoreShelfItem> {
-  const { data, error } = await client
-    .from("store_shelf_items")
-    .select("*")
-    .eq("owner_player_id", playerId)
-    .eq("id", shelfItemId)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) throw new Error("Shelf item not found.");
-  return normalizeStoreShelfItem(data as StoreShelfItem);
 }
 
 export async function getStoreShelfItems(
@@ -73,87 +41,18 @@ export async function upsertStoreShelfItem(
   playerId: string,
   input: UpsertStoreShelfItemInput
 ): Promise<StoreShelfItem> {
-  const business = await ensureOwnedBusinessType(
-    client,
-    playerId,
-    input.businessId,
-    isStoreBusinessType,
-    () => "Only store businesses can stock shelf items."
-  );
-  await reconcileBusinessInventoryReservations(client, playerId, business.id);
+  const { data, error } = await client.rpc("upsert_store_shelf_item_atomic", {
+    p_player_id: playerId,
+    p_business_id: input.businessId,
+    p_item_key: input.itemKey,
+    p_quality: input.quality,
+    p_quantity: input.quantity,
+    p_unit_price: input.unitPrice,
+  });
 
-  const { data: inventoryRow, error: inventoryError } = await client
-    .from("business_inventory")
-    .select("id, quantity, reserved_quantity")
-    .eq("owner_player_id", playerId)
-    .eq("business_id", business.id)
-    .eq("item_key", input.itemKey)
-    .eq("quality", input.quality)
-    .maybeSingle();
-
-  if (inventoryError) throw inventoryError;
-  if (!inventoryRow) throw new Error("Business inventory item not found for requested shelf item.");
-
-  const { data: existingShelfRow, error: existingShelfError } = await client
-    .from("store_shelf_items")
-    .select("*")
-    .eq("owner_player_id", playerId)
-    .eq("business_id", business.id)
-    .eq("item_key", input.itemKey)
-    .eq("quality", input.quality)
-    .maybeSingle();
-
-  if (existingShelfError) throw existingShelfError;
-
-  const inventoryQuantity = toNumber(inventoryRow.quantity);
-  const inventoryReserved = toNumber(inventoryRow.reserved_quantity);
-  const existingShelfQuantity = existingShelfRow ? toNumber(existingShelfRow.quantity) : 0;
-  const delta = input.quantity - existingShelfQuantity;
-  const availableOutsideShelf = inventoryQuantity - inventoryReserved;
-
-  if (delta > availableOutsideShelf) {
-    throw new Error("Not enough available inventory to stock that many items on the shelf.");
-  }
-
-  const nextReservedQuantity = Math.max(0, Math.min(inventoryQuantity, inventoryReserved + delta));
-  await updateInventoryReservation(client, inventoryRow.id, nextReservedQuantity);
-
-  try {
-    if (existingShelfRow) {
-      const { data, error } = await client
-        .from("store_shelf_items")
-        .update({
-          quantity: input.quantity,
-          unit_price: input.unitPrice,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", existingShelfRow.id)
-        .select("*")
-        .single();
-
-      if (error) throw error;
-      return normalizeStoreShelfItem(data as StoreShelfItem);
-    }
-
-    const { data, error } = await client
-      .from("store_shelf_items")
-      .insert({
-        owner_player_id: playerId,
-        business_id: business.id,
-        item_key: input.itemKey,
-        quality: input.quality,
-        quantity: input.quantity,
-        unit_price: input.unitPrice,
-      })
-      .select("*")
-      .single();
-
-    if (error) throw error;
-    return normalizeStoreShelfItem(data as StoreShelfItem);
-  } catch (error) {
-    await updateInventoryReservation(client, inventoryRow.id, inventoryReserved).catch(() => null);
-    throw error;
-  }
+  if (error) throw error;
+  if (!data) throw new Error("Shelf item was not saved.");
+  return normalizeStoreShelfItem(data as StoreShelfItem);
 }
 
 export async function removeStoreShelfItem(
@@ -161,35 +60,10 @@ export async function removeStoreShelfItem(
   playerId: string,
   input: RemoveStoreShelfItemInput
 ): Promise<void> {
-  const shelfItem = await getOwnedShelfItem(client, playerId, input.shelfItemId);
+  const { error } = await client.rpc("remove_store_shelf_item_atomic", {
+    p_player_id: playerId,
+    p_shelf_item_id: input.shelfItemId,
+  });
 
-  const { data: inventoryRow, error: inventoryError } = await client
-    .from("business_inventory")
-    .select("id, quantity, reserved_quantity")
-    .eq("owner_player_id", playerId)
-    .eq("business_id", shelfItem.business_id)
-    .eq("item_key", shelfItem.item_key)
-    .eq("quality", shelfItem.quality)
-    .maybeSingle();
-
-  if (inventoryError) throw inventoryError;
-
-  if (inventoryRow) {
-    const quantity = toNumber(inventoryRow.quantity);
-    const reserved = toNumber(inventoryRow.reserved_quantity);
-    const nextReserved = Math.max(0, Math.min(quantity, reserved - shelfItem.quantity));
-
-    const { error: updateInventoryError } = await client
-      .from("business_inventory")
-      .update({
-        reserved_quantity: nextReserved,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", inventoryRow.id);
-
-    if (updateInventoryError) throw updateInventoryError;
-  }
-
-  const { error: deleteError } = await client.from("store_shelf_items").delete().eq("id", shelfItem.id);
-  if (deleteError) throw deleteError;
+  if (error) throw error;
 }

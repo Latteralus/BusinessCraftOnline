@@ -23,7 +23,7 @@ import {
 } from "@/config/production";
 import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
 import { addBusinessAccountEntry, getBusinessBalance } from "@/domains/businesses/service";
-import { getEmployeeAssignment, getEmployeeById, getEmployeesByIds, getEmployeeStatusFromShift } from "@/domains/employees";
+import { getEmployeeById, getEmployeesByIds, getEmployeeStatusFromShift } from "@/domains/employees";
 import { getResolvedUpgradeEffects } from "@/domains/upgrades";
 import type { QueryClient } from "@/lib/db/query-client";
 import { toNumber } from "@/lib/core/number";
@@ -674,57 +674,15 @@ export async function assignExtractionSlot(
   playerId: string,
   input: AssignExtractionSlotInput
 ): Promise<ExtractionSlot> {
-  const slot = await getSlotByIdForPlayer(client, playerId, input.slotId);
-  if (slot.status === "retooling") {
-    throw new Error("Cannot assign a worker while this line is retooling.");
-  }
-
-  const employee = await getEmployeeById(client, playerId, input.employeeId);
-  if (!employee) throw new Error("Employee not found.");
-  if (employee.status === "fired") throw new Error("Cannot assign a fired employee.");
-  if (getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) !== "assigned") {
-    throw new Error("Employee must be active before slot assignment.");
-  }
-
-  const assignment = await getEmployeeAssignment(client, playerId, employee.id);
-  if (!assignment || assignment.business_id !== slot.business_id) {
-    throw new Error("Employee must be assigned to this business before slot assignment.");
-  }
-  if (assignment.role !== "production") {
-    throw new Error("Employee must be assigned with production role before slot assignment.");
-  }
-
-  const [{ data: existingSlot, error: existingSlotError }, { data: existingLine, error: existingLineError }] =
-    await Promise.all([
-      client.from("extraction_slots").select("id").eq("employee_id", employee.id).neq("id", slot.id).maybeSingle(),
-      client.from("manufacturing_lines").select("id").eq("employee_id", employee.id).maybeSingle(),
-    ]);
-  if (existingSlotError) throw existingSlotError;
-  if (existingLineError) throw existingLineError;
-  if (existingSlot || existingLine) {
-    throw new Error("Employee is already assigned to another production line.");
-  }
-
-  const { error: assignmentUpdateError } = await client
-    .from("employee_assignments")
-    .update({
-      slot_number: slot.slot_number,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", assignment.id);
-  if (assignmentUpdateError) throw assignmentUpdateError;
-
   const { data, error } = await client
-    .from("extraction_slots")
-    .update({
-      employee_id: employee.id,
-      status: resolveExtractionStatus({ ...slot, employee_id: employee.id }, slot.business_type),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", slot.id)
-    .select("*")
-    .single();
+    .rpc("assign_extraction_slot_worker_atomic", {
+      p_player_id: playerId,
+      p_slot_id: input.slotId,
+      p_employee_id: input.employeeId,
+    });
+
   if (error) throw error;
+  if (!data) throw new Error("Extraction slot assignment did not return a slot.");
   return normalizeSlot(data as ExtractionSlot);
 }
 
@@ -733,33 +691,14 @@ export async function unassignExtractionSlot(
   playerId: string,
   input: UnassignExtractionSlotInput
 ): Promise<ExtractionSlot> {
-  const slot = await getSlotByIdForPlayer(client, playerId, input.slotId);
-
-  if (slot.employee_id) {
-    const assignment = await getEmployeeAssignment(client, playerId, slot.employee_id);
-    if (assignment && assignment.business_id === slot.business_id && assignment.slot_number === slot.slot_number) {
-      const { error: assignmentUpdateError } = await client
-        .from("employee_assignments")
-        .update({
-          slot_number: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", assignment.id);
-      if (assignmentUpdateError) throw assignmentUpdateError;
-    }
-  }
-
   const { data, error } = await client
-    .from("extraction_slots")
-    .update({
-      employee_id: null,
-      status: slot.status === "retooling" ? "retooling" : "idle",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", slot.id)
-    .select("*")
-    .single();
+    .rpc("unassign_extraction_slot_worker_atomic", {
+      p_player_id: playerId,
+      p_slot_id: input.slotId,
+    });
+
   if (error) throw error;
+  if (!data) throw new Error("Extraction slot unassignment did not return a slot.");
   return normalizeSlot(data as ExtractionSlot);
 }
 
@@ -982,58 +921,18 @@ export async function assignManufacturingLine(
   playerId: string,
   input: AssignManufacturingLineInput
 ): Promise<ManufacturingLineWithDetails> {
-  const line = await getManufacturingLineByIdForPlayer(client, playerId, input.lineId);
-  const employee = await getEmployeeById(client, playerId, input.employeeId);
-  if (!employee) throw new Error("Employee not found.");
-  if (getEmployeeStatusFromShift(employee.status, employee.shift_ends_at) !== "assigned") {
-    throw new Error("Employee must be active before line assignment.");
-  }
-
-  const assignment = await getEmployeeAssignment(client, playerId, employee.id);
-  if (!assignment || assignment.business_id !== line.business_id || assignment.role !== "production") {
-    throw new Error("Employee must be assigned to this business with a production role.");
-  }
-
-  const [{ data: otherSlot, error: otherSlotError }, { data: otherLine, error: otherLineError }] =
-    await Promise.all([
-      client.from("extraction_slots").select("id").eq("employee_id", employee.id).maybeSingle(),
-      client.from("manufacturing_lines").select("id").eq("employee_id", employee.id).neq("id", line.id).maybeSingle(),
-    ]);
-  if (otherSlotError) throw otherSlotError;
-  if (otherLineError) throw otherLineError;
-  if (otherSlot || otherLine) {
-    throw new Error("Employee is already assigned to another production line.");
-  }
-
-  const { error: assignmentUpdateError } = await client
-    .from("employee_assignments")
-    .update({
-      slot_number: line.line_number,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", assignment.id);
-  if (assignmentUpdateError) throw assignmentUpdateError;
-
   const { data, error } = await client
-    .from("manufacturing_lines")
-    .update({
-      employee_id: employee.id,
-      worker_assigned: true,
-      status: resolveReadyManufacturingStatus({
-        ...line,
-        employee_id: employee.id,
-        worker_assigned: true,
-        status: line.status === "resting" ? "idle" : line.status,
-      }),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", line.id)
-    .select("*")
-    .single();
+    .rpc("assign_manufacturing_line_worker_atomic", {
+      p_player_id: playerId,
+      p_line_id: input.lineId,
+      p_employee_id: input.employeeId,
+    });
+
   if (error) throw error;
-  await syncLegacyManufacturingJobForBusiness(client, line.business_id);
+  if (!data) throw new Error("Manufacturing line assignment did not return a line.");
   const normalized = normalizeManufacturingLine(data as ManufacturingLine);
-  return getHydratedManufacturingLine(client, playerId, line.business_id, normalized.id);
+  await syncLegacyManufacturingJobForBusiness(client, normalized.business_id);
+  return getHydratedManufacturingLine(client, playerId, normalized.business_id, normalized.id);
 }
 
 export async function unassignManufacturingLine(
@@ -1041,36 +940,17 @@ export async function unassignManufacturingLine(
   playerId: string,
   input: UnassignManufacturingLineInput
 ): Promise<ManufacturingLineWithDetails> {
-  const line = await getManufacturingLineByIdForPlayer(client, playerId, input.lineId);
-  if (line.employee_id) {
-    const assignment = await getEmployeeAssignment(client, playerId, line.employee_id);
-    if (assignment && assignment.business_id === line.business_id && assignment.slot_number === line.line_number) {
-      const { error: assignmentUpdateError } = await client
-        .from("employee_assignments")
-        .update({
-          slot_number: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", assignment.id);
-      if (assignmentUpdateError) throw assignmentUpdateError;
-    }
-  }
-
   const { data, error } = await client
-    .from("manufacturing_lines")
-    .update({
-      employee_id: null,
-      worker_assigned: false,
-      status: line.status === "retooling" ? "retooling" : "idle",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", line.id)
-    .select("*")
-    .single();
+    .rpc("unassign_manufacturing_line_worker_atomic", {
+      p_player_id: playerId,
+      p_line_id: input.lineId,
+    });
+
   if (error) throw error;
-  await syncLegacyManufacturingJobForBusiness(client, line.business_id);
+  if (!data) throw new Error("Manufacturing line unassignment did not return a line.");
   const normalized = normalizeManufacturingLine(data as ManufacturingLine);
-  return getHydratedManufacturingLine(client, playerId, line.business_id, normalized.id);
+  await syncLegacyManufacturingJobForBusiness(client, normalized.business_id);
+  return getHydratedManufacturingLine(client, playerId, normalized.business_id, normalized.id);
 }
 
 export async function setManufacturingRecipe(

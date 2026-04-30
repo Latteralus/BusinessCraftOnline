@@ -1,9 +1,6 @@
 import {
-  calculateHourlyWage,
   SHIFT_LIMIT_HOURS,
-  type EmployeeSkillKey,
   type EmployeeStatus,
-  type EmployeeType,
 } from "@/config/employees";
 import type { BusinessType } from "@/config/businesses";
 import {
@@ -15,7 +12,6 @@ import {
 } from "@/config/production";
 import { addBusinessAccountEntry, getBusinessBalance } from "@/domains/businesses";
 import { syncManufacturingWorkerAssigned } from "@/domains/_shared/manufacturing-workers";
-import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
 import { getWorkerEffectiveStatus } from "./worker-state";
 import type { QueryClient } from "@/lib/db/query-client";
 import { toNumber } from "@/lib/core/number";
@@ -81,50 +77,6 @@ type OpenManufacturingLineRow = {
   line_number: number | string;
   configured_recipe_key: string | null;
 };
-
-async function ensureBusinessBelongsToPlayer(
-  client: QueryClient,
-  playerId: string,
-  businessId: string
-): Promise<void> {
-  await ensureOwnedBusiness(client, playerId, businessId);
-}
-
-async function clearEmployeeExtractionSlots(client: QueryClient, employeeId: string): Promise<void> {
-  const now = new Date().toISOString();
-
-  // Retooling slots: only remove the employee, the retool continues without one
-  const { error: retoolingSlotError } = await client
-    .from("extraction_slots")
-    .update({ employee_id: null, updated_at: now })
-    .eq("employee_id", employeeId)
-    .eq("status", "retooling");
-  if (retoolingSlotError) throw retoolingSlotError;
-
-  // All other slots: remove employee and set to idle
-  const { error: idleSlotError } = await client
-    .from("extraction_slots")
-    .update({ employee_id: null, status: "idle", updated_at: now })
-    .eq("employee_id", employeeId)
-    .neq("status", "retooling");
-  if (idleSlotError) throw idleSlotError;
-
-  // Retooling manufacturing lines: only remove the employee
-  const { error: retoolingLineError } = await client
-    .from("manufacturing_lines")
-    .update({ employee_id: null, worker_assigned: false, updated_at: now })
-    .eq("employee_id", employeeId)
-    .eq("status", "retooling");
-  if (retoolingLineError) throw retoolingLineError;
-
-  // All other manufacturing lines: remove employee and set to idle
-  const { error: idleLineError } = await client
-    .from("manufacturing_lines")
-    .update({ employee_id: null, worker_assigned: false, status: "idle", updated_at: now })
-    .eq("employee_id", employeeId)
-    .neq("status", "retooling");
-  if (idleLineError) throw idleLineError;
-}
 
 function getRestoredExtractionStatus(
   slot: OpenExtractionSlotRow,
@@ -435,71 +387,28 @@ export async function assignEmployee(
   playerId: string,
   input: AssignEmployeeInput
 ): Promise<EmployeeWithDetails> {
-  const employee = await getEmployeeById(client, playerId, input.employeeId);
-  if (!employee) throw new Error("Employee not found.");
-  if (employee.status === "fired") throw new Error("Cannot assign a fired employee.");
-  if (employee.status === "unpaid") {
-    throw new Error("Cannot assign an unpaid employee until wages are settled.");
+  const { data, error } = await client.rpc("assign_employee_atomic", {
+    p_player_id: playerId,
+    p_employee_id: input.employeeId,
+    p_business_id: input.businessId,
+    p_role: input.role,
+    p_slot_number: input.slotNumber ?? null,
+    p_wage_variance: input.wageVariance ?? 0,
+    p_role_skill_key: input.roleSkillKey ?? "logistics",
+  });
+
+  if (error) throw error;
+  const result = data as { employee?: Employee; assignment?: EmployeeAssignment } | null;
+  if (!result?.employee || !result.assignment) {
+    throw new Error("Employee assignment did not return an employee and assignment.");
   }
-  if (employee.employer_business_id && employee.employer_business_id !== input.businessId) {
-    throw new Error("Employee belongs to a different business and cannot be reassigned.");
-  }
-
-  await ensureBusinessBelongsToPlayer(client, playerId, input.businessId);
-
-  const existingAssignment = await getEmployeeAssignment(client, playerId, employee.id);
-  if (existingAssignment) {
-    throw new Error("Employee is already assigned.");
-  }
-
-  const skills = await getEmployeeSkills(client, playerId, employee.id);
-  const relevantSkillKey: EmployeeSkillKey = input.roleSkillKey ?? "logistics";
-  const roleSkillLevel = skills.find((skill) => skill.skill_key === relevantSkillKey)?.level ?? 1;
-
-  const wagePerHour = calculateHourlyWage(
-    employee.employee_type,
-    roleSkillLevel,
-    input.wageVariance ?? 0
-  );
-
-  const { data: assignmentRow, error: assignmentError } = await client
-    .from("employee_assignments")
-    .insert({
-      employee_id: employee.id,
-      business_id: input.businessId,
-      role: input.role,
-      slot_number: input.slotNumber ?? null,
-      wage_per_hour: wagePerHour,
-    })
-    .select("*")
-    .single();
-
-  if (assignmentError) throw assignmentError;
-
-  const shiftHours = SHIFT_LIMIT_HOURS[employee.employee_type];
-  const nextShiftEndsAt = addHoursToNow(shiftHours);
-
-  const { data: updatedEmployeeRow, error: updateEmployeeError } = await client
-    .from("employees")
-    .update({
-      employer_business_id: input.businessId,
-      wage_per_hour: wagePerHour,
-      status: "assigned",
-      shift_ends_at: nextShiftEndsAt,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", employee.id)
-    .eq("player_id", playerId)
-    .select("*")
-    .single();
-
-  if (updateEmployeeError) throw updateEmployeeError;
 
   await syncManufacturingWorkerAssigned(client, input.businessId);
+  const skills = await getEmployeeSkills(client, playerId, input.employeeId);
 
   return {
-    ...normalizeEmployee(updatedEmployeeRow as Employee),
-    assignment: normalizeAssignment(assignmentRow as EmployeeAssignment),
+    ...normalizeEmployee(result.employee),
+    assignment: normalizeAssignment(result.assignment),
     skills,
   };
 }
@@ -551,42 +460,25 @@ export async function unassignEmployee(
   playerId: string,
   input: UnassignEmployeeInput
 ): Promise<EmployeeWithDetails> {
-  const employee = await getEmployeeById(client, playerId, input.employeeId);
-  if (!employee) throw new Error("Employee not found.");
+  const { data, error } = await client.rpc("unassign_employee_atomic", {
+    p_player_id: playerId,
+    p_employee_id: input.employeeId,
+  });
 
-  const assignment = await getEmployeeAssignment(client, playerId, employee.id);
-  if (!assignment) throw new Error("Employee is not assigned.");
-  const assignedBusinessId = assignment.business_id;
+  if (error) throw error;
+  const result = data as { employee?: Employee; assigned_business_id?: string | null } | null;
+  if (!result?.employee) {
+    throw new Error("Employee unassignment did not return an employee.");
+  }
 
-  const { error: deleteAssignmentError } = await client
-    .from("employee_assignments")
-    .delete()
-    .eq("id", assignment.id)
-    .eq("employee_id", employee.id);
+  if (result.assigned_business_id) {
+    await syncManufacturingWorkerAssigned(client, result.assigned_business_id);
+  }
 
-  if (deleteAssignmentError) throw deleteAssignmentError;
-  await clearEmployeeExtractionSlots(client, employee.id);
-
-  const { data: updatedEmployeeRow, error: updateEmployeeError } = await client
-    .from("employees")
-    .update({
-      status: "available",
-      shift_ends_at: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", employee.id)
-    .eq("player_id", playerId)
-    .select("*")
-    .single();
-
-  if (updateEmployeeError) throw updateEmployeeError;
-
-  await syncManufacturingWorkerAssigned(client, assignedBusinessId);
-
-  const skills = await getEmployeeSkills(client, playerId, employee.id);
+  const skills = await getEmployeeSkills(client, playerId, input.employeeId);
 
   return {
-    ...normalizeEmployee(updatedEmployeeRow as Employee),
+    ...normalizeEmployee(result.employee),
     assignment: null,
     skills,
   };
@@ -597,44 +489,23 @@ export async function fireEmployee(
   playerId: string,
   input: FireEmployeeInput
 ): Promise<EmployeeWithDetails> {
-  const employee = await getEmployeeById(client, playerId, input.employeeId);
-  if (!employee) throw new Error("Employee not found.");
+  const { data, error } = await client.rpc("fire_employee_atomic", {
+    p_player_id: playerId,
+    p_employee_id: input.employeeId,
+  });
 
-  const assignment = await getEmployeeAssignment(client, playerId, employee.id);
-  const assignedBusinessId = assignment?.business_id ?? null;
-  if (assignment) {
-    const { error: deleteAssignmentError } = await client
-      .from("employee_assignments")
-      .delete()
-      .eq("id", assignment.id)
-      .eq("employee_id", employee.id);
-
-    if (deleteAssignmentError) throw deleteAssignmentError;
+  if (error) throw error;
+  const result = data as { employee?: Employee; assigned_business_id?: string | null } | null;
+  if (!result?.employee) {
+    throw new Error("Employee firing did not return an employee.");
   }
 
-  await clearEmployeeExtractionSlots(client, employee.id);
-
-  const { error: deleteSkillsError } = await client
-    .from("employee_skills")
-    .delete()
-    .eq("employee_id", employee.id);
-
-  if (deleteSkillsError) throw deleteSkillsError;
-
-  const { error: deleteEmployeeError } = await client
-    .from("employees")
-    .delete()
-    .eq("id", employee.id)
-    .eq("player_id", playerId);
-
-  if (deleteEmployeeError) throw deleteEmployeeError;
-
-  if (assignedBusinessId) {
-    await syncManufacturingWorkerAssigned(client, assignedBusinessId);
+  if (result.assigned_business_id) {
+    await syncManufacturingWorkerAssigned(client, result.assigned_business_id);
   }
 
   return {
-    ...employee,
+    ...normalizeEmployee(result.employee),
     status: "fired",
     shift_ends_at: null,
     assignment: null,
