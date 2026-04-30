@@ -722,9 +722,12 @@ export async function buyMarketListing(
     const addedQuantity = Math.max(1, transaction.quantity);
     const existingQuantity = Math.max(0, postPurchaseQuantity - addedQuantity);
     const purchaseUnitCost = addedQuantity > 0 ? round2(transaction.gross_total / addedQuantity) : 0;
+    // execute_market_purchase only increments quantity — it does NOT update total_cost.
+    // So total_cost still reflects the pre-purchase state; use it directly as the
+    // existing cost basis rather than subtracting gross_total (which was never added).
     const existingTotalCost = destinationInventory.total_cost === undefined || destinationInventory.total_cost === null
       ? existingQuantity * toNumber(destinationInventory.unit_cost)
-      : Math.max(0, toNumber(destinationInventory.total_cost) - transaction.gross_total);
+      : toNumber(destinationInventory.total_cost);
     const next = computeWeightedAverageCost({
       existingQuantity,
       existingTotalCost,

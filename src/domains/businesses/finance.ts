@@ -53,11 +53,13 @@ type StorefrontSnapshotRow = {
   id: string;
   business_id: string;
   shoppers_generated: number | string;
+  buyers_count: number | string | null;
   sales_count: number | string;
   units_sold: number | string;
   gross_revenue: number | string;
   fee_total: number | string;
   ad_spend: number | string;
+  stock_out_count: number | string | null;
   captured_at: string;
 };
 
@@ -74,11 +76,13 @@ type StorefrontTransactionRow = {
 
 type StorefrontPeriodEvidence = {
   shoppersGenerated: number;
+  buyersCount: number;
   salesCount: number;
   unitsSold: number;
   grossRevenue: number;
   feeTotal: number;
   adSpend: number;
+  stockOutCount: number;
 };
 
 type LedgerEvent = {
@@ -187,12 +191,14 @@ export type BusinessFinancePeriodSnapshot = {
   };
   storefront: {
     shoppersGenerated: number;
+    buyersCount: number;
     salesCount: number;
     unitsSold: number;
     grossRevenue: number;
     feeTotal: number;
     adSpend: number;
     netRevenue: number;
+    stockOutCount: number;
     conversionRate: number | null;
     averageTicket: number | null;
   };
@@ -445,11 +451,13 @@ function normalizeStorefrontSnapshotRow(row: StorefrontSnapshotRow) {
   return {
     ...row,
     shoppers_generated: Number(row.shoppers_generated),
+    buyers_count: row.buyers_count === null || row.buyers_count === undefined ? 0 : Number(row.buyers_count),
     sales_count: Number(row.sales_count),
     units_sold: Number(row.units_sold),
     gross_revenue: toNumber(row.gross_revenue),
     fee_total: toNumber(row.fee_total),
     ad_spend: toNumber(row.ad_spend),
+    stock_out_count: row.stock_out_count === null || row.stock_out_count === undefined ? 0 : Number(row.stock_out_count),
   };
 }
 
@@ -464,11 +472,13 @@ function normalizeStorefrontTransactionRow(row: StorefrontTransactionRow) {
 
 function buildStorefrontEvidence(input: {
   snapshotShoppersGenerated: number;
+  snapshotBuyersCount: number;
   snapshotSalesCount: number;
   snapshotUnitsSold: number;
   snapshotGrossRevenue: number;
   snapshotFeeTotal: number;
   snapshotAdSpend: number;
+  snapshotStockOutCount: number;
   transactionSalesCount: number;
   transactionUnitsSold: number;
   transactionGrossRevenue: number;
@@ -476,43 +486,37 @@ function buildStorefrontEvidence(input: {
   ledgerSalesCount: number;
   ledgerGrossRevenue: number;
   ledgerFeeTotal: number;
-  eventRevenue: number;
-  eventCogs: number;
-  eventFeeTotal: number;
 }): StorefrontPeriodEvidence {
-  const salesCount = Math.max(
-    input.snapshotSalesCount,
-    input.transactionSalesCount,
-    input.ledgerSalesCount
-  );
-  const unitsSold = Math.max(
-    input.snapshotUnitsSold,
-    input.transactionUnitsSold
-  );
+  // Prefer the transaction table as the authoritative source for counts/revenue —
+  // it is written atomically per-sale and is the most reliable signal.  Fall back
+  // to snapshot (aggregate per-subtick) or ledger (cash basis) when transactions
+  // are unavailable, but never inflate by taking Math.max across all sources.
+  const salesCount = input.transactionSalesCount > 0
+    ? input.transactionSalesCount
+    : Math.max(input.snapshotSalesCount, input.ledgerSalesCount);
+  const unitsSold = input.transactionUnitsSold > 0
+    ? input.transactionUnitsSold
+    : input.snapshotUnitsSold;
   const grossRevenue = round2(
-    Math.max(
-      input.snapshotGrossRevenue,
-      input.transactionGrossRevenue,
-      input.ledgerGrossRevenue,
-      input.eventRevenue
-    )
+    input.transactionGrossRevenue > 0
+      ? input.transactionGrossRevenue
+      : Math.max(input.snapshotGrossRevenue, input.ledgerGrossRevenue)
   );
   const feeTotal = round2(
-    Math.max(
-      input.snapshotFeeTotal,
-      input.transactionFeeTotal,
-      input.ledgerFeeTotal,
-      input.eventFeeTotal
-    )
+    input.transactionFeeTotal > 0
+      ? input.transactionFeeTotal
+      : Math.max(input.snapshotFeeTotal, input.ledgerFeeTotal)
   );
 
   return {
     shoppersGenerated: input.snapshotShoppersGenerated,
+    buyersCount: input.snapshotBuyersCount,
     salesCount,
     unitsSold,
     grossRevenue,
     feeTotal,
     adSpend: input.snapshotAdSpend,
+    stockOutCount: input.snapshotStockOutCount,
   };
 }
 
@@ -1011,26 +1015,22 @@ export async function getBusinessFinanceDashboard(
             transferRevenueReferenceIds.has(row.referenceId)
           )
       );
-      const recentEvents = [...recentLedger, ...financialInRange]
+      // Exclude storefront_sale financial events — they are internal double-entry journal
+      // entries (revenue, cogs, inventory, operating_expense) already represented by the
+      // business_accounts ledger entries and market_transactions rows. Showing them
+      // produces 4–7 duplicate lines per sale in the user-facing transaction log.
+      const financialForLog = financialInRange.filter(
+        (row) => row.referenceType !== "storefront_sale"
+      );
+      const recentEvents = [...recentLedger, ...financialForLog]
         .sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt))
         .slice(0, 30)
         .map(toRecentEvent);
-      const storefrontTransactionEvents = storefrontTransactionsInRange
-        .slice()
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))
-        .slice(0, 30)
-        .map((row) => ({
-          id: `storefront-tx-${row.id}`,
-          occurredAt: row.created_at,
-          label: `Storefront sale cleared, ${formatQuantity(row.quantity, row.item_key)}`,
-          amount: round2(row.gross_total),
-          accountCode: "revenue",
-          source: "ledger" as const,
-          sourceLabel: "Storefront Transaction",
-          accountLabel: "Revenue",
-          postingType: "credit" as const,
-        }));
-      const mergedRecentEvents = [...recentEvents, ...storefrontTransactionEvents]
+      // storefrontTransactionEvents (market_transactions rows) are intentionally NOT merged
+      // here — each NPC storefront sale already appears in recentLedger as an npc_sale credit
+      // (and optionally a market_fee debit) from business_accounts.  Adding market_transactions
+      // on top would produce two entries per sale in the user-facing log.
+      const mergedRecentEvents = recentEvents
         .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
         .slice(0, 10);
 
