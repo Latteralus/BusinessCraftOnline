@@ -4,7 +4,8 @@
       "Bash(npx tsc *)",
       "Bash(xargs wc *)",
       "Bash(xargs ls *)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(npx supabase *)"
     ]
   }
 }
