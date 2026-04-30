@@ -18,6 +18,7 @@ import { cookies } from "next/headers";
 import { DashboardClock } from "@/components/dashboard/DashboardClock";
 import { DashboardGreeting } from "@/components/dashboard/DashboardGreeting";
 import { ActiveOperationsCard } from "@/components/dashboard/ActiveOperationsCard";
+import { DashboardTravelWidget } from "@/components/dashboard/DashboardTravelWidget";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatItemKey } from "@/lib/items";
@@ -537,15 +538,11 @@ export default async function DashboardPage() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 10-16 0c0 3 2.7 7 8 11.7z"/></svg>
               <span>Current Location</span>
             </div>
-            <div className="travel-location">
-              <div className="travel-city">📍 {currentCity?.name ?? "Unknown"}</div>
-            </div>
-            <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>Travel Status:</div>
-            <div className="travel-cities-row">
-              <div className="city-chip current">
-                {activeTravel ? `Traveling to ${destinationCity?.name ?? "destination"} (${travelRemainingMinutes}m left)` : "Stationary"}
-              </div>
-            </div>
+            <DashboardTravelWidget
+              initialActiveTravel={activeTravel}
+              initialDestinationCityName={destinationCity?.name ?? null}
+              initialCurrentCityName={currentCity?.name ?? null}
+            />
           </div>
 
           <Suspense fallback={<DashboardCardFallback title="Market Watch" className="card anim anim-d6" style={{ flex: 1 }} action={<Link href="/market" prefetch={false} className="card-action">Full Market →</Link>} />}>

@@ -1,7 +1,7 @@
 "use client";
 
+import { useNowMs } from "@/hooks/use-now-ms";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 
 type ActiveOperation = {
   id: string;
@@ -54,17 +54,7 @@ function formatCountdown(lastProgressAt: string | null, intervalSeconds: number,
 }
 
 export function ActiveOperationsCard({ operations }: Props) {
-  const [nowMs, setNowMs] = useState<number | null>(null);
-
-  useEffect(() => {
-    setNowMs(Date.now());
-
-    const interval = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
-
-    return () => window.clearInterval(interval);
-  }, []);
+  const nowMs = useNowMs();
 
   return (
     <div className="card anim anim-d4">

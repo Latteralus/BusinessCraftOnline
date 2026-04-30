@@ -5,9 +5,10 @@ import { supportsManufacturing } from "@/domains/businesses";
 import type { ManufacturingStatusView } from "@/domains/production";
 import { apiGet } from "@/lib/client/api";
 import type { ProductionPageData } from "@/lib/client/queries";
+import { useNowMs } from "@/hooks/use-now-ms";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useGameStore, useProductionSlice } from "@/stores/game-store";
 
 type Props = {
@@ -56,7 +57,7 @@ export default function ProductionClient({ initialData }: Props) {
   const [selectedBusinessId, setSelectedBusinessId] = useState(production.selectedBusinessId || initialData.selectedBusinessId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [nowMs, setNowMs] = useState(Date.now());
+  const nowMs = useNowMs() ?? Date.now();
   const manufacturing =
     selectedBusinessId === production.selectedBusinessId
       ? production.manufacturing
@@ -69,13 +70,6 @@ export default function ProductionClient({ initialData }: Props) {
       businesses.filter((business) => supportsManufacturing(business.type)),
     [businesses]
   );
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, []);
 
   async function loadBusinessStatus(businessId: string) {
     const payload = await apiGet<ManufacturingResponse>(`/api/production/manufacturing?businessId=${businessId}`, {

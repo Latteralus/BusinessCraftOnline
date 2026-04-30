@@ -9,9 +9,10 @@ import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { formatItemKey } from "@/lib/items";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
+import { useNowMs } from "@/hooks/use-now-ms";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useInventorySlice } from "@/stores/game-store";
 
 type Props = {
@@ -193,15 +194,7 @@ export default function InventoryClient({ initialData }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [nowMs, setNowMs] = useState(Date.now());
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
-
-    return () => window.clearInterval(interval);
-  }, []);
+  const nowMs = useNowMs() ?? Date.now();
 
   const businessOptions = useMemo(
     () =>

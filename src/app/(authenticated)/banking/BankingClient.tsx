@@ -15,6 +15,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { useBankingSlice, useGameStore } from "@/stores/game-store";
 import type { BankingSliceData } from "@/stores/game-store";
+import { useAccruingValue } from "@/hooks/use-accruing-value";
 import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
 import { removeEntityById, restoreEntityById, runOptimisticUpdate } from "@/stores/optimistic";
 
@@ -240,6 +241,9 @@ export default function BankingClient({ initialData }: Props) {
   );
   const totalPersonalFunds = useMemo(() => accounts.reduce((sum, account) => sum + account.balance, 0), [accounts]);
   const businessTreasury = useMemo(() => businesses.reduce((sum, business) => sum + business.balance, 0), [businesses]);
+  const bankingSyncedAt = useGameStore((state) => state.banking.lastUpdated) ?? Date.now();
+  const displayPersonalFunds = useAccruingValue(totalPersonalFunds, bankingSyncedAt);
+  const displayBusinessTreasury = useAccruingValue(businessTreasury, bankingSyncedAt);
   const recentCredits = useMemo(
     () => transactions.filter((entry) => entry.direction === "credit").reduce((sum, entry) => sum + entry.amount, 0),
     [transactions]
@@ -674,8 +678,8 @@ export default function BankingClient({ initialData }: Props) {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 18 }}>
-          <BankingMetric label="Personal Funds" value={formatCurrency(totalPersonalFunds)} sub={`${formatCurrency(checkingAccount?.balance ?? 0)} in checking`} tone="positive" />
-          <BankingMetric label="Business Treasury" value={formatCurrency(businessTreasury)} sub={`${businesses.length} owned operating accounts`} tone="accent" />
+          <BankingMetric label="Personal Funds" value={formatCurrency(displayPersonalFunds)} sub={`${formatCurrency(checkingAccount?.balance ?? 0)} in checking`} tone="positive" />
+          <BankingMetric label="Business Treasury" value={formatCurrency(displayBusinessTreasury)} sub={`${businesses.length} owned operating accounts`} tone="accent" />
           <BankingMetric
             label="Loan Exposure"
             value={formatCurrency(loanSummary?.loan.balance_remaining ?? 0)}

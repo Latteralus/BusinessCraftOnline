@@ -2,6 +2,7 @@
 
 import type { City, TravelQuote, TravelState } from "@/domains/cities-travel";
 import { TooltipLabel } from "@/components/ui/tooltip";
+import { useNowMs } from "@/hooks/use-now-ms";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cancelTravelAction, getTravelQuoteAction, startTravelAction } from "./actions";
@@ -40,27 +41,15 @@ export default function TravelClient({ cities, travelState: initialTravelState }
   const [selectedCityId, setSelectedCityId] = useState<string>("");
   const [quote, setQuote] = useState<TravelQuote | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [nowMs, setNowMs] = useState(Date.now());
+  const nowMs = useNowMs() ?? Date.now();
   const [error, setError] = useState<string | null>(null);
   const arrivalHandledRef = useRef(false);
   const activeTravelEta = storeTravelState.activeTravel?.arrives_at ?? null;
 
+  // Reset the handled flag whenever a new trip begins.
   useEffect(() => {
-    setNowMs(Date.now());
     arrivalHandledRef.current = false;
   }, [activeTravelEta]);
-
-  useEffect(() => {
-    if (!storeTravelState.activeTravel) {
-      return;
-    }
-
-    const timer = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [storeTravelState.activeTravel]);
 
   useEffect(() => {
     if (!activeTravelEta || arrivalHandledRef.current) {
