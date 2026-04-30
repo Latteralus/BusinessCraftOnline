@@ -24,28 +24,36 @@ export const NPC_DEMAND_CURVE = [
 export const NPC_SHOPPER_TIERS = [
   {
     key: "small",
-    spawnWeight: 0.65,
+    spawnWeight: 0.55,
     budgetMin: 5,
     budgetMax: 40,
-    maxItemsMin: 1,
-    maxItemsMax: 5,
+    maxItemsMin: 2,
+    maxItemsMax: 6,
   },
   {
     key: "medium",
-    spawnWeight: 0.28,
+    spawnWeight: 0.35,
     budgetMin: 40,
     budgetMax: 100,
-    maxItemsMin: 5,
-    maxItemsMax: 15,
+    maxItemsMin: 4,
+    maxItemsMax: 12,
   },
   {
     key: "large",
-    spawnWeight: 0.07,
+    spawnWeight: 0.10,
     budgetMin: 100,
     budgetMax: 200,
-    maxItemsMin: 15,
-    maxItemsMax: 25,
+    maxItemsMin: 8,
+    maxItemsMax: 20,
   },
+] as const;
+
+export const NPC_BASKET_SIZE_DISTRIBUTION = [
+  { min: 1, max: 1, weight: 0.10 },
+  { min: 2, max: 3, weight: 0.30 },
+  { min: 4, max: 6, weight: 0.35 },
+  { min: 7, max: 10, weight: 0.18 },
+  { min: 11, max: 20, weight: 0.07 },
 ] as const;
 
 export const NPC_PRICE_SENSITIVITY_MIN = 0.7;

@@ -9,7 +9,6 @@ import {
   isStoreBusinessType,
 } from "../../../shared/businesses/store.ts";
 import {
-  STOREFRONT_CONTINUE_SHOPPING_CHANCE,
   STOREFRONT_DEFAULT_ITEM_INTEREST_WEIGHT,
   STOREFRONT_ITEM_INTEREST_WEIGHT_BY_ITEM,
   clampStorefrontTrafficMultiplier,
@@ -17,6 +16,7 @@ import {
   getStorefrontShelfPurchaseScore,
 } from "../_shared/store-config.ts";
 import {
+  NPC_BASKET_SIZE_DISTRIBUTION,
   NPC_STOREFRONT_FEE,
   NPC_DEMAND_CURVE,
   NPC_PRICE_BAND_PERCENT,
@@ -384,6 +384,7 @@ async function writeStorefrontSnapshot(
     tickWindowStartedAt: string;
     subTickIndex: number;
     shoppersGenerated: number;
+    buyersCount: number;
     salesCount: number;
     unitsSold: number;
     grossRevenue: number;
@@ -391,6 +392,7 @@ async function writeStorefrontSnapshot(
     adSpend: number;
     trafficMultiplier: number;
     demandMultiplier: number;
+    stockOutCount: number;
   }
 ) {
   await supabase.from("market_storefront_performance_snapshots").insert({
@@ -400,6 +402,7 @@ async function writeStorefrontSnapshot(
     tick_window_started_at: input.tickWindowStartedAt,
     sub_tick_index: input.subTickIndex,
     shoppers_generated: Math.max(0, Math.floor(input.shoppersGenerated)),
+    buyers_count: Math.max(0, Math.floor(input.buyersCount)),
     sales_count: Math.max(0, Math.floor(input.salesCount)),
     units_sold: Math.max(0, Math.floor(input.unitsSold)),
     gross_revenue: round2(Math.max(0, input.grossRevenue)),
@@ -407,6 +410,7 @@ async function writeStorefrontSnapshot(
     ad_spend: round2(Math.max(0, input.adSpend)),
     traffic_multiplier: Number(input.trafficMultiplier.toFixed(3)),
     demand_multiplier: Number(input.demandMultiplier.toFixed(3)),
+    stock_out_count: Math.max(0, Math.floor(input.stockOutCount)),
   });
 }
 
@@ -460,9 +464,11 @@ Deno.serve(async (request) => {
 
     for (const store of stores ?? []) {
       let storeSalesCount = 0;
+      let storeBuyersCount = 0;
       let storeUnitsSold = 0;
       let storeGrossRevenue = 0;
       let storeFeeTotal = 0;
+      let storeStockOutCount = 0;
       const isStoreType = isStoreBusinessType(String(store.type));
       const effects = isStoreType
         ? await getResolvedBusinessUpgradeEffects(supabase, store.id, store.type)
@@ -587,6 +593,7 @@ Deno.serve(async (request) => {
         tickWindowStartedAt,
         subTickIndex,
         shoppersGenerated: shoppersThisSubtick,
+        buyersCount: 0,
         salesCount: 0,
         unitsSold: 0,
         grossRevenue: 0,
@@ -594,12 +601,14 @@ Deno.serve(async (request) => {
         adSpend: adBudgetApplied,
         trafficMultiplier: trafficMultiplier * configuredTrafficMultiplier * adBoostMultiplier,
         demandMultiplier,
+        stockOutCount: 0,
       });
       storesProcessed += 1;
       continue;
     }
 
     const usedShopperNames = new Set<string>();
+    const buyersThisSubtick = new Set<string>();
 
     for (let shopperIndex = 0; shopperIndex < shoppersThisSubtick; shopperIndex += 1) {
       const tier = pickWeighted(NPC_SHOPPER_TIERS as unknown as Array<(typeof NPC_SHOPPER_TIERS)[number]>, (row) => row.spawnWeight, seededRng);
@@ -616,11 +625,22 @@ Deno.serve(async (request) => {
       );
       const shopperName = makeNpcShopperName(seededRng, usedShopperNames);
 
+      // Pre-determine this shopper's basket size from the distribution, capped by tier max
+      const basketBucket = pickWeighted(
+        NPC_BASKET_SIZE_DISTRIBUTION as unknown as Array<(typeof NPC_BASKET_SIZE_DISTRIBUTION)[number]>,
+        (bucket) => bucket.weight,
+        seededRng
+      );
+      const sessionTarget = Math.min(
+        shopperMaxItems,
+        randomIntWithRng(seededRng, basketBucket.min, basketBucket.max)
+      );
+
       let remainingBudget = shopperBudget;
       let remainingItems = shopperMaxItems;
-      const desiredPurchases = Math.max(1, Math.min(6, shopperMaxItems));
+      let shopperHasBought = false;
 
-      for (let purchaseAttempt = 0; purchaseAttempt < desiredPurchases; purchaseAttempt += 1) {
+      for (let purchaseAttempt = 0; purchaseAttempt < sessionTarget; purchaseAttempt += 1) {
         const activeRows = availableRows.filter((row) => toNumber(row.backed_quantity) > 0);
         if (activeRows.length === 0 || remainingItems <= 0 || remainingBudget <= 0) break;
 
@@ -708,6 +728,11 @@ Deno.serve(async (request) => {
           )
         );
 
+        // Track stock-out when an item reaches zero after this sale
+        if (toNumber(chosen.backed_quantity) === 0) {
+          storeStockOutCount += 1;
+        }
+
         remainingBudget = round2(Math.max(0, remainingBudget - settled.gross));
         remainingItems = Math.max(0, remainingItems - soldQty);
         salesCount += 1;
@@ -719,10 +744,14 @@ Deno.serve(async (request) => {
         feeTotal += settled.fee;
         storeFeeTotal += settled.fee;
 
-        const continueShoppingChance = remainingItems > 0 ? STOREFRONT_CONTINUE_SHOPPING_CHANCE : 0;
-        if (seededRng() > continueShoppingChance) break;
+        if (!shopperHasBought) {
+          shopperHasBought = true;
+          buyersThisSubtick.add(shopperName);
+        }
       }
     }
+
+    storeBuyersCount = buyersThisSubtick.size;
 
       await writeStorefrontSnapshot(supabase, {
         ownerPlayerId: store.player_id,
@@ -731,6 +760,7 @@ Deno.serve(async (request) => {
         tickWindowStartedAt,
         subTickIndex,
         shoppersGenerated: shoppersThisSubtick,
+        buyersCount: storeBuyersCount,
         salesCount: storeSalesCount,
         unitsSold: storeUnitsSold,
         grossRevenue: storeGrossRevenue,
@@ -738,6 +768,7 @@ Deno.serve(async (request) => {
         adSpend: adBudgetApplied,
         trafficMultiplier: trafficMultiplier * configuredTrafficMultiplier * adBoostMultiplier,
         demandMultiplier,
+        stockOutCount: storeStockOutCount,
       });
 
       storesProcessed += 1;

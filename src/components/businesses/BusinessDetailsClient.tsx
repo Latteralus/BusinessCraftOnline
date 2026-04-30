@@ -12,12 +12,13 @@ import type { StoreShelfItem } from "@/domains/stores";
 import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import { calculateUpgradePreview, formatInstallTimeMinutes } from "@/domains/upgrades";
 import { BASE_WAGE_PER_HOUR, HIRE_COSTS } from "@/config/employees";
-import { apiDelete, apiPatch, apiPost } from "@/lib/client/api";
+import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/client/api";
 import { fetchBusinessDetailsSection } from "@/lib/client/queries";
 import { apiRoutes } from "@/lib/client/routes";
 import type { BusinessDetailsSection } from "@/lib/business-details-data";
 import { getNpcBuyerPriceRange, getNpcSuggestedBasePrice } from "@/config/items";
 import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatters";
+import type { StorefrontPerformanceBusinessSummary } from "@/domains/market";
 import { formatItemKey } from "@/lib/items";
 import { formatPayrollRateWithTick, formatPayrollTickAmount, formatPayrollTickLabel } from "@/lib/payroll";
 import { runOptimisticUpdate } from "@/stores/optimistic";
@@ -94,6 +95,8 @@ export default function BusinessDetailsClient({
   const [shelfActionItem, setShelfActionItem] = useState<{ itemKey: string; quality: number; maxQuantity: number } | null>(null);
   const [shelfQuantity, setShelfQuantity] = useState(1);
   const [shelfPrice, setShelfPrice] = useState(1);
+  const [storefrontMetrics, setStorefrontMetrics] = useState<StorefrontPerformanceBusinessSummary | null>(null);
+  const [storefrontMetricsWindow, setStorefrontMetricsWindow] = useState<24 | 168>(24);
   const {
     business,
     production,
@@ -185,6 +188,17 @@ export default function BusinessDetailsClient({
     if (financeDashboardState.currentPeriod === selectedFinancePeriod) return;
     void refreshFinanceDashboard(selectedFinancePeriod).catch(() => null);
   }, [financeDashboardState, refreshFinanceDashboard, selectedFinancePeriod]);
+
+  useEffect(() => {
+    if (activeTab !== "operations" || !isStoreBusiness) return;
+    let cancelled = false;
+    apiGet<{ performance: StorefrontPerformanceBusinessSummary | null }>(
+      apiRoutes.market.storefrontPerformance(businessId, storefrontMetricsWindow)
+    )
+      .then((res) => { if (!cancelled) setStorefrontMetrics(res.performance); })
+      .catch(() => null);
+    return () => { cancelled = true; };
+  }, [activeTab, businessId, isStoreBusiness, storefrontMetricsWindow]);
 
   const getAssignments = (
     employee: Employee & {
@@ -970,6 +984,91 @@ export default function BusinessDetailsClient({
             />
             {isStoreBusiness && (
               <div style={{ display: "grid", gap: 16, marginBottom: 16 }}>
+
+                {/* Store Performance Metrics */}
+                <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: "0.95rem" }}>Store Performance</h4>
+                      <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                        NPC shopper activity and sales metrics.
+                      </p>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {([24, 168] as const).map((w) => (
+                        <button
+                          key={w}
+                          type="button"
+                          onClick={() => setStorefrontMetricsWindow(w)}
+                          style={{
+                            fontSize: "0.75rem",
+                            padding: "4px 10px",
+                            background: storefrontMetricsWindow === w ? "var(--accent-blue)" : "transparent",
+                            color: storefrontMetricsWindow === w ? "white" : "var(--text-muted)",
+                            border: `1px solid ${storefrontMetricsWindow === w ? "var(--accent-blue)" : "var(--border-subtle)"}`,
+                            borderRadius: "var(--radius-sm)",
+                          }}
+                        >
+                          {w === 24 ? "24h" : "7d"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {storefrontMetrics ? (
+                    <>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
+                        {[
+                          { label: "Visitors", value: storefrontMetrics.shoppers_generated.toLocaleString(), sub: "NPC shoppers who entered" },
+                          { label: "Buyers", value: storefrontMetrics.buyers_count.toLocaleString(), sub: "Shoppers who purchased" },
+                          {
+                            label: "Conversion Rate",
+                            value: storefrontMetrics.conversion_rate !== null ? `${(storefrontMetrics.conversion_rate * 100).toFixed(1)}%` : "—",
+                            sub: "Buyers ÷ visitors",
+                          },
+                          { label: "Transactions", value: storefrontMetrics.sales_count.toLocaleString(), sub: "Individual sale events" },
+                          { label: "Units Sold", value: storefrontMetrics.units_sold.toLocaleString(), sub: "Total units purchased" },
+                          {
+                            label: "Avg Basket Size",
+                            value: storefrontMetrics.avg_basket_size !== null ? storefrontMetrics.avg_basket_size.toFixed(1) : "—",
+                            sub: "Units per transaction",
+                          },
+                          {
+                            label: "Avg Transaction",
+                            value: storefrontMetrics.avg_transaction_value !== null ? formatCurrency(storefrontMetrics.avg_transaction_value) : "—",
+                            sub: "Revenue per sale event",
+                          },
+                          {
+                            label: "Revenue / Visitor",
+                            value: storefrontMetrics.revenue_per_visitor !== null ? formatCurrency(storefrontMetrics.revenue_per_visitor) : "—",
+                            sub: "Gross ÷ total visitors",
+                          },
+                          { label: "Gross Revenue", value: formatCurrency(storefrontMetrics.gross_revenue), sub: "Before storefront fee" },
+                          { label: "Net Revenue", value: formatCurrency(storefrontMetrics.net_revenue), sub: "After 5% fee" },
+                          { label: "Stock-outs", value: storefrontMetrics.stock_out_count.toLocaleString(), sub: "Items that hit zero stock" },
+                          {
+                            label: "Ad ROI",
+                            value: storefrontMetrics.roi !== null ? `${storefrontMetrics.roi.toFixed(2)}x` : "—",
+                            sub: storefrontMetrics.ad_spend > 0 ? `${formatCurrency(storefrontMetrics.ad_spend)} ad spend` : "No ad spend",
+                          },
+                        ].map((metric) => (
+                          <div key={metric.label} style={{ background: "var(--bg-elevated)", borderRadius: 8, padding: 10 }}>
+                            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>
+                              {metric.label}
+                            </div>
+                            <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#f8fafc" }}>{metric.value}</div>
+                            <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: 2 }}>{metric.sub}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", margin: 0 }}>
+                      No performance data yet for this window. Data is collected every 30 seconds when NPC shoppers are active.
+                    </p>
+                  )}
+                </div>
+
                 <div style={{ background: "var(--bg-primary)", padding: 16, borderRadius: "var(--radius-sm)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
                     <div>

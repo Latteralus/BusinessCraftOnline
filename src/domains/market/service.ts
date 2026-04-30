@@ -96,6 +96,7 @@ function normalizeStorefrontSnapshot(
     ...row,
     sub_tick_index: row.sub_tick_index === null ? null : Number(row.sub_tick_index),
     shoppers_generated: Number(row.shoppers_generated),
+    buyers_count: Number(row.buyers_count ?? 0),
     sales_count: Number(row.sales_count),
     units_sold: Number(row.units_sold),
     gross_revenue: toNumber(row.gross_revenue),
@@ -103,6 +104,7 @@ function normalizeStorefrontSnapshot(
     ad_spend: toNumber(row.ad_spend),
     traffic_multiplier: toNumber(row.traffic_multiplier),
     demand_multiplier: toNumber(row.demand_multiplier),
+    stock_out_count: Number(row.stock_out_count ?? 0),
   };
 }
 
@@ -1000,8 +1002,10 @@ export async function getStorefrontPerformanceSummary(
       acc.gross_revenue += row.gross_revenue;
       acc.fee_total += row.fee_total;
       acc.sales_count += row.sales_count;
+      acc.buyers_count += row.buyers_count;
       acc.units_sold += row.units_sold;
       acc.shoppers_generated += row.shoppers_generated;
+      acc.stock_out_count += row.stock_out_count;
       return acc;
     },
     {
@@ -1009,8 +1013,10 @@ export async function getStorefrontPerformanceSummary(
       gross_revenue: 0,
       fee_total: 0,
       sales_count: 0,
+      buyers_count: 0,
       units_sold: 0,
       shoppers_generated: 0,
+      stock_out_count: 0,
     }
   );
 
@@ -1018,17 +1024,24 @@ export async function getStorefrontPerformanceSummary(
   for (const row of snapshots) {
     const existing = byBusiness.get(row.business_id);
     if (!existing) {
+      const nr = round2(row.gross_revenue - row.fee_total);
       byBusiness.set(row.business_id, {
         business_id: row.business_id,
         business_name: businessNameById.get(row.business_id) ?? "Unknown Store",
         ad_spend: row.ad_spend,
         gross_revenue: row.gross_revenue,
         fee_total: row.fee_total,
-        net_revenue: round2(row.gross_revenue - row.fee_total),
+        net_revenue: nr,
         sales_count: row.sales_count,
+        buyers_count: row.buyers_count,
         units_sold: row.units_sold,
         shoppers_generated: row.shoppers_generated,
-        roi: toRoi(row.ad_spend, row.gross_revenue - row.fee_total),
+        stock_out_count: row.stock_out_count,
+        roi: toRoi(row.ad_spend, nr),
+        conversion_rate: row.shoppers_generated > 0 ? round4(row.buyers_count / row.shoppers_generated) : null,
+        avg_basket_size: row.sales_count > 0 ? round4(row.units_sold / row.sales_count) : null,
+        avg_transaction_value: row.sales_count > 0 ? round2(row.gross_revenue / row.sales_count) : null,
+        revenue_per_visitor: row.shoppers_generated > 0 ? round4(row.gross_revenue / row.shoppers_generated) : null,
       });
       continue;
     }
@@ -1038,9 +1051,15 @@ export async function getStorefrontPerformanceSummary(
     existing.fee_total = round2(existing.fee_total + row.fee_total);
     existing.net_revenue = round2(existing.gross_revenue - existing.fee_total);
     existing.sales_count += row.sales_count;
+    existing.buyers_count += row.buyers_count;
     existing.units_sold += row.units_sold;
     existing.shoppers_generated += row.shoppers_generated;
+    existing.stock_out_count += row.stock_out_count;
     existing.roi = toRoi(existing.ad_spend, existing.net_revenue);
+    existing.conversion_rate = existing.shoppers_generated > 0 ? round4(existing.buyers_count / existing.shoppers_generated) : null;
+    existing.avg_basket_size = existing.sales_count > 0 ? round4(existing.units_sold / existing.sales_count) : null;
+    existing.avg_transaction_value = existing.sales_count > 0 ? round2(existing.gross_revenue / existing.sales_count) : null;
+    existing.revenue_per_visitor = existing.shoppers_generated > 0 ? round4(existing.gross_revenue / existing.shoppers_generated) : null;
   }
 
   const netRevenue = round2(totals.gross_revenue - totals.fee_total);
@@ -1054,10 +1073,78 @@ export async function getStorefrontPerformanceSummary(
     fee_total: round2(totals.fee_total),
     net_revenue: netRevenue,
     sales_count: totals.sales_count,
+    buyers_count: totals.buyers_count,
     units_sold: totals.units_sold,
     shoppers_generated: totals.shoppers_generated,
+    stock_out_count: totals.stock_out_count,
     roi: toRoi(totals.ad_spend, netRevenue),
     businesses: Array.from(byBusiness.values()).sort((a, b) => b.gross_revenue - a.gross_revenue),
+  };
+}
+
+export async function getStorefrontPerformanceForBusiness(
+  client: QueryClient,
+  playerId: string,
+  businessId: string,
+  windowHoursInput = 24
+): Promise<StorefrontPerformanceBusinessSummary | null> {
+  const windowHours = toWindowHours(windowHoursInput);
+  const from = addHoursToNowIso(-windowHours);
+
+  const [snapshotsResult, businessResult] = await Promise.all([
+    client
+      .from("market_storefront_performance_snapshots")
+      .select("*")
+      .eq("owner_player_id", playerId)
+      .eq("business_id", businessId)
+      .gte("captured_at", from)
+      .order("captured_at", { ascending: false }),
+    client.from("businesses").select("id, name").eq("id", businessId).eq("player_id", playerId).maybeSingle(),
+  ]);
+
+  if (snapshotsResult.error) throw snapshotsResult.error;
+
+  const snapshots = ((snapshotsResult.data as MarketStorefrontPerformanceSnapshot[]) ?? []).map(
+    normalizeStorefrontSnapshot
+  );
+  if (snapshots.length === 0) return null;
+
+  const businessName = (businessResult.data as { id: string; name: string } | null)?.name ?? "Unknown Store";
+
+  const totals = snapshots.reduce(
+    (acc, row) => {
+      acc.ad_spend += row.ad_spend;
+      acc.gross_revenue += row.gross_revenue;
+      acc.fee_total += row.fee_total;
+      acc.sales_count += row.sales_count;
+      acc.buyers_count += row.buyers_count;
+      acc.units_sold += row.units_sold;
+      acc.shoppers_generated += row.shoppers_generated;
+      acc.stock_out_count += row.stock_out_count;
+      return acc;
+    },
+    { ad_spend: 0, gross_revenue: 0, fee_total: 0, sales_count: 0, buyers_count: 0, units_sold: 0, shoppers_generated: 0, stock_out_count: 0 }
+  );
+
+  const netRevenue = round2(totals.gross_revenue - totals.fee_total);
+
+  return {
+    business_id: businessId,
+    business_name: businessName,
+    ad_spend: round2(totals.ad_spend),
+    gross_revenue: round2(totals.gross_revenue),
+    fee_total: round2(totals.fee_total),
+    net_revenue: netRevenue,
+    sales_count: totals.sales_count,
+    buyers_count: totals.buyers_count,
+    units_sold: totals.units_sold,
+    shoppers_generated: totals.shoppers_generated,
+    stock_out_count: totals.stock_out_count,
+    roi: toRoi(totals.ad_spend, netRevenue),
+    conversion_rate: totals.shoppers_generated > 0 ? round4(totals.buyers_count / totals.shoppers_generated) : null,
+    avg_basket_size: totals.sales_count > 0 ? round4(totals.units_sold / totals.sales_count) : null,
+    avg_transaction_value: totals.sales_count > 0 ? round2(totals.gross_revenue / totals.sales_count) : null,
+    revenue_per_visitor: totals.shoppers_generated > 0 ? round4(totals.gross_revenue / totals.shoppers_generated) : null,
   };
 }
 

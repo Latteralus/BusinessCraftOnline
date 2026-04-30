@@ -64,6 +64,8 @@ export const apiRoutes = {
     cancel: (listingId: string) => `/api/market/${listingId}/cancel`,
     buy: (listingId: string) => `/api/market/${listingId}/buy`,
     storefront: "/api/market/storefront",
+    storefrontPerformance: (businessId: string, windowHours?: number) =>
+      withSearch("/api/market/storefront/performance", { businessId, windowHours }),
   },
   mail: {
     root: "/api/mail",

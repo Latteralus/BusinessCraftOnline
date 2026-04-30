@@ -100,6 +100,7 @@ export type MarketStorefrontPerformanceSnapshot = {
   tick_window_started_at: string | null;
   sub_tick_index: number | null;
   shoppers_generated: number;
+  buyers_count: number;
   sales_count: number;
   units_sold: number;
   gross_revenue: number;
@@ -107,6 +108,7 @@ export type MarketStorefrontPerformanceSnapshot = {
   ad_spend: number;
   traffic_multiplier: number;
   demand_multiplier: number;
+  stock_out_count: number;
   captured_at: string;
 };
 
@@ -118,9 +120,15 @@ export type StorefrontPerformanceBusinessSummary = {
   fee_total: number;
   net_revenue: number;
   sales_count: number;
+  buyers_count: number;
   units_sold: number;
   shoppers_generated: number;
+  stock_out_count: number;
   roi: number | null;
+  conversion_rate: number | null;
+  avg_basket_size: number | null;
+  avg_transaction_value: number | null;
+  revenue_per_visitor: number | null;
 };
 
 export type StorefrontPerformanceSummary = {
@@ -132,8 +140,10 @@ export type StorefrontPerformanceSummary = {
   fee_total: number;
   net_revenue: number;
   sales_count: number;
+  buyers_count: number;
   units_sold: number;
   shoppers_generated: number;
+  stock_out_count: number;
   roi: number | null;
   businesses: StorefrontPerformanceBusinessSummary[];
 };
