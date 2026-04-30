@@ -5,6 +5,7 @@ import {
   type BusinessType,
   type BusinessUpgradeKey,
 } from "@/config/businesses";
+import { getBusinessUpgradeDefinition } from "@/config/business-upgrades";
 import { type FinancePeriod } from "@/config/finance";
 import { appendPersonalTransaction } from "@/domains/banking";
 import { canPurchaseBusiness } from "@/domains/cities-travel";
@@ -397,10 +398,49 @@ export async function purchaseUpgrade(
     throw new Error(`Upgrade '${upgradeKey}' is not available for business type '${business.type}'.`);
   }
 
+  const definition = getBusinessUpgradeDefinition(upgradeKey);
+  if (!definition) {
+    throw new Error(`Upgrade definition '${upgradeKey}' not found.`);
+  }
+
   const existingUpgrades = await getBusinessUpgrades(client, playerId, businessId);
   const existing = existingUpgrades.find((row) => row.upgrade_key === upgradeKey) ?? null;
   const currentLevel = existing?.level ?? 0;
   const nextLevel = currentLevel + 1;
+
+  // Specialization upgrades are one-time only.
+  if (definition.isSpecialization && currentLevel >= 1) {
+    throw new Error(`Specialization upgrade '${definition.displayName}' has already been applied.`);
+  }
+
+  // Check prerequisites.
+  if (definition.prerequisites && definition.prerequisites.length > 0) {
+    for (const prereq of definition.prerequisites) {
+      const prereqRow = existingUpgrades.find((row) => row.upgrade_key === prereq.upgradeKey);
+      const prereqLevel = prereqRow?.level ?? 0;
+      if (prereqLevel < prereq.minLevel) {
+        const prereqDef = getBusinessUpgradeDefinition(prereq.upgradeKey);
+        const prereqName = prereqDef?.displayName ?? prereq.upgradeKey;
+        throw new Error(
+          `Requires '${prereqName}' at level ${prereq.minLevel} (currently level ${prereqLevel}).`
+        );
+      }
+    }
+  }
+
+  // Check mutual exclusivity for specialization upgrades.
+  if (definition.mutuallyExclusiveWith && definition.mutuallyExclusiveWith.length > 0) {
+    for (const exclusiveKey of definition.mutuallyExclusiveWith) {
+      const exclusiveRow = existingUpgrades.find((row) => row.upgrade_key === exclusiveKey);
+      if (exclusiveRow && exclusiveRow.level >= 1) {
+        const exclusiveDef = getBusinessUpgradeDefinition(exclusiveKey);
+        const exclusiveName = exclusiveDef?.displayName ?? exclusiveKey;
+        throw new Error(
+          `Cannot purchase '${definition.displayName}' — this business has already committed to '${exclusiveName}'.`
+        );
+      }
+    }
+  }
 
   const preview = await getUpgradePreviewForBusiness(client, business.type, {
     upgradeKey,

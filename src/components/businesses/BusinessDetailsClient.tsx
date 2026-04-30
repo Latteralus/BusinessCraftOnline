@@ -11,6 +11,7 @@ import type { ManufacturingStatusView, ProductionStatus } from "@/domains/produc
 import type { StoreShelfItem } from "@/domains/stores";
 import { getWorkerEffectiveStatus } from "@/domains/employees/worker-state";
 import { calculateUpgradePreview, formatInstallTimeMinutes } from "@/domains/upgrades";
+import { BUSINESS_UPGRADE_DEFINITIONS, UPGRADE_STAGES, type BusinessUpgradeKey } from "@/config/business-upgrades";
 import { BASE_WAGE_PER_HOUR, HIRE_COSTS } from "@/config/employees";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/client/api";
 import { fetchBusinessDetailsSection } from "@/lib/client/queries";
@@ -1730,85 +1731,242 @@ export default function BusinessDetailsClient({
           </div>
         )}
 
-        {activeTab === "upgrades" && (
-          <div>
-            <h3 style={{ marginBottom: 16 }}>Upgrades</h3>
-            {activeUpgradeProject && (
-              <div style={{ marginBottom: 16, padding: 16, borderRadius: 8, background: "rgba(96, 165, 250, 0.08)", border: "1px solid rgba(96, 165, 250, 0.2)" }}>
-                <div style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.08em", color: "#93c5fd", marginBottom: 6 }}>
-                  Active Capital Project
+        {activeTab === "upgrades" && (() => {
+          const upgradeLevel = (key: BusinessUpgradeKey) =>
+            upgrades.find((u) => u.upgrade_key === key)?.level ?? 0;
+
+          const totalUpgradeLevels = upgradeDefinitionsState.reduce(
+            (sum, def) => sum + upgradeLevel(def.upgrade_key as BusinessUpgradeKey),
+            0
+          );
+
+          const tierLabel =
+            totalUpgradeLevels >= 80 ? "Industry Titan" :
+            totalUpgradeLevels >= 50 ? "Regional Corporation" :
+            totalUpgradeLevels >= 30 ? "Local Enterprise" :
+            totalUpgradeLevels >= 15 ? "Established Business" :
+            totalUpgradeLevels >= 6  ? "Growing Business" :
+                                       "Small Operation";
+
+          const tierColor =
+            totalUpgradeLevels >= 80 ? "#f59e0b" :
+            totalUpgradeLevels >= 50 ? "#a78bfa" :
+            totalUpgradeLevels >= 30 ? "#34d399" :
+            totalUpgradeLevels >= 15 ? "#60a5fa" :
+            totalUpgradeLevels >= 6  ? "#94a3b8" :
+                                       "#64748b";
+
+          const stageMeta: Record<string, { label: string; description: string; borderColor: string }> = {
+            early:          { label: "Early Growth",       description: "Fast and affordable — the tools of a hands-on owner.", borderColor: "rgba(148,163,184,0.2)" },
+            mid:            { label: "Expansion",          description: "Real equipment and permanent staff changes.",          borderColor: "rgba(96,165,250,0.25)" },
+            late:           { label: "Major Operations",   description: "Capital-intensive projects that reshape the business.", borderColor: "rgba(167,139,250,0.25)" },
+            specialization: { label: "Specialization Path", description: "A permanent identity choice — choose one, lock the other.", borderColor: "rgba(251,191,36,0.3)" },
+          };
+
+          const defsForStage = (stage: string) =>
+            upgradeDefinitionsState.filter((def) => def.stage === stage);
+
+          const renderUpgradeCard = (def: typeof upgradeDefinitionsState[number]) => {
+            const key = def.upgrade_key as BusinessUpgradeKey;
+            const configDef = BUSINESS_UPGRADE_DEFINITIONS[key];
+            const currentLevel = upgradeLevel(key);
+            const preview = calculateUpgradePreview(def, { upgradeKey: def.upgrade_key, currentLevel });
+            const project = upgradeProjects.find(
+              (entry) =>
+                entry.upgrade_key === def.upgrade_key &&
+                (entry.project_status === "queued" || entry.project_status === "installing")
+            );
+            const isMaxed = !def.is_infinite && def.max_level !== null && currentLevel >= def.max_level;
+            const isInstalling = Boolean(project);
+            const isSpecialization = configDef?.isSpecialization ?? false;
+
+            // Prerequisite check
+            const unmetPrereqs = (configDef?.prerequisites ?? []).filter((prereq) => {
+              return upgradeLevel(prereq.upgradeKey) < prereq.minLevel;
+            });
+            const isLocked = unmetPrereqs.length > 0;
+
+            // Mutual exclusivity check
+            const blockedBy = (configDef?.mutuallyExclusiveWith ?? []).find(
+              (exKey) => upgradeLevel(exKey) >= 1
+            );
+            const isBlocked = Boolean(blockedBy);
+
+            const canFund = !busy && !isInstalling && !Boolean(activeUpgradeProject) && !isLocked && !isBlocked && !isMaxed;
+
+            const cardOpacity = isLocked || isBlocked ? 0.55 : 1;
+            const cardBg = isSpecialization
+              ? "rgba(251,191,36,0.05)"
+              : isLocked || isBlocked
+                ? "rgba(0,0,0,0.15)"
+                : "var(--bg-primary)";
+
+            return (
+              <div
+                key={def.upgrade_key}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  gap: 16,
+                  padding: 16,
+                  background: cardBg,
+                  borderRadius: 8,
+                  opacity: cardOpacity,
+                  border: isSpecialization ? "1px solid rgba(251,191,36,0.25)" : undefined,
+                }}
+              >
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600, fontSize: "1.05rem" }}>{def.display_name}</span>
+                    {isSpecialization && (
+                      <span style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#f59e0b", background: "rgba(251,191,36,0.12)", padding: "2px 6px", borderRadius: 4 }}>
+                        Specialization
+                      </span>
+                    )}
+                    {currentLevel > 0 && !isMaxed && (
+                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 500 }}>Lv.{currentLevel}</span>
+                    )}
+                    {isMaxed && (
+                      <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#34d399", textTransform: "uppercase", letterSpacing: "0.05em" }}>Complete</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: "0.8rem", color: "var(--accent-blue)", marginBottom: 6 }}>{def.immersive_label}</div>
+                  <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: 8 }}>{def.description}</div>
+
+                  {isLocked && (
+                    <div style={{ fontSize: "0.8rem", color: "#f87171", marginBottom: 8 }}>
+                      Requires:{" "}
+                      {unmetPrereqs.map((prereq, i) => {
+                        const prereqDef = BUSINESS_UPGRADE_DEFINITIONS[prereq.upgradeKey];
+                        const currentPrereqLevel = upgradeLevel(prereq.upgradeKey);
+                        return (
+                          <span key={prereq.upgradeKey}>
+                            {i > 0 && ", "}
+                            <strong>{prereqDef?.displayName ?? prereq.upgradeKey}</strong>
+                            {" "}Lv.{prereq.minLevel}
+                            {" "}({currentPrereqLevel}/{prereq.minLevel})
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {isBlocked && blockedBy && (
+                    <div style={{ fontSize: "0.8rem", color: "#f87171", marginBottom: 8 }}>
+                      Locked — business committed to{" "}
+                      <strong>{BUSINESS_UPGRADE_DEFINITIONS[blockedBy]?.displayName ?? blockedBy}</strong>.
+                    </div>
+                  )}
+
+                  {!isLocked && !isBlocked && (
+                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                      {!isMaxed && <span><strong>Level:</strong> {currentLevel}{def.max_level ? ` / ${def.max_level}` : ""}</span>}
+                      <span><strong>Now:</strong> {preview.currentEffectDisplay}</span>
+                      {!isMaxed && <span><strong>Next:</strong> {preview.nextEffectDisplay}</span>}
+                      {!isMaxed && <span><strong>Cost:</strong> {formatCurrency(preview.nextCost)}</span>}
+                      <span><strong>Install:</strong> {formatInstallTimeMinutes(def.install_time_minutes)}</span>
+                      {def.downtime_policy !== "none" && (
+                        <span style={{ color: def.downtime_policy === "full" ? "#f87171" : "#fbbf24" }}>
+                          <strong>Downtime:</strong> {formatLabel(def.downtime_policy)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {project && (
+                    <div style={{ marginTop: 10, fontSize: "0.8rem", color: "#93c5fd" }}>
+                      <span suppressHydrationWarning>
+                        Installing Lv.{project.target_level} — completes{" "}
+                        {project.completes_at ? new Date(project.completes_at).toLocaleString() : "shortly"}.
+                      </span>
+                    </div>
+                  )}
                 </div>
-                <div style={{ fontWeight: 600 }}>
-                  {upgradeDefinitionsState.find((definition) => definition.upgrade_key === activeUpgradeProject.upgrade_key)?.display_name ?? formatLabel(activeUpgradeProject.upgrade_key)}
-                  {" "}Lv.{activeUpgradeProject.target_level}
+
+                <div style={{ flexShrink: 0 }}>
+                  {!isMaxed && !isBlocked && (
+                    <button
+                      type="button"
+                      onClick={() => purchaseUpgrade(def.upgrade_key)}
+                      disabled={!canFund}
+                      style={{
+                        padding: "8px 16px",
+                        fontWeight: 600,
+                        opacity: canFund ? 1 : 0.5,
+                        cursor: canFund ? "pointer" : "default",
+                      }}
+                    >
+                      {isInstalling ? "Installing…" : isLocked ? "Locked" : "Fund Project"}
+                    </button>
+                  )}
+                  {isMaxed && (
+                    <span style={{ color: "#34d399", fontSize: "0.9rem", fontWeight: 600 }}>✓ Done</span>
+                  )}
+                  {isBlocked && (
+                    <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Locked</span>
+                  )}
                 </div>
-                <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginTop: 4 }}>
-                  <span suppressHydrationWarning>
-                    Completes {activeUpgradeProject.completes_at ? new Date(activeUpgradeProject.completes_at).toLocaleString() : "soon"} • Downtime: {formatLabel(activeUpgradeProject.downtime_policy)}
+              </div>
+            );
+          };
+
+          return (
+            <div>
+              {/* Tier badge */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                <h3 style={{ margin: 0 }}>Upgrades</h3>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Business Tier</span>
+                  <span style={{ fontWeight: 700, fontSize: "0.85rem", color: tierColor, padding: "4px 10px", background: `${tierColor}18`, borderRadius: 20, border: `1px solid ${tierColor}40` }}>
+                    {tierLabel}
                   </span>
                 </div>
               </div>
-            )}
-            {upgradeDefinitionsState.length > 0 ? (
-              <div style={{ display: "grid", gap: 12 }}>
-                {upgradeDefinitionsState.map((def) => {
-                  const currentUpgrade = upgrades.find((u) => u.upgrade_key === def.upgrade_key);
-                  const currentLevel = currentUpgrade?.level || 0;
-                  const preview = calculateUpgradePreview(def, { upgradeKey: def.upgrade_key, currentLevel });
-                  const project = upgradeProjects.find(
-                    (entry) =>
-                      entry.upgrade_key === def.upgrade_key &&
-                      (entry.project_status === "queued" || entry.project_status === "installing")
-                  );
-                  const isMaxed = !def.is_infinite && def.max_level !== null && currentLevel >= def.max_level;
-                  const isInstalling = Boolean(project);
 
-                  return (
-                    <div key={def.upgrade_key} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, padding: 16, background: "var(--bg-primary)", borderRadius: 8 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: "1.05rem", marginBottom: 4 }}>{def.display_name}</div>
-                        <div style={{ fontSize: "0.8rem", color: "var(--accent-blue)", marginBottom: 8 }}>{def.immersive_label}</div>
-                        <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: 8 }}>{def.description}</div>
-                        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                          <span><strong>Level:</strong> {currentLevel} {def.max_level ? `/ ${def.max_level}` : ""}</span>
-                          <span><strong>Current:</strong> {preview.currentEffectDisplay}</span>
-                          {!isMaxed && <span><strong>Next:</strong> {preview.nextEffectDisplay}</span>}
-                          {!isMaxed && <span><strong>Next Cost:</strong> {formatCurrency(preview.nextCost)}</span>}
-                          <span><strong>Install:</strong> {formatInstallTimeMinutes(def.install_time_minutes)}</span>
-                          <span><strong>Downtime:</strong> {formatLabel(def.downtime_policy)}</span>
-                          <span><strong>Stage:</strong> {formatLabel(def.stage)}</span>
+              {/* Active project banner */}
+              {activeUpgradeProject && (
+                <div style={{ marginBottom: 20, padding: 16, borderRadius: 8, background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.2)" }}>
+                  <div style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.08em", color: "#93c5fd", marginBottom: 6 }}>
+                    Active Capital Project
+                  </div>
+                  <div style={{ fontWeight: 600 }}>
+                    {upgradeDefinitionsState.find((d) => d.upgrade_key === activeUpgradeProject.upgrade_key)?.display_name ?? formatLabel(activeUpgradeProject.upgrade_key)}
+                    {" "}Lv.{activeUpgradeProject.target_level}
+                  </div>
+                  <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginTop: 4 }}>
+                    <span suppressHydrationWarning>
+                      Completes {activeUpgradeProject.completes_at ? new Date(activeUpgradeProject.completes_at).toLocaleString() : "soon"} — Downtime: {formatLabel(activeUpgradeProject.downtime_policy)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {upgradeDefinitionsState.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+                  {UPGRADE_STAGES.map((stage) => {
+                    const stageDefs = defsForStage(stage);
+                    if (stageDefs.length === 0) return null;
+                    const meta = stageMeta[stage];
+                    return (
+                      <div key={stage}>
+                        <div style={{ marginBottom: 12, paddingBottom: 8, borderBottom: `1px solid ${meta.borderColor}` }}>
+                          <div style={{ fontWeight: 700, fontSize: "0.95rem", marginBottom: 2 }}>{meta.label}</div>
+                          <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{meta.description}</div>
                         </div>
-                        {project && (
-                          <div style={{ marginTop: 10, fontSize: "0.8rem", color: "#93c5fd" }}>
-                            <span suppressHydrationWarning>
-                              Project in progress for level {project.target_level}. Completion target: {project.completes_at ? new Date(project.completes_at).toLocaleString() : "pending"}.
-                            </span>
-                          </div>
-                        )}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {stageDefs.map((def) => renderUpgradeCard(def))}
+                        </div>
                       </div>
-                      <div>
-                        {!isMaxed && (
-                          <button
-                            onClick={() => purchaseUpgrade(def.upgrade_key)}
-                            disabled={busy || isInstalling || Boolean(activeUpgradeProject)}
-                            style={{ padding: "8px 16px", fontWeight: 600 }}
-                          >
-                            {isInstalling ? "Installing" : "Fund Project"}
-                          </button>
-                        )}
-                        {isMaxed && (
-                          <span style={{ color: "var(--text-muted)", fontSize: "0.9rem", fontWeight: 600 }}>Max Level</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No upgrades available for this business.</p>
-            )}
-          </div>
-        )}
+                    );
+                  })}
+                </div>
+              ) : (
+                <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No upgrades available for this business.</p>
+              )}
+            </div>
+          );
+        })()}
 
         {activeTab === "options" && (
           <BusinessOptionsPanel
