@@ -46,8 +46,9 @@ function formatStorefrontWarning(warning: StorefrontPerformanceBusinessSummary["
     buyers_gt_visitors: "Buyers exceed visitors in this window.",
     conversion_gt_100: "Conversion is above 100%, so visitor ratios are suppressed.",
     net_revenue_mismatch: "Net revenue does not match gross minus fees.",
-    transaction_snapshot_divergence: "Transaction audit totals differ from the snapshot KPI source; dashboard ratios are using snapshots only.",
-    missing_snapshot_traffic: "Transaction fallback has no visitor traffic snapshot.",
+    transaction_snapshot_divergence: "Snapshot and transaction audit totals differ for this window.",
+    incomplete_snapshot_coverage: "Snapshot coverage is incomplete, so sales totals are using transaction audit data.",
+    missing_snapshot_traffic: "Transaction fallback has no complete visitor traffic snapshot, so visitor ratios are suppressed.",
   };
 
   return labels[warning] ?? warning;
@@ -57,6 +58,21 @@ function formatStorefrontSource(source: StorefrontPerformanceBusinessSummary["so
   if (source === "snapshot") return "Snapshot metrics";
   if (source === "transaction") return "Transaction fallback";
   return "No storefront data";
+}
+
+function formatStorefrontSourceDetail(metrics: StorefrontPerformanceBusinessSummary) {
+  const snapshotCount = metrics.snapshot_count.toLocaleString();
+  const transactionCount = metrics.transaction_count.toLocaleString();
+
+  if (metrics.source === "transaction") {
+    return `from ${transactionCount} transactions, with ${snapshotCount} snapshots audited separately.`;
+  }
+
+  if (metrics.source === "snapshot") {
+    return `from ${snapshotCount} snapshots, with ${transactionCount} transactions audited separately.`;
+  }
+
+  return `from ${snapshotCount} snapshots and ${transactionCount} transactions.`;
 }
 
 function makeHireName() {
@@ -1057,7 +1073,7 @@ export default function BusinessDetailsClient({
                         <strong style={{ color: storefrontMetrics.warnings.length > 0 ? "#fcd34d" : "#e2e8f0" }}>
                           Data quality:
                         </strong>{" "}
-                        {formatStorefrontSource(storefrontMetrics.source)} from {storefrontMetrics.snapshot_count.toLocaleString()} snapshots, with {storefrontMetrics.transaction_count.toLocaleString()} transactions audited separately.
+                        {formatStorefrontSource(storefrontMetrics.source)} {formatStorefrontSourceDetail(storefrontMetrics)}
                         {storefrontMetrics.warnings.length > 0 ? (
                           <div style={{ marginTop: 4 }}>
                             {storefrontMetrics.warnings.map(formatStorefrontWarning).join(" ")}

@@ -119,6 +119,7 @@ export type StorefrontMetricWarning =
   | "conversion_gt_100"
   | "net_revenue_mismatch"
   | "transaction_snapshot_divergence"
+  | "incomplete_snapshot_coverage"
   | "missing_snapshot_traffic";
 
 export type StorefrontMetricAuditTotals = {

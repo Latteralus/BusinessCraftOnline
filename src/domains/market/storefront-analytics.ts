@@ -8,6 +8,7 @@ export type StorefrontMetricWarning =
   | "conversion_gt_100"
   | "net_revenue_mismatch"
   | "transaction_snapshot_divergence"
+  | "incomplete_snapshot_coverage"
   | "missing_snapshot_traffic";
 
 export type StorefrontMetricTotals = {
@@ -106,6 +107,29 @@ function hasSnapshotTransactionDivergence(
   );
 }
 
+function hasTransactionSalesEvidence(totals: StorefrontMetricTotals): boolean {
+  return totals.sales_count > 0 || totals.units_sold > 0 || totals.gross_revenue > 0 || totals.fee_total > 0;
+}
+
+function hasSnapshotSalesEvidence(totals: StorefrontMetricTotals): boolean {
+  return totals.sales_count > 0 || totals.units_sold > 0 || totals.gross_revenue > 0 || totals.fee_total > 0;
+}
+
+function hasIncompleteSnapshotCoverage(
+  snapshot: StorefrontMetricTotals,
+  transaction: StorefrontMetricTotals
+): boolean {
+  if (!hasTransactionSalesEvidence(transaction)) return false;
+  if (!hasSnapshotSalesEvidence(snapshot)) return true;
+
+  return (
+    transaction.sales_count > snapshot.sales_count ||
+    transaction.units_sold > snapshot.units_sold ||
+    transaction.gross_revenue > snapshot.gross_revenue + 0.01 ||
+    transaction.fee_total > snapshot.fee_total + 0.01
+  );
+}
+
 function uniqueWarnings(warnings: StorefrontMetricWarning[]): StorefrontMetricWarning[] {
   return Array.from(new Set(warnings));
 }
@@ -198,8 +222,10 @@ export function buildStorefrontAnalytics(input: {
   capturedTo: string;
 }): StorefrontMetricAnalytics {
   const transactionCount = input.transactionAggregate?.transaction_count ?? 0;
+  const incompleteSnapshotCoverage =
+    input.snapshotCount > 0 && hasIncompleteSnapshotCoverage(input.snapshotTotals, input.transactionTotals);
   const source: StorefrontMetricSource =
-    input.snapshotCount > 0
+    input.snapshotCount > 0 && !incompleteSnapshotCoverage
       ? "snapshot"
       : transactionCount > 0
         ? "transaction"
@@ -223,6 +249,9 @@ export function buildStorefrontAnalytics(input: {
   }
   if (source === "transaction" && primaryTotals.shoppers_generated === 0) {
     warnings.push("missing_snapshot_traffic");
+  }
+  if (incompleteSnapshotCoverage) {
+    warnings.push("incomplete_snapshot_coverage");
   }
   if (hasSnapshotTransactionDivergence(input.snapshotTotals, input.transactionTotals)) {
     warnings.push("transaction_snapshot_divergence");

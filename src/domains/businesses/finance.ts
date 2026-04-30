@@ -502,30 +502,36 @@ function buildStorefrontEvidence(input: {
   ledgerGrossRevenue: number;
   ledgerFeeTotal: number;
 }): StorefrontPeriodEvidence {
-  // Prefer snapshots when present because they include traffic, buyers, sales,
-  // revenue, ad spend, and stockouts from the same storefront tick source.
-  const hasSnapshotSource =
-    input.snapshotShoppersGenerated > 0 ||
+  // Prefer snapshot sales only when they carry sales evidence. Traffic-only
+  // snapshots can be partial windows and should not zero out transaction totals.
+  const hasSnapshotSalesSource =
     input.snapshotSalesCount > 0 ||
     input.snapshotUnitsSold > 0 ||
-    input.snapshotGrossRevenue > 0;
-  const salesCount = hasSnapshotSource
+    input.snapshotGrossRevenue > 0 ||
+    input.snapshotFeeTotal > 0;
+  const hasTransactionSalesSource =
+    input.transactionSalesCount > 0 ||
+    input.transactionUnitsSold > 0 ||
+    input.transactionGrossRevenue > 0 ||
+    input.transactionFeeTotal > 0;
+  const useSnapshotSalesSource = hasSnapshotSalesSource || !hasTransactionSalesSource;
+  const salesCount = useSnapshotSalesSource
     ? input.snapshotSalesCount
     : input.transactionSalesCount > 0
       ? input.transactionSalesCount
       : input.ledgerSalesCount;
-  const unitsSold = hasSnapshotSource
+  const unitsSold = useSnapshotSalesSource
     ? input.snapshotUnitsSold
     : input.transactionUnitsSold;
   const grossRevenue = round2(
-    hasSnapshotSource
+    useSnapshotSalesSource
       ? input.snapshotGrossRevenue
       : input.transactionGrossRevenue > 0
         ? input.transactionGrossRevenue
         : input.ledgerGrossRevenue
   );
   const feeTotal = round2(
-    hasSnapshotSource
+    useSnapshotSalesSource
       ? input.snapshotFeeTotal
       : input.transactionFeeTotal > 0
         ? input.transactionFeeTotal
