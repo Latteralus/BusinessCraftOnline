@@ -139,6 +139,7 @@ export default function BusinessDetailsClient({
   })() as FinancePeriod;
 
   const activeSection = (activeTab === "options" ? "options" : activeTab) as BusinessDetailsSection;
+  const isStoreBusiness = supportsStorefront(business.type);
 
   useEffect(() => {
     patchDetailRef.current = patchDetail;
@@ -226,7 +227,6 @@ export default function BusinessDetailsClient({
     const effectiveStatus = getWorkerEffectiveStatus(employee.status, employee.shift_ends_at);
     return !getAssignmentForBusiness(employee) && effectiveStatus === "available";
   });
-  const isStoreBusiness = supportsStorefront(business.type);
   const transferBusinesses = ownedBusinessesState.filter((row) => row.id !== business.id);
   const shelfKey = (itemKey: string, quality: number) => `${itemKey}:${quality}`;
   const activeShelfItems = shelfItems.filter((item) => item.quantity > 0);
