@@ -7,11 +7,13 @@ import { STARTUP_COSTS } from "@/config/businesses";
 import type { BusinessType, BusinessWithBalance } from "@/domains/businesses";
 import { apiPost } from "@/lib/client/api";
 import type { BusinessesPageData } from "@/lib/client/queries";
+import { fetchBusinessDetailsState } from "@/lib/client/queries";
 import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency, formatDateTime, formatLabel } from "@/lib/formatters";
-import { BUSINESS_TYPE_LABELS } from "@/lib/businesses";
-import { useBusinessesSlice, useGameStore, useTravelSlice } from "@/stores/game-store";
+import { BUSINESS_TYPE_LABELS, formatBusinessType } from "@/lib/businesses";
+import { useBusinessesSlice, useGameStore, useTravelSlice, type BusinessDetailsEntry } from "@/stores/game-store";
 import { syncMutationViews } from "@/stores/mutation-sync";
+import BusinessDetailsClient from "@/components/businesses/BusinessDetailsClient";
 
 type Props = {
   initialData: BusinessesPageData;
@@ -188,6 +190,11 @@ export default function BusinessesClient({ initialData }: Props) {
   const patchBusinesses = useGameStore((state) => state.patchBusinesses);
   const cities = initialData.cities;
 
+  const [selectedBusiness, setSelectedBusiness] = useState<BusinessWithBalance | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<BusinessDetailsEntry | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const upsertBusinessDetail = useGameStore((state) => state.upsertBusinessDetail);
+
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<BusinessType>("farm");
   const [createCityId, setCreateCityId] = useState(initialData.travelState.currentCity?.id ?? "");
@@ -326,6 +333,86 @@ export default function BusinessesClient({ initialData }: Props) {
     }
   }
 
+  async function handleSelectBusiness(business: BusinessWithBalance) {
+    setDetailLoading(true);
+    setSelectedBusiness(business);
+    try {
+      const detail = await fetchBusinessDetailsState(business.id);
+      upsertBusinessDetail(business.id, detail);
+      setSelectedDetail(detail);
+    } catch {
+      setError("Failed to load business details.");
+      setSelectedBusiness(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  function handleBackToList() {
+    setSelectedBusiness(null);
+    setSelectedDetail(null);
+  }
+
+  if (detailLoading && selectedBusiness) {
+    return (
+      <div className="anim" style={{ display: "grid", gap: 18 }}>
+        <header className="lc-page-header">
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <button
+              onClick={handleBackToList}
+              type="button"
+              aria-label="Back to businesses"
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, background: "var(--bg-elevated)", borderRadius: "50%", color: "var(--text-secondary)", border: "none", cursor: "pointer" }}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            </button>
+            <div>
+              <h1>{selectedBusiness.name}</h1>
+              <p>{formatBusinessType(selectedBusiness.type)} · {cityById[selectedBusiness.city_id] ?? "Unknown City"}</p>
+            </div>
+          </div>
+        </header>
+        <div style={{ color: "var(--text-muted)", fontSize: 14, padding: 24 }}>Loading business details…</div>
+      </div>
+    );
+  }
+
+  if (selectedDetail && selectedBusiness) {
+    return (
+      <div className="anim" style={{ display: "grid", gap: 18 }}>
+        <header className="lc-page-header">
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <button
+              onClick={handleBackToList}
+              type="button"
+              aria-label="Back to businesses"
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, background: "var(--bg-elevated)", borderRadius: "50%", color: "var(--text-secondary)", border: "none", cursor: "pointer" }}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            </button>
+            <div>
+              <h1>{selectedBusiness.name}</h1>
+              <p>{formatBusinessType(selectedBusiness.type)} · {cityById[selectedBusiness.city_id] ?? "Unknown City"}</p>
+            </div>
+          </div>
+        </header>
+        <BusinessDetailsClient
+          business={selectedDetail.business}
+          production={selectedDetail.production}
+          manufacturing={selectedDetail.manufacturing}
+          inventory={selectedDetail.inventory}
+          shelfItems={selectedDetail.shelfItems}
+          upgrades={selectedDetail.upgrades}
+          upgradeProjects={selectedDetail.upgradeProjects}
+          employees={selectedDetail.employees as any}
+          upgradeDefinitions={selectedDetail.upgradeDefinitions}
+          financeDashboard={selectedDetail.financeDashboard}
+          ownedBusinesses={selectedDetail.ownedBusinesses}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="anim" style={{ display: "grid", gap: 18 }}>
       <header className="lc-page-header">
@@ -442,12 +529,14 @@ export default function BusinessesClient({ initialData }: Props) {
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
                 {businessCards.map(({ business, startupCost, cityLabel, capitalCoverage, portfolioShare, valuationDelta, healthTone, healthLabel }) => (
-                  <Link
+                  <div
                     key={business.id}
-                    href={`/businesses/${business.id}`}
-                    prefetch={false}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => void handleSelectBusiness(business)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") void handleSelectBusiness(business); }}
                     style={{
-                      textDecoration: "none",
+                      cursor: "pointer",
                       color: "inherit",
                       border: "1px solid rgba(148, 163, 184, 0.14)",
                       borderRadius: 18,
@@ -567,7 +656,7 @@ export default function BusinessesClient({ initialData }: Props) {
                         </div>
                       <div style={{ color: "#bfdbfe", fontWeight: 700, fontSize: 13 }}>Open Business</div>
                     </div>
-                  </Link>
+                  </div>
                 ))}
               </div>
             )}

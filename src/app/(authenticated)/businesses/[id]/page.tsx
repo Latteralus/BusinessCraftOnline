@@ -40,13 +40,13 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
     <>
       <div className="page-header anim">
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Link href="/businesses" className="back-button" style={{ 
-            display: "flex", 
-            alignItems: "center", 
+          <Link href="/businesses" className="back-button" style={{
+            display: "flex",
+            alignItems: "center",
             justifyContent: "center",
-            width: 32, 
-            height: 32, 
-            background: "var(--bg-elevated)", 
+            width: 32,
+            height: 32,
+            background: "var(--bg-elevated)",
             borderRadius: "50%",
             color: "var(--text-secondary)",
             textDecoration: "none"
@@ -68,8 +68,8 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
           },
         }}
       >
-        <BusinessDetailsClient 
-          business={detail.business} 
+        <BusinessDetailsClient
+          business={detail.business}
           production={detail.production}
           manufacturing={detail.manufacturing}
           inventory={detail.inventory}
