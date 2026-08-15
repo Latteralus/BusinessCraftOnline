@@ -327,6 +327,7 @@ Deno.serve(async (request) => {
     let reducedOutputCount = 0;
 
     for (const slot of parseExtractionSlotRows(slotRows)) {
+     try {
     const { data: business } = await supabase
       .from("businesses")
       .select("id, player_id, city_id, type")
@@ -471,7 +472,12 @@ Deno.serve(async (request) => {
       slot.output_progress,
       outputMultiplier * effects.extractionOutputMultiplier
     );
-    const quality = Math.max(0, Math.min(100, Math.round(effects.extractionQualityBonus)));
+    // add_business_inventory_quantity requires p_quality between 1 and 100 —
+    // extractionQualityBonus defaults to 0 with no quality upgrades, so this
+    // must floor at 1, not 0, or every unqualified business's first produced
+    // unit throws and (with no per-slot isolation below) takes down the
+    // entire tick for every other business too.
+    const quality = Math.max(1, Math.min(100, Math.round(effects.extractionQualityBonus)));
 
     if (units > 0) {
       const ceilingPrice = (NPC_PRICE_CEILINGS as Record<string, number>)[outputItem] ?? 0;
@@ -527,6 +533,11 @@ Deno.serve(async (request) => {
 
     processed += 1;
     producedTotal += units;
+     } catch (slotError) {
+      // One slot's failure must not stop every other business's extraction
+      // slots from being processed this tick.
+      console.error(`[tick-extraction] slot ${slot.id} failed, skipping:`, slotError);
+     }
   }
 
     const finishedAtIso = new Date().toISOString();

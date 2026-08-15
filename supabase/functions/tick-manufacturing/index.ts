@@ -96,11 +96,15 @@ function resolveOutputQuality(
     weightedQuality += input.used * input.quality;
   }
 
+  // add_business_inventory_quantity requires p_quality between 1 and 100 —
+  // floor at 1, not 0, so a business with no quality-boosting inputs/upgrades
+  // doesn't throw on its first produced unit and (with no per-job isolation
+  // below) take down the entire tick for every other business too.
   if (totalUnits <= 0) {
-    return Math.max(0, Math.min(100, Math.round(qualityBonus || 0)));
+    return Math.max(1, Math.min(100, Math.round(qualityBonus || 0)));
   }
 
-  return Math.max(0, Math.min(100, Math.round(weightedQuality / totalUnits + qualityBonus)));
+  return Math.max(1, Math.min(100, Math.round(weightedQuality / totalUnits + qualityBonus)));
 }
 
 function resolveAvailableInputQuality(
@@ -130,7 +134,7 @@ function resolveManufacturingQuality(
     return resolveOutputQuality(consumedInputs, qualityBonus);
   }
 
-  return Math.max(0, Math.min(100, Math.round((fallbackInputQuality ?? 0) + qualityBonus)));
+  return Math.max(1, Math.min(100, Math.round((fallbackInputQuality ?? 0) + qualityBonus)));
 }
 
 async function syncLegacyManufacturingJobForBusiness(
@@ -311,6 +315,7 @@ Deno.serve(async (request) => {
     let workerlessJobs = 0;
 
     for (const job of jobs ?? []) {
+     try {
     businessesNeedingLegacySync.add(job.business_id);
     if (!job.configured_recipe_key) continue;
 
@@ -531,6 +536,11 @@ Deno.serve(async (request) => {
 
     processed += 1;
     producedTotal += outputQty;
+     } catch (jobError) {
+      // One job's failure must not stop every other business's manufacturing
+      // lines from being processed this tick.
+      console.error(`[tick-manufacturing] job ${job.id} failed, skipping:`, jobError);
+     }
   }
 
   const { data: expiredContracts } = await supabase
