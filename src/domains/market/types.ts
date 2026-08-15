@@ -55,6 +55,11 @@ export type MarketTransaction = {
 
 export type MarketTransactionFilter = {
   buyerType?: "player" | "npc";
+  // When true, excludes storefront NPC shelf sales (which have no listing_id)
+  // so a player's own trade feed only shows fills of real market listings —
+  // player-to-player trades and the new NPC open-market purchases both always
+  // have a listing_id; storefront shelf sales never do.
+  requireListing?: boolean;
 };
 
 export type NpcShopperTierKey = "small" | "medium" | "large";

@@ -6,6 +6,12 @@ export const NPC_STOREFRONT_FEE = 0.05;
 export const NPC_SUBTICK_SECONDS = 60;
 export const NPC_SUBTICKS_PER_TICK = 20;
 export const NPC_SHOPPERS_PER_SUBTICK_BASE = 8;
+// Open-market NPC traffic (tick-npc-market-purchases) is a separate, much
+// smaller channel than storefront traffic: it's spawned per CITY rather than
+// per store, and this base is a fraction of NPC_SHOPPERS_PER_SUBTICK_BASE, so
+// retailers stay the primary NPC sales channel and the open market only gets
+// background churn.
+export const NPC_OPEN_MARKET_SHOPPERS_PER_SUBTICK_BASE = 1;
 export const NPC_SUBTICK_VARIANCE = 0.3;
 export const NPC_PRICE_BAND_PERCENT = 0.05;
 
@@ -117,6 +123,25 @@ export const NPC_PRICE_CEILINGS = {
   whiskey: 55.0,
   corn_whiskey: 48.0,
 } as const;
+
+// Items NPC shoppers will buy directly off the open market (in addition to
+// storefronts), via tick-npc-market-purchases. Restricted to goods a person
+// would plausibly buy for personal use as-is: finished/consumer goods, plus
+// raw resources that are directly usable without processing (water). Excludes
+// industrial inputs (ore, coal, crude oil, raw wood, crops, tools) that only
+// make sense once manufactured into something a person actually uses — nobody
+// is buying barrels of crude oil off the open market, but they'll buy water.
+// Tune this list directly; it's the single point of control for eligibility.
+export const NPC_OPEN_MARKET_ELIGIBLE_ITEMS = [
+  "water",
+  "flour",
+  "chips",
+  "red_wine",
+  "whiskey",
+  "corn_whiskey",
+  "chair",
+  "table",
+] as const;
 
 export const NPC_BUYER_MIN_PRICE = 0.01;
 

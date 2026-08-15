@@ -82,7 +82,7 @@ Read this before touching code. It replaces the old `_AI_GUIDE.md`, `AIReadme.md
 - Edge functions live in `supabase/functions/`. They are Deno-based, not Node-based.
 - Deno config: `supabase/functions/deno.json`.
 - Type-check them with `npm run typecheck:edge` (runs `deno check --config supabase/functions/deno.json ...`).
-- Tick functions in this repo: `tick-extraction`, `tick-manufacturing`, `tick-npc-purchases`, `tick-shipping`, `tick-travel`, `tick-wages`.
+- Tick functions in this repo: `tick-extraction`, `tick-manufacturing`, `tick-npc-purchases`, `tick-npc-market-purchases`, `tick-shipping`, `tick-travel`, `tick-wages`. `tick-npc-purchases` is storefront-shelf-only NPC traffic; `tick-npc-market-purchases` is a separate, much lower-volume NPC channel that buys directly off active `market_listings`, restricted to `NPC_OPEN_MARKET_ELIGIBLE_ITEMS` (shared/economy.ts) — see that file's comment for the eligibility philosophy.
 - If you change shared files consumed by an edge function, hosted behavior will not change until that function is redeployed (`npx supabase functions deploy <name>`, or omit the name to deploy all).
 
 ## Tick / Cron Architecture

@@ -64,8 +64,13 @@ again, re-run both before trusting it; TS majors are the most likely to surface 
   these to `authenticated`; call only from server code via the service-role client.
 
 ## Open threads (update or remove as they resolve)
-- None currently open. See "Resolved" below for the most recent closed thread and
-  what to know if something in that area looks stale again.
+- **2026-08-15 — NPC open-market purchases built but not deployed.** New edge
+  function `tick-npc-market-purchases`, RPC `settle_market_listing_npc_sale_atomic`,
+  and migrations 081–083 exist locally (typecheck/build/`typecheck:edge` all pass)
+  but have not been pushed to the hosted Supabase project. Needs
+  `npx supabase db push` and `npx supabase functions deploy tick-npc-market-purchases`,
+  then confirm `tick_run_logs` shows it running with `status: "ok"`. Full detail in
+  `changelog.md` (2026-08-15, "Added NPC open-market purchases").
 
 ## Resolved
 - **2026-08-15 — Stale UI until manual refresh.** Root cause was a race condition, not

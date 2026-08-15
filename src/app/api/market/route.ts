@@ -23,6 +23,7 @@ export async function GET(request: Request) {
   const includeTransactions = url.searchParams.get("includeTransactions") === "true";
   const transactionsLimit = Number(url.searchParams.get("transactionsLimit") ?? "50");
   const buyerType = url.searchParams.get("buyerType");
+  const requireListing = url.searchParams.get("requireListing") === "true";
   const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") ?? "50") || 50));
   const offset = Math.max(0, Number(url.searchParams.get("offset") ?? "0") || 0);
 
@@ -64,6 +65,7 @@ export async function GET(request: Request) {
       const transactions = await timing.measure("market-transactions", () =>
         getMarketTransactions(supabase, user.id, transactionsLimit, {
           buyerType: buyerType === "player" || buyerType === "npc" ? buyerType : undefined,
+          requireListing,
         })
       );
       return NextResponse.json({ listings, transactions, page });

@@ -208,7 +208,7 @@ export async function fetchInventoryPageData(): Promise<InventoryPageData> {
 export async function fetchMarketPageData(): Promise<MarketPageData> {
   const [businessesJson, listingsJson, inventoryJson, travelJson] = await Promise.all([
     apiGet<BusinessesResponse>(apiRoutes.businesses.root, { fallbackError: "Failed to load businesses." }),
-    apiGet<ListingsResponse>(apiRoutes.market.listings({ includeTransactions: true, transactionsLimit: 40, buyerType: "player", status: "active", limit: 50, offset: 0 }), {
+    apiGet<ListingsResponse>(apiRoutes.market.listings({ includeTransactions: true, transactionsLimit: 40, requireListing: true, status: "active", limit: 50, offset: 0 }), {
       fallbackError: "Failed to load market listings.",
     }),
     apiGet<InventoryResponse>(apiRoutes.inventory.root, { fallbackError: "Failed to load inventory." }),

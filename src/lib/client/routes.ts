@@ -53,6 +53,7 @@ export const apiRoutes = {
       includeTransactions?: boolean;
       transactionsLimit?: number;
       buyerType?: "player" | "npc";
+      requireListing?: boolean;
       status?: "active" | "filled" | "cancelled" | "expired";
       ownOnly?: boolean;
       cityId?: string;

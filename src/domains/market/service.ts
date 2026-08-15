@@ -610,6 +610,10 @@ export async function getMarketTransactions(
     query = query.eq("buyer_type", filter.buyerType);
   }
 
+  if (filter.requireListing) {
+    query = query.not("listing_id", "is", null);
+  }
+
   const { data, error } = await query;
 
   if (error) throw error;
