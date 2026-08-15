@@ -638,6 +638,22 @@ export function RealtimeProvider() {
             })
             .subscribe();
           channels.push(marketOwnedChannel);
+
+          const buyOrdersActiveChannel = supabase
+            .channel(`market-buy-orders-active-${playerId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "market_buy_orders", filter: "status=eq.active" }, () => {
+              void refreshMarket();
+            })
+            .subscribe();
+          channels.push(buyOrdersActiveChannel);
+
+          const buyOrdersOwnedChannel = supabase
+            .channel(`market-buy-orders-owned-${playerId}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "market_buy_orders", filter: `owner_player_id=eq.${playerId}` }, () => {
+              void refreshMarket();
+            })
+            .subscribe();
+          channels.push(buyOrdersOwnedChannel);
         }
 
         if (activeRealtimeModules.production && selectedProductionBusinessId) {

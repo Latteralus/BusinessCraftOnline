@@ -31,5 +31,13 @@ export function formatMarketTransactionLine(input: FormatMarketTransactionLineIn
   const isBusinessToBusiness = tx.buyer_type === "player" && Boolean(tx.buyer_business_id);
   const tradeValue = Number.isFinite(tx.gross_total) ? tx.gross_total : tx.quantity * tx.unit_price;
   const tradeSuffix = isBusinessToBusiness ? ` at $${tradeValue.toFixed(2)}` : "";
+
+  if (tx.match_type === "direct_fulfillment") {
+    return `[${formatTimestamp(tx.created_at)}] ${sellerName} sold ${tx.quantity} ${itemName} directly into ${buyerName}'s buy order${tradeSuffix}`;
+  }
+  if (tx.match_type === "buy_order_sweep" || tx.match_type === "sell_listing_sweep") {
+    return `[${formatTimestamp(tx.created_at)}] Buy order filled: ${buyerName} bought ${tx.quantity} ${itemName} from ${sellerName}${tradeSuffix}`;
+  }
+
   return `[${formatTimestamp(tx.created_at)}] ${buyerName} bought ${tx.quantity} ${itemName} from ${sellerName}${tradeSuffix}`;
 }

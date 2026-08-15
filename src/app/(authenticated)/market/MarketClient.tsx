@@ -1,5 +1,6 @@
 "use client";
 
+import BuyOrdersPanel from "@/domains/market/components/BuyOrdersPanel";
 import { formatMarketTransactionLine } from "@/domains/market/feed";
 import { formatBusinessType } from "@/lib/businesses";
 import { formatCurrency } from "@/lib/formatters";
@@ -881,6 +882,8 @@ export default function MarketClient({ initialData }: Props) {
               </div>
             )}
           </Panel>
+
+          <BuyOrdersPanel />
         </div>
 
         <div style={{ display: "grid", gap: 18 }}>

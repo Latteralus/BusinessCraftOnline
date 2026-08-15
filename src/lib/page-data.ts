@@ -5,7 +5,7 @@ import type { City, TravelState } from "@/domains/cities-travel";
 import type { Contract } from "@/domains/contracts";
 import type { Employee, EmployeeSummary } from "@/domains/employees";
 import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } from "@/domains/inventory";
-import type { MarketListing, MarketTransaction } from "@/domains/market";
+import type { MarketBuyOrder, MarketListing, MarketTransaction } from "@/domains/market";
 import type { ManufacturingStatusView } from "@/domains/production";
 import { isManufacturingBusinessType } from "@/config/production";
 
@@ -44,6 +44,7 @@ export type MarketPageData = {
   transactions: MarketTransaction[];
   personalInventory: PersonalInventoryItem[];
   businessInventory: BusinessInventoryItem[];
+  buyOrders: MarketBuyOrder[];
   currentCityId: string | null;
   page?: {
     limit: number;
@@ -128,6 +129,7 @@ export function buildMarketPageData(input: {
   transactions: MarketTransaction[];
   personalInventory: PersonalInventoryItem[];
   businessInventory: BusinessInventoryItem[];
+  buyOrders: MarketBuyOrder[];
   currentCityId: string | null;
   page?: MarketPageData["page"];
 }): MarketPageData {

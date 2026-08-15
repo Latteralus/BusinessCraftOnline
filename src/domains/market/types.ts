@@ -2,6 +2,38 @@ export const MARKET_LISTING_STATUSES = ["active", "filled", "cancelled", "expire
 export type MarketListingStatus = (typeof MARKET_LISTING_STATUSES)[number];
 export type MarketListingSourceType = "business" | "personal";
 
+export const MARKET_BUY_ORDER_STATUSES = ["active", "filled", "cancelled", "expired"] as const;
+export type MarketBuyOrderStatus = (typeof MARKET_BUY_ORDER_STATUSES)[number];
+export type MarketBuyOrderPurchaserType = "business" | "personal";
+
+export const MARKET_TRANSACTION_MATCH_TYPES = [
+  "listing_purchase",
+  "buy_order_sweep",
+  "sell_listing_sweep",
+  "direct_fulfillment",
+] as const;
+export type MarketTransactionMatchType = (typeof MARKET_TRANSACTION_MATCH_TYPES)[number];
+
+export type MarketBuyOrder = {
+  id: string;
+  owner_player_id: string;
+  purchaser_type: MarketBuyOrderPurchaserType;
+  purchaser_business_id: string | null;
+  city_id: string;
+  item_key: string;
+  quality_min: number;
+  quality_max: number;
+  quantity: number;
+  max_unit_price: number;
+  status: MarketBuyOrderStatus;
+  expires_at: string | null;
+  filled_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+  updated_at: string;
+  business?: { name: string };
+};
+
 export type MarketListing = {
   id: string;
   owner_player_id: string;
@@ -50,6 +82,8 @@ export type MarketTransaction = {
   shopper_budget: number | null;
   sub_tick_index: number | null;
   tick_window_started_at: string | null;
+  buy_order_id: string | null;
+  match_type: MarketTransactionMatchType;
   created_at: string;
 };
 
@@ -265,6 +299,39 @@ export type BuyMarketListingInput = {
 export type RecordNpcPurchaseInput = {
   listingId: string;
   quantity: number;
+};
+
+export type MarketBuyOrderFilter = {
+  cityId?: string;
+  itemKey?: string;
+  status?: MarketBuyOrderStatus;
+  ownOnly?: boolean;
+  limit?: number;
+  offset?: number;
+};
+
+export type CreateMarketBuyOrderInput = {
+  purchaserType: MarketBuyOrderPurchaserType;
+  purchaserBusinessId?: string;
+  itemKey: string;
+  qualityMin: number;
+  qualityMax: number;
+  quantity: number;
+  maxUnitPrice: number;
+  expiresAt?: string;
+};
+
+export type CancelMarketBuyOrderInput = {
+  buyOrderId: string;
+};
+
+export type FulfillMarketBuyOrderInput = {
+  buyOrderId: string;
+  quantity: number;
+  sourceType: MarketBuyOrderPurchaserType;
+  sourceBusinessId?: string;
+  sourceBusinessInventoryId?: string;
+  sourcePersonalInventoryId?: string;
 };
 
 export type MarketStorefrontFilter = {

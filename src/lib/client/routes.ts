@@ -67,6 +67,19 @@ export const apiRoutes = {
     storefront: "/api/market/storefront",
     storefrontPerformance: (businessId: string, windowHours?: number) =>
       withSearch("/api/market/storefront/performance", { businessId, windowHours }),
+    buyOrders: {
+      root: "/api/market/buy-orders",
+      listings: (options: {
+        status?: "active" | "filled" | "cancelled" | "expired";
+        ownOnly?: boolean;
+        cityId?: string;
+        itemKey?: string;
+        limit?: number;
+        offset?: number;
+      } = {}) => withSearch("/api/market/buy-orders", options),
+      cancel: (buyOrderId: string) => `/api/market/buy-orders/${buyOrderId}/cancel`,
+      fulfill: (buyOrderId: string) => `/api/market/buy-orders/${buyOrderId}/fulfill`,
+    },
   },
   mail: {
     root: "/api/mail",

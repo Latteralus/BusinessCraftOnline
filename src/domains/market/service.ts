@@ -22,8 +22,13 @@ import {
 import type {
   AdminEconomySummary,
   BuyMarketListingInput,
+  CancelMarketBuyOrderInput,
   CancelMarketListingInput,
+  CreateMarketBuyOrderInput,
   CreateMarketListingInput,
+  FulfillMarketBuyOrderInput,
+  MarketBuyOrder,
+  MarketBuyOrderFilter,
   MarketListing,
   MarketListingFilter,
   MarketStorefrontPerformanceSnapshot,
@@ -47,6 +52,16 @@ function normalizeListing(row: MarketListing & { business?: { name: string } }):
     quantity: Number(row.quantity),
     reserved_quantity: Number(row.reserved_quantity),
     unit_price: toNumber(row.unit_price),
+  };
+}
+
+function normalizeBuyOrder(row: MarketBuyOrder & { business?: { name: string } }): MarketBuyOrder {
+  return {
+    ...row,
+    quality_min: Number(row.quality_min),
+    quality_max: Number(row.quality_max),
+    quantity: Number(row.quantity),
+    max_unit_price: toNumber(row.max_unit_price),
   };
 }
 
@@ -378,7 +393,9 @@ export async function createMarketListing(
       .single();
 
     if (error) throw error;
-    return normalizeListing(data as MarketListing);
+    const listing = normalizeListing(data as MarketListing);
+    await sweepBuyOrdersForNewListingSafely(client, listing.id);
+    return listing;
   }
 
   const { data: personalRow, error: personalError } = await client
@@ -442,7 +459,21 @@ export async function createMarketListing(
     .single();
 
   if (error) throw error;
-  return normalizeListing(data as MarketListing);
+  const listing = normalizeListing(data as MarketListing);
+  await sweepBuyOrdersForNewListingSafely(client, listing.id);
+  return listing;
+}
+
+// Best-effort: a failure here shouldn't fail listing creation. The listing
+// still exists and remains matchable later (by a future buy order's own
+// sweep, or a manual purchase) — only the instant-match opportunity is
+// missed. sweep_buy_orders_for_new_listing re-validates everything itself
+// under fresh row locks, so skipping it here never risks a stale/blind trade.
+async function sweepBuyOrdersForNewListingSafely(client: QueryClient, listingId: string): Promise<void> {
+  const { error } = await client.rpc("sweep_buy_orders_for_new_listing", { p_listing_id: listingId });
+  if (error) {
+    console.error("sweep_buy_orders_for_new_listing failed for listing", listingId, error);
+  }
 }
 
 export async function cancelMarketListing(
@@ -591,6 +622,128 @@ export async function buyMarketListing(
 
 export function recordNpcPurchase(): never {
   throw new Error("NPC purchases must be executed through storefront shelf stock, not direct inventory or market listings.");
+}
+
+export async function getMarketBuyOrders(
+  client: QueryClient,
+  playerId: string,
+  filter: MarketBuyOrderFilter = {}
+): Promise<MarketBuyOrder[]> {
+  const limit = Math.max(1, Math.min(100, filter.limit ?? 50));
+  const offset = Math.max(0, filter.offset ?? 0);
+  let query = client
+    .from("market_buy_orders")
+    .select("*, business:businesses(name)")
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (filter.ownOnly) {
+    query = query.eq("owner_player_id", playerId);
+  }
+
+  if (filter.cityId) {
+    query = query.eq("city_id", filter.cityId);
+  }
+
+  if (filter.itemKey) {
+    query = query.eq("item_key", filter.itemKey);
+  }
+
+  if (filter.status) {
+    query = query.eq("status", filter.status);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return ((data as MarketBuyOrder[]) ?? []).map(normalizeBuyOrder);
+}
+
+export async function createMarketBuyOrder(
+  client: QueryClient,
+  playerId: string,
+  input: CreateMarketBuyOrderInput
+): Promise<{ buyOrder: MarketBuyOrder }> {
+  let cityId: string | null = null;
+
+  if (input.purchaserType === "personal") {
+    const { data: characterRow, error: characterError } = await client
+      .from("characters")
+      .select("current_city_id")
+      .eq("player_id", playerId)
+      .maybeSingle();
+    if (characterError) throw characterError;
+    if (!characterRow?.current_city_id) {
+      throw new Error("Current city is required to place a personal buy order.");
+    }
+    cityId = characterRow.current_city_id;
+  }
+
+  const { data, error } = await client.rpc("place_market_buy_order", {
+    p_purchaser_type: input.purchaserType,
+    p_purchaser_business_id: input.purchaserType === "business" ? (input.purchaserBusinessId ?? null) : null,
+    p_city_id: cityId,
+    p_item_key: input.itemKey,
+    p_quality_min: input.qualityMin,
+    p_quality_max: input.qualityMax,
+    p_quantity: input.quantity,
+    p_max_unit_price: input.maxUnitPrice,
+    p_expires_at: input.expiresAt ?? null,
+  });
+  if (error) throw error;
+
+  const result = data && typeof data === "object" ? (data as { buyOrder?: MarketBuyOrder }) : null;
+  if (!result?.buyOrder) {
+    throw new Error("Buy order placement did not return an order.");
+  }
+
+  return { buyOrder: normalizeBuyOrder(result.buyOrder) };
+}
+
+export async function cancelMarketBuyOrder(
+  client: QueryClient,
+  playerId: string,
+  input: CancelMarketBuyOrderInput
+): Promise<MarketBuyOrder> {
+  void playerId; // ownership is enforced inside cancel_market_buy_order via auth.uid()
+  const { data, error } = await client.rpc("cancel_market_buy_order", {
+    p_buy_order_id: input.buyOrderId,
+  });
+  if (error) throw error;
+  if (!data) {
+    throw new Error("Buy order cancellation did not return an order.");
+  }
+
+  return normalizeBuyOrder(data as MarketBuyOrder);
+}
+
+export async function fulfillMarketBuyOrder(
+  client: QueryClient,
+  playerId: string,
+  input: FulfillMarketBuyOrderInput
+): Promise<{ buyOrder: MarketBuyOrder; transaction: MarketTransaction }> {
+  void playerId; // ownership/source checks are enforced inside fulfill_market_buy_order via auth.uid()
+  const { data, error } = await client.rpc("fulfill_market_buy_order", {
+    p_buy_order_id: input.buyOrderId,
+    p_quantity: input.quantity,
+    p_source_type: input.sourceType,
+    p_source_business_id: input.sourceType === "business" ? (input.sourceBusinessId ?? null) : null,
+    p_source_business_inventory_id: input.sourceType === "business" ? (input.sourceBusinessInventoryId ?? null) : null,
+    p_source_personal_inventory_id: input.sourceType === "personal" ? (input.sourcePersonalInventoryId ?? null) : null,
+  });
+  if (error) throw error;
+
+  const result =
+    data && typeof data === "object"
+      ? (data as { buyOrder?: MarketBuyOrder; transaction?: MarketTransaction })
+      : null;
+  if (!result?.buyOrder || !result.transaction) {
+    throw new Error("Buy order fulfillment did not return an order and transaction.");
+  }
+
+  return {
+    buyOrder: normalizeBuyOrder(result.buyOrder),
+    transaction: normalizeTransaction(result.transaction),
+  };
 }
 
 export async function getMarketTransactions(

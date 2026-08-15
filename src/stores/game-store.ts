@@ -7,7 +7,7 @@ import type { Contract } from "@/domains/contracts";
 import type { Employee, EmployeeSummary } from "@/domains/employees";
 import type { BusinessInventoryItem, PersonalInventoryItem, ShippingQueueItem } from "@/domains/inventory";
 import type { MailRecipientPreview, MailThreadDetail, MailThreadPreview } from "@/domains/mail";
-import type { MarketListing, MarketTransaction } from "@/domains/market";
+import type { MarketBuyOrder, MarketListing, MarketTransaction } from "@/domains/market";
 import type { ManufacturingStatusView, ProductionStatus } from "@/domains/production";
 import type { Business, BusinessFinanceDashboard, BusinessUpgrade, BusinessUpgradeProject, BusinessWithBalance } from "@/domains/businesses";
 import type { StoreShelfItem } from "@/domains/stores";
@@ -51,6 +51,7 @@ export type MarketSliceData = {
   businesses: BusinessWithBalance[];
   listings: MarketListing[];
   transactions: MarketTransaction[];
+  buyOrders: MarketBuyOrder[];
   currentCityId: string | null;
 };
 
@@ -204,6 +205,7 @@ const emptyMarket: MarketSliceData = {
   businesses: [],
   listings: [],
   transactions: [],
+  buyOrders: [],
   currentCityId: null,
 };
 

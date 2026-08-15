@@ -23,7 +23,7 @@ import {
 import { getContracts } from "@/domains/contracts";
 import { getEmployeeSummary, getPlayerEmployees } from "@/domains/employees";
 import { getBusinessInventory, getPersonalInventory, getShippingQueue } from "@/domains/inventory";
-import { getMarketListings, getMarketStorefrontSettings, getMarketTransactions } from "@/domains/market";
+import { getMarketBuyOrders, getMarketListings, getMarketStorefrontSettings, getMarketTransactions } from "@/domains/market";
 import { getManufacturingStatus } from "@/domains/production";
 import { withTiming } from "@/lib/server-timing";
 import {
@@ -227,12 +227,13 @@ export async function loadMarketPageData() {
   return withTiming("page-loader", "/market", async (timing) => {
     const { supabase, user, character } = await timing.measure("auth-context", () => requireAuthedPageContext());
     const marketLimit = 50;
-    const [businesses, listingsWithLookahead, transactions, personalInventory, businessInventory] = await Promise.all([
+    const [businesses, listingsWithLookahead, transactions, personalInventory, businessInventory, buyOrders] = await Promise.all([
       timing.measure("businesses-with-balances", () => getBusinessesWithBalancesCached(supabase, user.id)),
       timing.measure("market-listings", () => getMarketListings(supabase, user.id, { status: "active", limit: marketLimit + 1, offset: 0 }).catch(() => [])),
       timing.measure("market-transactions", () => getMarketTransactions(supabase, user.id, 40, { buyerType: "player" }).catch(() => [])),
       timing.measure("personal-inventory", () => getPersonalInventory(supabase, user.id).catch(() => [])),
       timing.measure("business-inventory", () => getBusinessInventory(supabase, user.id).catch(() => [])),
+      timing.measure("market-buy-orders", () => getMarketBuyOrders(supabase, user.id, { status: "active", limit: marketLimit }).catch(() => [])),
     ]);
     const listings = listingsWithLookahead.slice(0, marketLimit);
 
@@ -242,6 +243,7 @@ export async function loadMarketPageData() {
       transactions,
       personalInventory,
       businessInventory,
+      buyOrders,
       currentCityId: character.current_city_id ?? null,
       page: {
         limit: marketLimit,
