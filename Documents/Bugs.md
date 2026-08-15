@@ -10,6 +10,8 @@ The RLS policy on players (20260302090000_001_players.sql:26) allows UPDATE wher
 3. Double-spend race in every transfer/loan RPC
 transfer_between_own_accounts, transfer_between_personal_and_business, transfer_between_own_businesses, and pay_loan_from_checking all read a balance, then write a debit in a separate statement with no FOR UPDATE lock. Two concurrent requests draining the same account can both pass the balance check before either commits — an effective double-spend, since there's no aggregate CHECK constraint preventing a negative balance.
 
+NOTE: The above 1, 2, and 3 have all been fixed but not verified. Verify when possible.
+
 These three share one root cause: the app-layer checks in src/domains/**/service.ts are trustworthy, but the underlying Postgres grants/RLS policies aren't locked down to match, so anyone can talk to Supabase directly and skip your code entirely.
 
 🟠 High — real gameplay/data-integrity bugs
