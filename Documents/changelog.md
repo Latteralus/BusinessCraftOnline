@@ -6,6 +6,46 @@ When adding an entry: date it, say what changed and why, link the relevant migra
 
 ---
 
+## 2026-08-15 — Verified critical fixes, closed out Bugs.md items 4–18, fixed broken registration/login
+
+Follow-up session to the entry below. Reviewed all `Documents/*.md` files, fixed every open item in [`Bugs.md`](Bugs.md), and along the way found and fixed a live production bug that was silently breaking every new player's session.
+
+**Verified (no changes needed):** Bugs.md items 1–3, previously marked "fixed but not verified," were confirmed correct by direct migration read: `append_personal_transaction`/`append_business_account_entry` are `service_role`-only with both call sites already using the service-role client; `players.role` self-escalation is blocked by `trg_players_prevent_role_escalation`; all four transfer/loan RPCs lock rows `FOR UPDATE` in a stable order before checking balances.
+
+**High-priority fixes:**
+- **Item 4** — `shared/economy.ts`: `NPC_SUBTICK_SECONDS` was `30` but the actual `pg_cron` schedule for `tick-npc-purchases` is `* * * * *` (60s, pg_cron's minimum granularity). This silently truncated the subtick window so `subTickIndex` only ever reached ~9 of the intended 0–19 range before resetting — roughly half the intended NPC shopper volume never ran. Fixed by changing the constant to `60`.
+- **Item 5** — `tick-npc-purchases/index.ts`: the per-store loop had no error boundary, so one store throwing (e.g. an orphaned inventory row) zeroed out NPC traffic for every store after it in that pass. Wrapped the loop body in `try/catch` so a single store's failure is logged and skipped instead of aborting the run.
+- **Item 6** — NavBarFix (`a9d6eec`) made business selection render `BusinessDetailsClient` in place on `/businesses` without changing the URL, but `realtime-provider.tsx` only activated business-detail realtime subscriptions when `pathname.startsWith("/businesses/")`, so finance/inventory/employee updates for the panel a player was actively viewing stopped subscribing. Fixed by also gating on whether the store's `businessDetails` slice has an active entry (`trackedBusinessDetailIds.length > 0`) while on `/businesses`, and having `BusinessesClient.handleBackToList` call `removeBusinessDetail(...)` so that signal stays accurate.
+- **Item 7** — `settleEmployeeWages` posted the wage debit, then made two more separate network calls; if either failed, the debit had posted but `unpaid_wage_due` never cleared, so a retry could re-charge the same wage. New RPC `settle_employee_wages_atomic` (migration [`074`](../supabase/migrations/20260815020000_074_settle_employee_wages_atomic.sql)) makes the debit + debt-clear atomic, modeled on `assign_employee_atomic`'s locking. The restore-to-open-spot step is now a best-effort follow-up in application code with no financial side effect riding on it.
+
+**Medium fixes:**
+- **Item 8** — NPC sale settlement (`settleStoreInventorySale`) did an unlocked read-then-write against `business_inventory`/`store_shelf_items`, unlike the player-facing purchase RPC. Ported into a new locked RPC, `settle_store_inventory_sale_atomic` (migration [`075`](../supabase/migrations/20260815030000_075_settle_store_inventory_sale_atomic.sql)), mirroring `execute_market_purchase`'s `FOR UPDATE` pattern; the edge function now calls it instead of touching those tables directly.
+- **Item 9** — `/api/realtime-auth` returned the raw session JWT without verifying it first. Now calls `verifyCustomJwt` and returns 401 on an invalid/expired token before handing it back.
+- **Item 10** — Resolved as a side effect of item 7 (the dangerous "unhandled exception after the debit already posted" path no longer exists).
+- **Item 11** — `pay_loan_from_checking` checked the checking balance against the raw requested amount before clamping to what was actually owed, so "pay off the rest of my loan" could be wrongly rejected. Migration [`076`](../supabase/migrations/20260815040000_076_fix_loan_overpayment_clamp_order.sql) reorders the clamp before the balance check.
+- **Item 12** — `BusinessesClient.handleSelectBusiness` had no stale-response guard; a slow fetch for one business could overwrite a faster one for another. Added a request-token ref that discards stale resolutions.
+- **Item 13** — `buyMarketListing`'s weighted-average cost-basis update on the buyer's inventory row happened in a second, separately-locked round trip after `execute_market_purchase` returned, so concurrent purchases could clobber each other's cost basis. Migration [`079`](../supabase/migrations/20260815070000_079_execute_market_purchase_cost_basis.sql) computes it inside the RPC's existing lock on that row instead; the redundant JS-side read/update was removed.
+
+**Low fixes:**
+- **Item 14** — `fire_employee_atomic` deleted an employee unconditionally, silently erasing any `unpaid_wage_due`. Migration [`077`](../supabase/migrations/20260815050000_077_fire_employee_unpaid_wage_guard.sql) blocks firing until wages are settled.
+- **Item 15** — `append_business_financial_event` was left grantable to `authenticated` when its siblings were hardened in `072`. Migration [`078`](../supabase/migrations/20260815060000_078_restrict_business_financial_event_to_service_role.sql) restricts it to `service_role`; `insertBusinessFinancialEvents` now calls it via the service-role client.
+- **Item 16** — Dropped the two `employees={... as any}` casts (`BusinessesClient.tsx`, `businesses/[id]/page.tsx`) in favor of one documented helper, `toBusinessDetailsClientEmployees`, in `business-details-state.ts`.
+- **Item 17** — Deliberately **not changed**. The orphaned `/businesses/[id]/page.tsx` route is a consequence of NavBarFix's intentional in-place rendering, not a bug in itself; the route still works fine when hit directly, and item 6 already fixes the actual regression (realtime updates). Re-adding URL navigation would fight that UX choice and wasn't requested.
+- **Item 18** — Renamed `/api/banking/business-transfer` → `/api/banking/personal-business-transfer` and `/api/banking/businesses-transfer` → `/api/banking/business-to-business-transfer` for clarity (they were never actually duplicates, just confusingly named); updated `src/lib/client/routes.ts` accordingly.
+
+**Unplanned critical fix — new player registration and login were completely broken:**
+While verifying the fix set end-to-end (registering a test player and checking `/api/auth/me`), found two stacked, previously-undetected bugs that together meant **every new player registration silently produced an unusable account**, and existing logins were equally broken:
+1. `register_player`/`authenticate_player` call `crypt()`/`gen_salt()` unqualified under `set search_path = public`, but on this project `pgcrypto` is installed in the `extensions` schema (Supabase's current default), not `public`. Every registration attempt failed with `function gen_salt(unknown) does not exist`. Fixed by migration [`080`](../supabase/migrations/20260815080000_080_fix_register_login_pgcrypto_search_path.sql), adding `extensions` to both functions' search_path.
+2. Once registration itself started working, the resulting session cookie failed on every subsequent authenticated request with PostgREST error `PGRST301: None of the keys was able to decode the JWT`. Root cause: `SUPABASE_JWT_SECRET` in `.env.local` did not match project `aroffxhnsjjdtqieeogx`'s actual legacy JWT secret — the value in place was UUID-shaped (36 chars), not the real ~64-byte base64 secret, almost certainly copied from the wrong dashboard field when `.env.local` was pointed at this project earlier today. Verified the mismatch by checking the candidate secret against the project's own anon-key signature (`jose.jwtVerify`) before writing anything. Corrected `SUPABASE_JWT_SECRET` in `.env.local` to the real value from Project Settings → Data API → JWT Settings; confirmed with a live register → `/api/auth/me` → login round trip against the local dev server, then deleted the test accounts.
+
+**⚠️ Open follow-up, action needed:** `.env.local` is local-only (gitignored). If Vercel's dashboard-configured environment variables have their own `SUPABASE_JWT_SECRET` (set separately during the environment migration noted below), **production is very likely still broken the same way** and needs the same corrected value applied there. This could not be checked or fixed from this session — verify Vercel's env vars next.
+
+**Also verified:** post-deploy `tick_run_logs` shows `tick-npc-purchases` running with `status: "ok"` after redeploying the edge function (`storesProcessed: 0` is expected — this environment has no store businesses yet, not an error).
+
+**Still open (out of scope for this pass):** full economic-flow smoke testing (wage settlement, loan overpayment, NPC sale locking) under real concurrent load wasn't feasible from here without live player sessions — the fixes are verified by code/lock-order review and a clean build/typecheck, not by exercising the money flows themselves end-to-end.
+
+---
+
 ## 2026-08-15 — Supabase environment setup, critical security hardening, docs consolidation
 
 **Security fixes (migration [`072_critical_security_hardening.sql`](../supabase/migrations/20260815000000_072_critical_security_hardening.sql)):**

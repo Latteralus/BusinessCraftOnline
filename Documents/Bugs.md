@@ -1,5 +1,7 @@
 All five review agents have reported back. Here's the consolidated picture, worst first.
 
+NOTE (2026-08-15): Items 1–3 verified fixed; items 4–18 all fixed (item 17 deliberately left as-is, see rationale in changelog). See [`changelog.md`](changelog.md)'s "Verified critical fixes, closed out Bugs.md items 4–18" entry for what changed and why. This file is kept as-is below as the original review record.
+
 🔴 Critical — exploitable for unlimited money / admin takeover
 1. Money-duplication via direct Postgres RPC calls
 append_personal_transaction and append_business_account_entry (in 20260430020000_068_harden_economy_rpc_and_shelf_atomic.sql) are granted EXECUTE to the authenticated role and only check that you own the account — they never restrict transaction_type or category. Any player holding their own valid JWT + the public anon key can POST straight to Supabase's REST RPC endpoint (bypassing your app entirely) with transaction_type: "manual_adjustment" and an arbitrary amount, crediting themselves infinite money. These functions were meant as internal helpers, not public API.
