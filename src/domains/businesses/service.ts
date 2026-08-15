@@ -16,7 +16,7 @@ import {
 } from "@/domains/upgrades";
 import { round2, toNumber } from "@/lib/core/number";
 import type { QueryClient } from "@/lib/db/query-client";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase-server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase-service-role";
 import { isProductionBusinessType } from "./capabilities";
 import { getBusinessFinanceDashboard as buildBusinessFinanceDashboard } from "./finance";
 import type {

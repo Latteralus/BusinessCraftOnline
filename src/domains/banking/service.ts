@@ -25,7 +25,7 @@ import type {
 } from "./types";
 import type { QueryClient } from "@/lib/db/query-client";
 import { toNumber } from "@/lib/core/number";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase-server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase-service-role";
 
 export async function appendPersonalTransaction(
   client: QueryClient,
