@@ -25,6 +25,7 @@ import type {
 } from "./types";
 import type { QueryClient } from "@/lib/db/query-client";
 import { toNumber } from "@/lib/core/number";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase-server";
 
 export async function appendPersonalTransaction(
   client: QueryClient,
@@ -38,7 +39,11 @@ export async function appendPersonalTransaction(
     referenceId?: string | null;
   }
 ): Promise<void> {
-  const { error } = await client.rpc("append_personal_transaction", {
+  // append_personal_transaction is restricted to service_role in Postgres
+  // (players could otherwise POST directly to PostgREST with their own JWT
+  // and credit themselves arbitrary amounts), so this internal helper must
+  // call it with a service-role client rather than the caller's client.
+  const { error } = await createSupabaseServiceRoleClient().rpc("append_personal_transaction", {
     p_player_id: playerId,
     p_account_id: entry.accountId,
     p_amount: entry.amount,

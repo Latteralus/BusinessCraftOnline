@@ -16,6 +16,7 @@ import {
 } from "@/domains/upgrades";
 import { round2, toNumber } from "@/lib/core/number";
 import type { QueryClient } from "@/lib/db/query-client";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase-server";
 import { isProductionBusinessType } from "./capabilities";
 import { getBusinessFinanceDashboard as buildBusinessFinanceDashboard } from "./finance";
 import type {
@@ -327,7 +328,11 @@ export async function addBusinessAccountEntry(
   const business = await getBusinessById(client, playerId, businessId);
   if (!business) throw new Error("Business not found.");
 
-  const { data, error } = await client.rpc("append_business_account_entry", {
+  // append_business_account_entry is restricted to service_role in Postgres
+  // (players could otherwise POST directly to PostgREST with their own JWT
+  // and credit themselves arbitrary amounts), so this internal helper must
+  // call it with a service-role client rather than the caller's client.
+  const { data, error } = await createSupabaseServiceRoleClient().rpc("append_business_account_entry", {
     p_player_id: playerId,
     p_business_id: businessId,
     p_amount: entry.amount,
