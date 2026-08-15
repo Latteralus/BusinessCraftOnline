@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { STARTUP_COSTS } from "@/config/businesses";
 import type { BusinessType, BusinessWithBalance } from "@/domains/businesses";
@@ -12,6 +12,7 @@ import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency, formatDateTime, formatLabel } from "@/lib/formatters";
 import { BUSINESS_TYPE_LABELS, formatBusinessType } from "@/lib/businesses";
 import { useBusinessesSlice, useGameStore, useTravelSlice, type BusinessDetailsEntry } from "@/stores/game-store";
+import { toBusinessDetailsClientEmployees } from "@/components/businesses/business-details-state";
 import { syncMutationViews } from "@/stores/mutation-sync";
 import BusinessDetailsClient from "@/components/businesses/BusinessDetailsClient";
 
@@ -194,6 +195,8 @@ export default function BusinessesClient({ initialData }: Props) {
   const [selectedDetail, setSelectedDetail] = useState<BusinessDetailsEntry | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const upsertBusinessDetail = useGameStore((state) => state.upsertBusinessDetail);
+  const removeBusinessDetail = useGameStore((state) => state.removeBusinessDetail);
+  const selectRequestRef = useRef(0);
 
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<BusinessType>("farm");
@@ -334,21 +337,30 @@ export default function BusinessesClient({ initialData }: Props) {
   }
 
   async function handleSelectBusiness(business: BusinessWithBalance) {
+    const requestToken = ++selectRequestRef.current;
     setDetailLoading(true);
     setSelectedBusiness(business);
     try {
       const detail = await fetchBusinessDetailsState(business.id);
+      if (requestToken !== selectRequestRef.current) return;
       upsertBusinessDetail(business.id, detail);
       setSelectedDetail(detail);
     } catch {
+      if (requestToken !== selectRequestRef.current) return;
       setError("Failed to load business details.");
       setSelectedBusiness(null);
     } finally {
-      setDetailLoading(false);
+      if (requestToken === selectRequestRef.current) {
+        setDetailLoading(false);
+      }
     }
   }
 
   function handleBackToList() {
+    selectRequestRef.current += 1;
+    if (selectedBusiness) {
+      removeBusinessDetail(selectedBusiness.id);
+    }
     setSelectedBusiness(null);
     setSelectedDetail(null);
   }
@@ -404,7 +416,7 @@ export default function BusinessesClient({ initialData }: Props) {
           shelfItems={selectedDetail.shelfItems}
           upgrades={selectedDetail.upgrades}
           upgradeProjects={selectedDetail.upgradeProjects}
-          employees={selectedDetail.employees as any}
+          employees={toBusinessDetailsClientEmployees(selectedDetail.employees)}
           upgradeDefinitions={selectedDetail.upgradeDefinitions}
           financeDashboard={selectedDetail.financeDashboard}
           ownedBusinesses={selectedDetail.ownedBusinesses}

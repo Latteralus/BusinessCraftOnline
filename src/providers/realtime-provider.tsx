@@ -97,10 +97,15 @@ export function RealtimeProvider() {
   );
   const activeRealtimeModules = useMemo(() => {
     const path = pathname ?? "";
+    // BusinessesClient renders a selected business's detail panel in place on
+    // /businesses without changing the URL (see NavBarFix), so gating purely
+    // on pathname missed that case entirely. trackedBusinessDetailIds reflects
+    // whichever business detail entries are actually loaded in the store right
+    // now, so it doubles as "is a detail panel currently being viewed."
     return {
       dashboard: path === "/dashboard" || path === "/",
       businesses: path === "/businesses",
-      businessDetail: path.startsWith("/businesses/"),
+      businessDetail: path.startsWith("/businesses/") || (path === "/businesses" && trackedBusinessDetailIds.length > 0),
       banking: path === "/banking",
       inventory: path === "/inventory",
       market: path === "/market",
@@ -109,7 +114,7 @@ export function RealtimeProvider() {
       production: path === "/production",
       travel: path === "/travel",
     };
-  }, [pathname]);
+  }, [pathname, trackedBusinessDetailIds]);
 
   useEffect(() => {
     if (!hydrated || !playerId) {

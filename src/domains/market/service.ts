@@ -6,7 +6,6 @@ import { supportsStorefront } from "@/domains/businesses";
 import { addBusinessAccountEntry } from "@/domains/businesses/service";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
 import {
-  computeWeightedAverageCost,
   insertBusinessFinancialEvents,
   previewInventoryCostByRowId,
   refreshInventoryCostByRowId,
@@ -566,56 +565,23 @@ export async function buyMarketListing(
     ]);
   }
 
-  const { data: destinationInventory, error: destinationInventoryError } = await client
-    .from("business_inventory")
-    .select("id, quantity, unit_cost, total_cost")
-    .eq("owner_player_id", playerId)
-    .eq("business_id", input.buyerBusinessId)
-    .eq("item_key", transaction.item_key)
-    .eq("quality", transaction.quality)
-    .maybeSingle();
-
-  if (!destinationInventoryError && destinationInventory) {
-    const postPurchaseQuantity = toNumber(destinationInventory.quantity);
-    const addedQuantity = Math.max(1, transaction.quantity);
-    const existingQuantity = Math.max(0, postPurchaseQuantity - addedQuantity);
-    const purchaseUnitCost = addedQuantity > 0 ? round2(transaction.gross_total / addedQuantity) : 0;
-    // execute_market_purchase only increments quantity — it does NOT update total_cost.
-    // So total_cost still reflects the pre-purchase state; use it directly as the
-    // existing cost basis rather than subtracting gross_total (which was never added).
-    const existingTotalCost = destinationInventory.total_cost === undefined || destinationInventory.total_cost === null
-      ? existingQuantity * toNumber(destinationInventory.unit_cost)
-      : toNumber(destinationInventory.total_cost);
-    const next = computeWeightedAverageCost({
-      existingQuantity,
-      existingTotalCost,
-      addedQuantity,
-      addedUnitCost: purchaseUnitCost,
-    });
-
-    const { error: costUpdateError } = await client
-      .from("business_inventory")
-      .update({
-        unit_cost: next.nextUnitCost,
-        total_cost: next.nextTotalCost,
-        updated_at: nowIso(),
-      })
-      .eq("id", destinationInventory.id);
-    if (costUpdateError) throw costUpdateError;
-
-    await insertBusinessFinancialEvents(client, playerId, [
-      {
-        business_id: input.buyerBusinessId,
-        account_code: "inventory",
-        amount: transaction.gross_total,
-        quantity: transaction.quantity,
-        item_key: transaction.item_key,
-        reference_type: "market_transaction",
-        reference_id: transaction.id,
-        description: `Inventory acquired: ${transaction.quantity}x ${transaction.item_key}`,
-      },
-    ]);
-  }
+  // Weighted-average cost basis on the buyer's inventory row is now computed
+  // inside execute_market_purchase itself (see
+  // 20260815070000_079_execute_market_purchase_cost_basis.sql), under the same
+  // lock that updates quantity — a separate read-then-write here raced with
+  // concurrent purchases of the same item and could clobber the cost basis.
+  await insertBusinessFinancialEvents(client, playerId, [
+    {
+      business_id: input.buyerBusinessId,
+      account_code: "inventory",
+      amount: transaction.gross_total,
+      quantity: transaction.quantity,
+      item_key: transaction.item_key,
+      reference_type: "market_transaction",
+      reference_id: transaction.id,
+      description: `Inventory acquired: ${transaction.quantity}x ${transaction.item_key}`,
+    },
+  ]);
 
   return {
     listing: normalizeListing(result.listing),

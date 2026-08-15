@@ -170,205 +170,35 @@ async function settleStoreInventorySale(
     tickWindowStartedAt?: string | null;
   }
 ) {
-  const { data: inventoryRow, error: inventoryError } = await supabase
-    .from("business_inventory")
-    .select("id, quantity, reserved_quantity, unit_cost, total_cost")
-    .eq("owner_player_id", shelfRow.owner_player_id)
-    .eq("business_id", shelfRow.business_id)
-    .eq("item_key", shelfRow.item_key)
-    .eq("quality", shelfRow.quality)
-    .maybeSingle();
-
-  if (inventoryError) throw inventoryError;
-  if (!inventoryRow) throw new Error("Shelf inventory backing row not found.");
-
-  const inventoryQty = toNumber(inventoryRow.quantity);
-  const inventoryReserved = toNumber(inventoryRow.reserved_quantity);
-  const shelfQty = toNumber(shelfRow.quantity);
-  const listingPrice = Math.max(0.01, toNumber(shelfRow.unit_price));
-  const availableBackedQty = Math.max(0, Math.min(shelfQty, inventoryQty, inventoryReserved));
-  const explicitUnitCost = inventoryRow.unit_cost === null || inventoryRow.unit_cost === undefined
-    ? null
-    : toNumber(inventoryRow.unit_cost);
-  const explicitTotalCost = inventoryRow.total_cost === null || inventoryRow.total_cost === undefined
-    ? null
-    : toNumber(inventoryRow.total_cost);
   // Baseline cost = 55% of NPC price ceiling, matching INVENTORY_BASELINE_UNIT_COSTS in finance config.
-  // Used when no cost basis was recorded on the inventory row (produced goods, not purchased).
+  // Used by the RPC when no cost basis was recorded on the inventory row (produced goods, not purchased).
+  // Computed here (not in SQL) so shared/economy.ts stays the single source of truth for pricing.
   const baselineUnitCost = round2((NPC_PRICE_CEILINGS[shelfRow.item_key as keyof typeof NPC_PRICE_CEILINGS] ?? 0) * 0.55);
-  const inventoryUnitCost =
-    explicitTotalCost !== null && inventoryQty > 0
-      ? round2(explicitTotalCost / inventoryQty)
-      : explicitUnitCost ?? baselineUnitCost;
-  const soldInventoryCost = round2(Math.max(0, inventoryUnitCost * soldQty));
 
-  if (soldQty > availableBackedQty) {
-    throw new Error("Shelf sale exceeds reserved inventory backing.");
-  }
+  // The actual read-lock-write happens atomically in settle_store_inventory_sale_atomic,
+  // mirroring execute_market_purchase's locking so concurrent NPC sales / player listing
+  // changes against the same inventory row can't race.
+  const { data, error } = await supabase.rpc("settle_store_inventory_sale_atomic", {
+    p_shelf_item_id: shelfRow.id,
+    p_owner_player_id: shelfRow.owner_player_id,
+    p_business_id: shelfRow.business_id,
+    p_item_key: shelfRow.item_key,
+    p_quality: toNumber(shelfRow.quality),
+    p_city_id: shelfRow.city_id,
+    p_business_name: shelfRow.business_name ?? null,
+    p_sold_qty: soldQty,
+    p_unit_price: toNumber(shelfRow.unit_price),
+    p_baseline_unit_cost: baselineUnitCost,
+    p_shopper_name: meta?.shopperName ?? null,
+    p_shopper_tier: meta?.shopperTier ?? null,
+    p_shopper_budget: meta?.shopperBudget ?? null,
+    p_sub_tick_index: meta?.subTickIndex ?? null,
+    p_tick_window_started_at: meta?.tickWindowStartedAt ?? null,
+  });
 
-  const gross = Number((listingPrice * soldQty).toFixed(2));
-  const fee = round2(gross * NPC_STOREFRONT_FEE);
-  const net = round2(gross - fee);
-
-  const nextQty = inventoryQty - soldQty;
-  const nextReserved = Math.max(0, Math.min(nextQty, inventoryReserved - soldQty));
-  const nextShelfQty = shelfQty - soldQty;
-  const nextTotalCost =
-    explicitTotalCost !== null
-      ? round2(Math.max(0, explicitTotalCost - soldInventoryCost))
-      : round2(Math.max(0, inventoryUnitCost * nextQty));
-  const now = new Date().toISOString();
-
-  if (nextQty <= 0) {
-    const { error: deleteError } = await supabase.from("business_inventory").delete().eq("id", inventoryRow.id);
-    if (deleteError) throw deleteError;
-  } else {
-    const { error: updateError } = await supabase
-      .from("business_inventory")
-      .update({
-        quantity: Math.max(0, nextQty),
-        reserved_quantity: Math.max(0, nextReserved),
-        unit_cost: nextQty > 0 ? inventoryUnitCost : 0,
-        total_cost: nextQty > 0 ? nextTotalCost : 0,
-        updated_at: now,
-      })
-      .eq("id", inventoryRow.id);
-    if (updateError) throw updateError;
-  }
-
-  if (nextShelfQty <= 0) {
-    const { error: deleteShelfError } = await supabase.from("store_shelf_items").delete().eq("id", shelfRow.id);
-    if (deleteShelfError) throw deleteShelfError;
-  } else {
-    const { error: updateShelfError } = await supabase
-      .from("store_shelf_items")
-      .update({
-        quantity: nextShelfQty,
-        updated_at: now,
-      })
-      .eq("id", shelfRow.id);
-    if (updateShelfError) throw updateShelfError;
-  }
-
-  const { data: txRow, error: txError } = await supabase
-    .from("market_transactions")
-    .insert({
-      listing_id: null,
-      seller_player_id: shelfRow.owner_player_id,
-      buyer_player_id: null,
-      buyer_type: "npc",
-      seller_business_id: shelfRow.business_id,
-      seller_business_name: shelfRow.business_name ?? "Unknown Business",
-      buyer_business_id: null,
-      buyer_business_name: null,
-      city_id: shelfRow.city_id,
-      item_key: shelfRow.item_key,
-      quality: Math.max(0, Math.min(100, toNumber(shelfRow.quality))),
-      quantity: soldQty,
-      unit_price: listingPrice,
-      gross_total: gross,
-      market_fee: fee,
-      net_total: net,
-      shopper_name: meta?.shopperName ?? null,
-      shopper_tier: meta?.shopperTier ?? null,
-      shopper_budget: meta?.shopperBudget ?? null,
-      sub_tick_index: meta?.subTickIndex ?? null,
-      tick_window_started_at: meta?.tickWindowStartedAt ?? null,
-    })
-    .select("id")
-    .single();
-  if (txError) throw txError;
-
-  const transactionId = String(txRow.id);
-
-  // business_accounts requires amount > 0; skip the fee debit when fee rounds to zero
-  const ledgerEntries: Array<{
-    business_id: string;
-    amount: number;
-    entry_type: string;
-    category: string;
-    description: string;
-    reference_id: string;
-  }> = [
-    {
-      business_id: shelfRow.business_id,
-      amount: gross,
-      entry_type: "credit",
-      category: "npc_sale",
-      description: `Storefront sale: ${soldQty}x ${shelfRow.item_key}`,
-      reference_id: transactionId,
-    },
-  ];
-  if (fee > 0) {
-    ledgerEntries.push({
-      business_id: shelfRow.business_id,
-      amount: fee,
-      entry_type: "debit",
-      category: "market_fee",
-      description: `Storefront fee: ${soldQty}x ${shelfRow.item_key}`,
-      reference_id: transactionId,
-    });
-  }
-  const { error: ledgerError } = await supabase.from("business_accounts").insert(ledgerEntries);
-  if (ledgerError) throw ledgerError;
-
-  const financialEvents = [
-    {
-      business_id: shelfRow.business_id,
-      account_code: "revenue",
-      amount: gross,
-      quantity: soldQty,
-      item_key: shelfRow.item_key,
-      reference_type: "storefront_sale",
-      reference_id: transactionId,
-      description: `Storefront sale revenue: ${soldQty}x ${shelfRow.item_key}`,
-      metadata: { buyerType: "npc" },
-    },
-    {
-      business_id: shelfRow.business_id,
-      account_code: "cogs",
-      amount: soldInventoryCost,
-      quantity: soldQty,
-      item_key: shelfRow.item_key,
-      reference_type: "storefront_sale",
-      reference_id: transactionId,
-      description: `Storefront COGS: ${soldQty}x ${shelfRow.item_key}`,
-      metadata: { estimatedCost: explicitUnitCost === null && explicitTotalCost === null, unitCost: inventoryUnitCost },
-    },
-    {
-      business_id: shelfRow.business_id,
-      account_code: "inventory",
-      amount: soldInventoryCost,
-      quantity: soldQty,
-      item_key: shelfRow.item_key,
-      reference_type: "storefront_sale",
-      reference_id: transactionId,
-      description: `Storefront inventory relief: ${soldQty}x ${shelfRow.item_key}`,
-      metadata: {
-        direction: "out",
-        estimatedCost: explicitUnitCost === null && explicitTotalCost === null,
-        unitCost: inventoryUnitCost,
-      },
-    },
-  ];
-  if (fee > 0) {
-    financialEvents.push({
-      business_id: shelfRow.business_id,
-      account_code: "operating_expense",
-      amount: fee,
-      quantity: soldQty,
-      item_key: shelfRow.item_key,
-      reference_type: "storefront_sale",
-      reference_id: transactionId,
-      description: `Storefront fee expense: ${soldQty}x ${shelfRow.item_key}`,
-      metadata: null,
-    });
-  }
-
-  const { error: financialEventsError } = await supabase.from("business_financial_events").insert(financialEvents);
-  if (financialEventsError) throw financialEventsError;
-
-  return { gross, fee, net };
+  if (error) throw error;
+  const result = data as { gross: number; fee: number; net: number };
+  return { gross: result.gross, fee: result.fee, net: result.net };
 }
 
 async function writeTickRunLog(
@@ -484,6 +314,7 @@ Deno.serve(async (request) => {
     const demandMultiplier = getDemandCurveMultiplierForHour(now.getUTCHours());
 
     for (const store of stores ?? []) {
+     try {
       let storeSalesCount = 0;
       let storeBuyersCount = 0;
       let storeUnitsSold = 0;
@@ -793,6 +624,11 @@ Deno.serve(async (request) => {
       });
 
       storesProcessed += 1;
+     } catch (storeError) {
+      // One store's failure (e.g. an orphaned inventory row) must not stop every
+      // store after it in this pass from getting NPC shoppers this subtick.
+      console.error(`[tick-npc-purchases] store ${store.id} failed, skipping:`, storeError);
+     }
     }
 
     const payload = {

@@ -1,6 +1,9 @@
 export const MARKET_TRANSACTION_FEE = 0.03;
 export const NPC_STOREFRONT_FEE = 0.05;
-export const NPC_SUBTICK_SECONDS = 30;
+// Must match the pg_cron schedule that invokes tick-npc-purchases
+// (currently `* * * * *`, i.e. every 60s — pg_cron's minimum granularity).
+// A mismatch here silently truncates the subtick window (see changelog).
+export const NPC_SUBTICK_SECONDS = 60;
 export const NPC_SUBTICKS_PER_TICK = 20;
 export const NPC_SHOPPERS_PER_SUBTICK_BASE = 8;
 export const NPC_SUBTICK_VARIANCE = 0.3;

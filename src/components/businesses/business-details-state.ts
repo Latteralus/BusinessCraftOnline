@@ -9,7 +9,7 @@ import type { BusinessInventoryItem } from "@/domains/inventory";
 import { summarizeManufacturingLines, summarizeProductionSlots, type ManufacturingStatusView, type ProductionStatus } from "@/domains/production";
 import type { StoreShelfItem } from "@/domains/stores";
 import type { UpgradeDefinition } from "@/domains/upgrades";
-import type { BusinessDetailsEntry } from "@/stores/game-store";
+import type { BusinessDetailsEmployee, BusinessDetailsEntry } from "@/stores/game-store";
 import { shouldSyncHydratedEntry, resolveHydratedEntry } from "@/stores/hydrated-slice";
 
 export type BusinessDetailsClientProps = {
@@ -30,6 +30,18 @@ export type BusinessDetailsClientProps = {
 export type LocalEmployee = Employee & {
   employee_assignments?: (EmployeeAssignment & { business: Business })[] | null;
 };
+
+// BusinessDetailsEmployee (src/stores/game-store.ts) types employee_assignments
+// loosely (Record<string, unknown>[]) because it round-trips through the
+// store's JSON-hydrated businessDetails slice. At runtime it's always shaped
+// like EmployeeAssignment & { business: Business } — the same data the server
+// loader and API routes produce — so this is one documented cast instead of
+// an `as any` at every call site that reads from the store.
+export function toBusinessDetailsClientEmployees(
+  employees: BusinessDetailsEmployee[]
+): BusinessDetailsClientProps["employees"] {
+  return employees as unknown as BusinessDetailsClientProps["employees"];
+}
 
 export function normalizeManufacturingLine(
   line: NonNullable<ManufacturingStatusView["lines"]>[number],

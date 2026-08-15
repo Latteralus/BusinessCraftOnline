@@ -16,8 +16,8 @@ export const apiRoutes = {
     loan: "/api/banking/loan",
     loanPayment: "/api/banking/loan/payment",
     transfer: "/api/banking/transfer",
-    personalBusinessTransfer: "/api/banking/business-transfer",
-    businessToBusinessTransfer: "/api/banking/businesses-transfer",
+    personalBusinessTransfer: "/api/banking/personal-business-transfer",
+    businessToBusinessTransfer: "/api/banking/business-to-business-transfer",
     transactions: (limit: number) => withSearch("/api/banking/transactions", { limit }),
   },
   businesses: {

@@ -1,6 +1,7 @@
 import { DEFAULT_INVENTORY_UNIT_COST, INVENTORY_BASELINE_UNIT_COSTS } from "@/config/finance";
 import { round2, toNumber } from "@/lib/core/number";
 import type { QueryClient } from "@/lib/db/query-client";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase-service-role";
 
 type InventoryRow = {
   id: string;
@@ -202,8 +203,14 @@ export async function insertBusinessFinancialEvents(
   if (rows.length === 0) return;
   const effectiveAt = new Date().toISOString();
 
+  // append_business_financial_event is restricted to service_role in Postgres
+  // (players could otherwise POST directly to PostgREST with their own JWT
+  // and fabricate revenue/COGS events to spoof their own finance dashboard),
+  // so this must call it with a service-role client rather than `client`.
+  const serviceRoleClient = createSupabaseServiceRoleClient();
+
   await Promise.all(rows.map(async (row) => {
-    const { error } = await client.rpc("append_business_financial_event", {
+    const { error } = await serviceRoleClient.rpc("append_business_financial_event", {
       p_player_id: playerId,
       p_business_id: row.business_id,
       p_account_code: row.account_code,

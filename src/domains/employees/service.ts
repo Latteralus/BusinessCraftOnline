@@ -10,7 +10,6 @@ import {
   isManufacturingBusinessType,
   type ExtractionBusinessType,
 } from "@/config/production";
-import { addBusinessAccountEntry, getBusinessBalance } from "@/domains/businesses";
 import { syncManufacturingWorkerAssigned } from "@/domains/_shared/manufacturing-workers";
 import { getWorkerEffectiveStatus } from "./worker-state";
 import type { QueryClient } from "@/lib/db/query-client";
@@ -518,61 +517,49 @@ export async function settleEmployeeWages(
   playerId: string,
   input: SettleEmployeeWagesInput
 ): Promise<EmployeeWithDetails> {
-  const employee = await getEmployeeById(client, playerId, input.employeeId);
-  if (!employee) throw new Error("Employee not found.");
-  if (employee.status !== "unpaid") throw new Error("Employee does not have unpaid wages.");
-  if (!employee.employer_business_id) throw new Error("Employee is not tied to a business.");
+  // The wage debit and the unpaid_wage_due clear now happen atomically in one
+  // RPC (see 20260815020000_074_settle_employee_wages_atomic.sql), so a
+  // failure in the best-effort restore step below can never leave a debit
+  // posted with the debt still marked unpaid (the previous three-call,
+  // non-transactional version could double-charge on retry).
+  const { data, error } = await client.rpc("settle_employee_wages_atomic", {
+    p_player_id: playerId,
+    p_employee_id: input.employeeId,
+  });
 
-  const { data: debtRow, error: debtError } = await client
-    .from("employees")
-    .select("unpaid_wage_due")
-    .eq("id", employee.id)
-    .eq("player_id", playerId)
-    .maybeSingle();
-
-  if (debtError) throw debtError;
-
-  const unpaidWageDue = toNumber((debtRow as { unpaid_wage_due?: number | string | null } | null)?.unpaid_wage_due);
-  if (unpaidWageDue > 0) {
-    const balance = await getBusinessBalance(client, playerId, employee.employer_business_id);
-    if (balance < unpaidWageDue) {
-      throw new Error(
-        `Insufficient business funds. Wage settlement is $${unpaidWageDue.toFixed(2)} and balance is $${balance.toFixed(2)}.`
-      );
-    }
-
-    await addBusinessAccountEntry(client, playerId, employee.employer_business_id, {
-      amount: unpaidWageDue,
-      entryType: "debit",
-      category: "employee_wage_settlement",
-      description: `Wage settlement: ${employee.first_name} ${employee.last_name}`,
-      referenceId: employee.id,
-    });
+  if (error) throw error;
+  const result = data as { employee?: Employee } | null;
+  if (!result?.employee) {
+    throw new Error("Wage settlement did not return an employee.");
   }
 
-  const nowIso = new Date().toISOString();
-  const restoredAssignment = await restoreSettledEmployeeToOpenSpot(client, employee);
-  const nextStatus: EmployeeStatus = restoredAssignment ? "assigned" : "available";
-  const { data: updatedEmployeeRow, error: updateError } = await client
-    .from("employees")
-    .update({
-      status: nextStatus,
-      unpaid_wage_due: 0,
-      unpaid_since: null,
-      last_unassigned_for_unpaid_at: null,
-      shift_ends_at: restoredAssignment ? addHoursToNow(SHIFT_LIMIT_HOURS[employee.employee_type]) : null,
-      last_wage_charged_at: nowIso,
-      updated_at: nowIso,
-    })
-    .eq("id", employee.id)
-    .eq("player_id", playerId)
-    .select("*")
-    .single();
+  let employee = normalizeEmployee(result.employee);
+  let restoredAssignment: EmployeeAssignment | null = null;
 
-  if (updateError) throw updateError;
+  try {
+    restoredAssignment = await restoreSettledEmployeeToOpenSpot(client, employee);
+  } catch {
+    restoredAssignment = null;
+  }
 
   if (restoredAssignment) {
-    await syncManufacturingWorkerAssigned(client, restoredAssignment.business_id);
+    const nowIso = new Date().toISOString();
+    const { data: updatedRow, error: updateError } = await client
+      .from("employees")
+      .update({
+        status: "assigned",
+        shift_ends_at: addHoursToNow(SHIFT_LIMIT_HOURS[employee.employee_type]),
+        updated_at: nowIso,
+      })
+      .eq("id", employee.id)
+      .eq("player_id", playerId)
+      .select("*")
+      .single();
+
+    if (!updateError && updatedRow) {
+      employee = normalizeEmployee(updatedRow as Employee);
+      await syncManufacturingWorkerAssigned(client, restoredAssignment.business_id);
+    }
   }
 
   const [skills, assignment] = await Promise.all([
@@ -583,7 +570,7 @@ export async function settleEmployeeWages(
   ]);
 
   return {
-    ...normalizeEmployee(updatedEmployeeRow as Employee),
+    ...employee,
     assignment,
     skills,
   };

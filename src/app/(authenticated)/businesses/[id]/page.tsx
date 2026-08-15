@@ -11,6 +11,7 @@ import { requireAuthedPageContext } from "../../server-data";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import BusinessDetailsClient from "@/components/businesses/BusinessDetailsClient";
+import { toBusinessDetailsClientEmployees } from "@/components/businesses/business-details-state";
 
 export default async function BusinessDetailsPage(props: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string; period?: string }> }) {
   const [params, searchParams, { supabase, user }] = await Promise.all([
@@ -76,7 +77,7 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
           shelfItems={detail.shelfItems}
           upgrades={detail.upgrades}
           upgradeProjects={detail.upgradeProjects}
-          employees={detail.employees as any}
+          employees={toBusinessDetailsClientEmployees(detail.employees)}
           upgradeDefinitions={detail.upgradeDefinitions}
           financeDashboard={detail.financeDashboard}
           ownedBusinesses={detail.ownedBusinesses}
