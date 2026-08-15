@@ -26,6 +26,9 @@ verify_jwt = false
 [functions.tick-npc-purchases]
 verify_jwt = false
 
+[functions.tick-npc-market-purchases]
+verify_jwt = false
+
 [functions.tick-shipping]
 verify_jwt = false
 
