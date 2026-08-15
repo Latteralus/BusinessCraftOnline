@@ -67,6 +67,11 @@ export default function EmployeesClient({ initialData }: Props) {
   const [assignBusinessId, setAssignBusinessId] = useState("");
   const [assignRole, setAssignRole] = useState<EmployeeRole>("production");
   const [assigning, setAssigning] = useState(false);
+  // Roster row actions (reactivate/unassign/fire) share one lock: firing off two of
+  // these in quick succession launches two concurrent employees-slice refetches with
+  // no ordering guarantee, so a faster-resolving stale response can silently revert
+  // the other action's result until something else corrects it.
+  const [pendingRosterAction, setPendingRosterAction] = useState(false);
   const selectedTypeBaseWage = BASE_WAGE_PER_HOUR[employeeType];
 
   const manageableEmployees = useMemo(
@@ -215,6 +220,8 @@ export default function EmployeesClient({ initialData }: Props) {
   }
 
   async function reactivate(employeeId: string) {
+    if (pendingRosterAction) return;
+    setPendingRosterAction(true);
     setError(null);
     setSuccess(null);
     try {
@@ -252,10 +259,14 @@ export default function EmployeesClient({ initialData }: Props) {
       setSuccess("Employee re-activated.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reactivate employee.");
+    } finally {
+      setPendingRosterAction(false);
     }
   }
 
   async function unassign(employeeId: string) {
+    if (pendingRosterAction) return;
+    setPendingRosterAction(true);
     setError(null);
     setSuccess(null);
     try {
@@ -293,10 +304,14 @@ export default function EmployeesClient({ initialData }: Props) {
       setSuccess("Employee unassigned.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to unassign employee.");
+    } finally {
+      setPendingRosterAction(false);
     }
   }
 
   async function fire(employeeId: string) {
+    if (pendingRosterAction) return;
+    setPendingRosterAction(true);
     setError(null);
     setSuccess(null);
     try {
@@ -330,6 +345,8 @@ export default function EmployeesClient({ initialData }: Props) {
       setSuccess("Employee fired.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fire employee.");
+    } finally {
+      setPendingRosterAction(false);
     }
   }
 
@@ -345,7 +362,7 @@ export default function EmployeesClient({ initialData }: Props) {
         </div>
       </header>
 
-      {hiring || assigning ? <p>Updating employees...</p> : null}
+      {hiring || assigning || pendingRosterAction ? <p>Updating employees...</p> : null}
       {error ? <p style={{ color: "#f87171" }}>{error}</p> : null}
       {success ? <p style={{ color: "#34d399" }}>{success}</p> : null}
 
@@ -451,9 +468,9 @@ export default function EmployeesClient({ initialData }: Props) {
               </p>
               <p style={{ margin: "6px 0", color: "#94a3b8" }}>Shift Ends: {formatNullableDateTime(employee.shift_ends_at)}</p>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button onClick={() => reactivate(employee.id)} disabled={employee.status === "fired"}>Re-Activate</button>
-                <button onClick={() => unassign(employee.id)} disabled={employee.status === "fired"}>Unassign</button>
-                <button onClick={() => fire(employee.id)}>Fire</button>
+                <button onClick={() => reactivate(employee.id)} disabled={employee.status === "fired" || pendingRosterAction}>Re-Activate</button>
+                <button onClick={() => unassign(employee.id)} disabled={employee.status === "fired" || pendingRosterAction}>Unassign</button>
+                <button onClick={() => fire(employee.id)} disabled={pendingRosterAction}>Fire</button>
               </div>
             </div>
           ))}

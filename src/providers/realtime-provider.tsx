@@ -12,6 +12,7 @@ import type { ChatMessage } from "@/domains/chat";
 import type { Contract } from "@/domains/contracts";
 import type { Employee } from "@/domains/employees";
 import { useGameStore } from "@/stores/game-store";
+import { runGuardedSliceFetch, SLICE_KEYS } from "@/stores/slice-fetch-guard";
 
 async function fetchRealtimeToken() {
   const response = await fetch("/api/realtime-auth");
@@ -184,7 +185,7 @@ export function RealtimeProvider() {
       const tasks: Promise<void>[] = [];
 
       if (activeRealtimeModules.dashboard || activeRealtimeModules.businesses) {
-        tasks.push(fetchBusinessesPageData().then((data) => {
+        tasks.push(runGuardedSliceFetch(SLICE_KEYS.businesses, fetchBusinessesPageData, (data) => {
           if (!cancelled) {
             setBusinesses(data.businesses);
             setTravel(data.travelState);
@@ -192,27 +193,27 @@ export function RealtimeProvider() {
         }));
       }
       if (activeRealtimeModules.banking) {
-        tasks.push(fetchBankingPageData().then((data) => {
+        tasks.push(runGuardedSliceFetch(SLICE_KEYS.banking, fetchBankingPageData, (data) => {
           if (!cancelled) setBanking(data);
         }));
       }
       if (activeRealtimeModules.inventory) {
-        tasks.push(fetchInventoryPageData().then((data) => {
+        tasks.push(runGuardedSliceFetch(SLICE_KEYS.inventory, fetchInventoryPageData, (data) => {
           if (!cancelled) setInventory(data);
         }));
       }
       if (activeRealtimeModules.market) {
-        tasks.push(fetchMarketPageData().then((data) => {
+        tasks.push(runGuardedSliceFetch(SLICE_KEYS.market, fetchMarketPageData, (data) => {
           if (!cancelled) setMarket(data);
         }));
       }
       if (activeRealtimeModules.production) {
-        tasks.push(fetchProductionPageData().then((data) => {
+        tasks.push(runGuardedSliceFetch(SLICE_KEYS.production, fetchProductionPageData, (data) => {
           if (!cancelled) setProduction(data);
         }));
       }
       if (activeRealtimeModules.contracts) {
-        tasks.push(fetchContractsPageData().then((data) => {
+        tasks.push(runGuardedSliceFetch(SLICE_KEYS.contracts, fetchContractsPageData, (data) => {
           if (!cancelled) {
             setContracts(data.contracts);
             setBusinesses(data.businesses);
@@ -220,7 +221,7 @@ export function RealtimeProvider() {
         }));
       }
       if (activeRealtimeModules.employees) {
-        tasks.push(fetchEmployeesPageData().then((data) => {
+        tasks.push(runGuardedSliceFetch(SLICE_KEYS.employees, fetchEmployeesPageData, (data) => {
           if (!cancelled) setEmployees(data);
         }));
       }
@@ -343,17 +344,18 @@ export function RealtimeProvider() {
           return;
         }
 
-        const refreshedDetail = await fetchBusinessDetailsState(
-          businessId,
-          detail.financeDashboard?.currentPeriod ?? "1h"
-        ).catch(() => null);
-        if (!refreshedDetail) {
-          return;
-        }
-
-        if (!cancelled) {
-          patchBusinessDetail(businessId, refreshedDetail);
-        }
+        await runGuardedSliceFetch(
+          SLICE_KEYS.businessDetail(businessId),
+          () =>
+            fetchBusinessDetailsState(businessId, detail.financeDashboard?.currentPeriod ?? "1h").catch(
+              () => null
+            ),
+          (refreshedDetail) => {
+            if (refreshedDetail && !cancelled) {
+              patchBusinessDetail(businessId, refreshedDetail);
+            }
+          }
+        );
       })()
         .catch(() => {
           // Keep existing detail state when a realtime refresh fails.
@@ -400,16 +402,21 @@ export function RealtimeProvider() {
     };
 
     const refreshBusinessBalances = async () => {
-      const businesses = await getBusinessesWithBalances(supabase, playerId).catch(() => null);
-      if (!businesses || cancelled) {
-        return;
-      }
+      await runGuardedSliceFetch(
+        SLICE_KEYS.businesses,
+        () => getBusinessesWithBalances(supabase, playerId).catch(() => null),
+        (businesses) => {
+          if (!businesses || cancelled) {
+            return;
+          }
 
-      setBusinesses(businesses);
-      patchBanking({ businesses });
-      patchInventory({ businesses });
-      patchMarket({ businesses });
-      patchProduction({ businesses });
+          setBusinesses(businesses);
+          patchBanking({ businesses });
+          patchInventory({ businesses });
+          patchMarket({ businesses });
+          patchProduction({ businesses });
+        }
+      );
     };
 
     const refreshMail = async () => {
@@ -538,22 +545,25 @@ export function RealtimeProvider() {
           const inventoryChannel = supabase
             .channel(`inventory-${playerId}`)
             .on("postgres_changes", { event: "*", schema: "public", table: "personal_inventory", filter: `player_id=eq.${playerId}` }, () => {
-              void runSliceRefresh("inventory", async () => {
-                const data = await fetchInventoryPageData();
-                if (!cancelled) setInventory(data);
-              });
+              void runSliceRefresh("inventory", () =>
+                runGuardedSliceFetch(SLICE_KEYS.inventory, fetchInventoryPageData, (data) => {
+                  if (!cancelled) setInventory(data);
+                })
+              );
             })
             .on("postgres_changes", { event: "*", schema: "public", table: "business_inventory", filter: `owner_player_id=eq.${playerId}` }, () => {
-              void runSliceRefresh("inventory", async () => {
-                const data = await fetchInventoryPageData();
-                if (!cancelled) setInventory(data);
-              });
+              void runSliceRefresh("inventory", () =>
+                runGuardedSliceFetch(SLICE_KEYS.inventory, fetchInventoryPageData, (data) => {
+                  if (!cancelled) setInventory(data);
+                })
+              );
             })
             .on("postgres_changes", { event: "*", schema: "public", table: "shipping_queue", filter: `owner_player_id=eq.${playerId}` }, () => {
-              void runSliceRefresh("inventory", async () => {
-                const data = await fetchInventoryPageData();
-                if (!cancelled) setInventory(data);
-              });
+              void runSliceRefresh("inventory", () =>
+                runGuardedSliceFetch(SLICE_KEYS.inventory, fetchInventoryPageData, (data) => {
+                  if (!cancelled) setInventory(data);
+                })
+              );
             })
             .subscribe();
           channels.push(inventoryChannel);
@@ -563,16 +573,18 @@ export function RealtimeProvider() {
           const bankingChannel = supabase
             .channel(`banking-${playerId}`)
             .on("postgres_changes", { event: "*", schema: "public", table: "bank_accounts", filter: `player_id=eq.${playerId}` }, () => {
-              void runSliceRefresh("banking", async () => {
-                const data = await fetchBankingPageData();
-                if (!cancelled) setBanking(data);
-              });
+              void runSliceRefresh("banking", () =>
+                runGuardedSliceFetch(SLICE_KEYS.banking, fetchBankingPageData, (data) => {
+                  if (!cancelled) setBanking(data);
+                })
+              );
             })
             .on("postgres_changes", { event: "*", schema: "public", table: "loans", filter: `player_id=eq.${playerId}` }, () => {
-              void runSliceRefresh("banking", async () => {
-                const data = await fetchBankingPageData();
-                if (!cancelled) setBanking(data);
-              });
+              void runSliceRefresh("banking", () =>
+                runGuardedSliceFetch(SLICE_KEYS.banking, fetchBankingPageData, (data) => {
+                  if (!cancelled) setBanking(data);
+                })
+              );
             })
             .subscribe();
           channels.push(bankingChannel);
@@ -581,10 +593,11 @@ export function RealtimeProvider() {
             const transactionsChannel = supabase
               .channel(`transactions-${playerId}-${accountId}`)
               .on("postgres_changes", { event: "*", schema: "public", table: "transactions", filter: `account_id=eq.${accountId}` }, () => {
-                void runSliceRefresh("banking", async () => {
-                  const data = await fetchBankingPageData();
-                  if (!cancelled) setBanking(data);
-                });
+                void runSliceRefresh("banking", () =>
+                  runGuardedSliceFetch(SLICE_KEYS.banking, fetchBankingPageData, (data) => {
+                    if (!cancelled) setBanking(data);
+                  })
+                );
               })
               .subscribe();
             channels.push(transactionsChannel);
@@ -604,10 +617,12 @@ export function RealtimeProvider() {
         }
 
         if (activeRealtimeModules.market) {
-          const refreshMarket = () => runSliceRefresh("market", async () => {
-            const data = await fetchMarketPageData();
-            if (!cancelled) setMarket(data);
-          });
+          const refreshMarket = () =>
+            runSliceRefresh("market", () =>
+              runGuardedSliceFetch(SLICE_KEYS.market, fetchMarketPageData, (data) => {
+                if (!cancelled) setMarket(data);
+              })
+            );
           const marketActiveChannel = supabase
             .channel(`market-active-${playerId}`)
             .on("postgres_changes", { event: "*", schema: "public", table: "market_listings", filter: "status=eq.active" }, () => {

@@ -6,6 +6,28 @@ When adding an entry: date it, say what changed and why, link the relevant migra
 
 ---
 
+## 2026-08-15 — Fixed stale-UI-until-refresh bug (sell/transfer actions not visually updating), dependency bump
+
+**User-reported bug:** selling items and transferring items (and other business-page actions) didn't visually update until a hard page refresh. Root cause was **not** a missing resync call in the main sell/transfer paths — `MarketClient.tsx`, `InventoryClient.tsx`'s transfer flow, and the underlying domain services/routes were all already correct. The actual bug was a **race condition** in how fetched data gets written into the Zustand store:
+
+- Every slice setter (`setBanking`, `setInventory`, `setMarket`, etc. in `game-store.ts`) is a blind overwrite with no ordering check.
+- Two independent code paths fetch and write the same slice for the same mutation: the component's own `syncMutationViews(...)` resync (fired right after the mutation's API call resolves), and the realtime provider's postgres_changes-triggered refetch of the same table (fired independently off the DB commit notification). Nothing coordinated the two, so whichever HTTP response happened to land last won — regardless of which one was actually fresher. A manual refresh "fixed" it because it's a single clean load with no competing in-flight request.
+- **Fix:** added `src/stores/slice-fetch-guard.ts` — a per-slice-key generation counter (`beginSliceFetch`/`isLatestSliceFetch`/`runGuardedSliceFetch`) shared between `src/stores/mutation-sync.ts` and `src/providers/realtime-provider.tsx`. Every slice fetch (businesses/banking/inventory/market/employees/contracts/production/`businessDetail:<id>`) now only commits its result if no newer fetch for that same key has been issued since. Both files were updated to route all their slice writes through this guard.
+
+**Related fixes found in the same audit, all following the existing optimistic-update + `syncMutationViews` pattern:**
+- `BankingClient.tsx` had five independent `*Submitting` flags gating five separate transfer/loan forms, so two forms could be submitted back-to-back and race each other's `banking` slice resync (on top of the guard fix above, this made Banking the easiest place to reproduce the bug — it's literally what the user called out). Collapsed all five buttons to share the existing `allBusy` flag.
+- `EmployeesClient.tsx`'s roster row actions (`reactivate`, `unassign`, `fire`) had no in-flight guard at all, unlike `submitHire`/`submitAssign` in the same file. Added a shared `pendingRosterAction` lock across all three.
+- `BusinessDetailsClient.tsx`'s three manufacturing-line actions (`unassignManufacturingWorker`, `setManufacturingLineRunning`, `retoolManufacturingLine`) patched the local business-detail entry but never called `syncMutationViews`, leaving the `employees` slice and the standalone `/production` page stale until an unrelated resync happened. Added the missing calls, matching `assignEmployeeToManufacturing` in the same file.
+- `ProductionClient.tsx`'s `setRecipe`/`setRunning` used a raw `fetch()` instead of the `apiPatch`/`apiPost` wrappers and never called `syncMutationViews`, so a business's Operations tab (viewed via Businesses/`BusinessDetailsClient`) didn't reflect changes made from the Production page. Converted to the standard wrapper + resync pattern.
+
+Verified with a clean `npm run typecheck` and `npm run build` after all changes.
+
+**Dependency bump (same session):** updated `package.json` to Next 16.3.1, React/React DOM 19.2.8, TypeScript 6.0.2 (major bump from 5.9.2), `@supabase/ssr` 0.12.4, `@supabase/supabase-js` 2.112.3, `react-hook-form` 7.85.0, Zod 4.4.3, Zustand 5.0.15; Tailwind intentionally held at 3.4.18 (Tailwind 4 is a config migration, not attempted here). Verified via clean `node_modules`/`package-lock.json` reinstall, `npm run typecheck`, and `npm run build` — all passed.
+
+**Still open:** the fixes were verified by code review, a clean typecheck, and a clean build — not by exercising the actual sell/transfer flows against a live dev server with concurrent actions. Recommend a manual smoke test (rapid-fire transfers on the Banking page, a sale on the Market page, firing multiple employees in quick succession) before considering this fully closed.
+
+---
+
 ## 2026-08-15 — Verified critical fixes, closed out Bugs.md items 4–18, fixed broken registration/login
 
 Follow-up session to the entry below. Reviewed all `Documents/*.md` files, fixed every open item in [`Bugs.md`](Bugs.md), and along the way found and fixed a live production bug that was silently breaking every new player's session.

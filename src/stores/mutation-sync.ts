@@ -1,6 +1,7 @@
 import type { FinancePeriod } from "@/config/finance";
 import type { BusinessDetailsEntry } from "@/stores/game-store";
 import { useGameStore } from "@/stores/game-store";
+import { runGuardedSliceFetch, SLICE_KEYS } from "@/stores/slice-fetch-guard";
 import {
   fetchBankingPageData,
   fetchBusinessesPageData,
@@ -42,7 +43,7 @@ export async function syncMutationViews(options: MutationSyncOptions) {
 
   if (options.businesses) {
     tasks.push(
-      fetchBusinessesPageData().then((data) => {
+      runGuardedSliceFetch(SLICE_KEYS.businesses, fetchBusinessesPageData, (data) => {
         const store = useGameStore.getState();
         store.setBusinesses(data.businesses);
         store.setTravel(data.travelState);
@@ -52,7 +53,7 @@ export async function syncMutationViews(options: MutationSyncOptions) {
 
   if (options.banking) {
     tasks.push(
-      fetchBankingPageData().then((data) => {
+      runGuardedSliceFetch(SLICE_KEYS.banking, fetchBankingPageData, (data) => {
         useGameStore.getState().setBanking({
           accounts: data.accounts,
           loanData: data.loanData,
@@ -65,7 +66,7 @@ export async function syncMutationViews(options: MutationSyncOptions) {
 
   if (options.inventory) {
     tasks.push(
-      fetchInventoryPageData().then((data) => {
+      runGuardedSliceFetch(SLICE_KEYS.inventory, fetchInventoryPageData, (data) => {
         useGameStore.getState().setInventory({
           personalInventory: data.personalInventory,
           businessInventory: data.businessInventory,
@@ -81,7 +82,7 @@ export async function syncMutationViews(options: MutationSyncOptions) {
 
   if (options.market) {
     tasks.push(
-      fetchMarketPageData().then((data) => {
+      runGuardedSliceFetch(SLICE_KEYS.market, fetchMarketPageData, (data) => {
         useGameStore.getState().setMarket({
           businesses: data.businesses,
           listings: data.listings,
@@ -94,7 +95,7 @@ export async function syncMutationViews(options: MutationSyncOptions) {
 
   if (options.employees) {
     tasks.push(
-      fetchEmployeesPageData().then((data) => {
+      runGuardedSliceFetch(SLICE_KEYS.employees, fetchEmployeesPageData, (data) => {
         useGameStore.getState().setEmployees({
           employees: data.employees,
           summary: data.summary,
@@ -106,7 +107,7 @@ export async function syncMutationViews(options: MutationSyncOptions) {
 
   if (options.contracts) {
     tasks.push(
-      fetchContractsPageData().then((data) => {
+      runGuardedSliceFetch(SLICE_KEYS.contracts, fetchContractsPageData, (data) => {
         const store = useGameStore.getState();
         store.setContracts(data.contracts);
         store.setBusinesses(data.businesses);
@@ -116,7 +117,7 @@ export async function syncMutationViews(options: MutationSyncOptions) {
 
   if (options.production) {
     tasks.push(
-      fetchProductionPageData().then((data) => {
+      runGuardedSliceFetch(SLICE_KEYS.production, fetchProductionPageData, (data) => {
         useGameStore.getState().setProduction({
           businesses: data.businesses,
           selectedBusinessId: data.selectedBusinessId,
@@ -128,9 +129,13 @@ export async function syncMutationViews(options: MutationSyncOptions) {
 
   for (const target of dedupeBusinessDetails(options.businessDetails)) {
     tasks.push(
-      fetchBusinessDetailsState(target.businessId, target.period).then((detail) => {
-        useGameStore.getState().upsertBusinessDetail(target.businessId, detail);
-      })
+      runGuardedSliceFetch(
+        SLICE_KEYS.businessDetail(target.businessId),
+        () => fetchBusinessDetailsState(target.businessId, target.period),
+        (detail) => {
+          useGameStore.getState().upsertBusinessDetail(target.businessId, detail);
+        }
+      )
     );
   }
 

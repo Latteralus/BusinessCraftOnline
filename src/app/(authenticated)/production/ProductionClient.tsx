@@ -3,13 +3,15 @@
 import { PRODUCTION_RETOOL_DURATION_MINUTES } from "@/config/production";
 import { supportsManufacturing } from "@/domains/businesses";
 import type { ManufacturingStatusView } from "@/domains/production";
-import { apiGet } from "@/lib/client/api";
+import { apiGet, apiPatch, apiPost } from "@/lib/client/api";
+import { apiRoutes } from "@/lib/client/routes";
 import type { ProductionPageData } from "@/lib/client/queries";
 import { useNowMs } from "@/hooks/use-now-ms";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useGameStore, useProductionSlice } from "@/stores/game-store";
+import { detailSyncTarget, syncMutationViews } from "@/stores/mutation-sync";
 
 type Props = {
   initialData: ProductionPageData;
@@ -86,36 +88,38 @@ export default function ProductionClient({ initialData }: Props) {
     if (!lineId || !recipeKey || busy) return;
     setBusy(true);
     setError(null);
-    const response = await fetch("/api/production/manufacturing", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lineId, recipeKey }),
-    });
-    const payload = (await response.json()) as ManufacturingResponse;
-    setBusy(false);
-    if (!response.ok) {
-      setError(payload.error ?? "Failed to set recipe.");
-      return;
+    try {
+      const payload = await apiPatch<ManufacturingResponse>(
+        apiRoutes.production.manufacturing,
+        { lineId, recipeKey },
+        { fallbackError: "Failed to set recipe." }
+      );
+      patchProduction({ selectedBusinessId, manufacturing: payload.status });
+      await syncMutationViews({ businessDetails: detailSyncTarget(selectedBusinessId) });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to set recipe.");
+    } finally {
+      setBusy(false);
     }
-    patchProduction({ selectedBusinessId, manufacturing: payload.status });
   }
 
   async function setRunning(lineId: string, action: "start" | "stop") {
     if (!lineId || busy) return;
     setBusy(true);
     setError(null);
-    const response = await fetch("/api/production/manufacturing", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lineId, action }),
-    });
-    const payload = (await response.json()) as ManufacturingResponse;
-    setBusy(false);
-    if (!response.ok) {
-      setError(payload.error ?? `Failed to ${action} manufacturing.`);
-      return;
+    try {
+      const payload = await apiPost<ManufacturingResponse>(
+        apiRoutes.production.manufacturing,
+        { lineId, action },
+        { fallbackError: `Failed to ${action} manufacturing.` }
+      );
+      patchProduction({ selectedBusinessId, manufacturing: payload.status });
+      await syncMutationViews({ businessDetails: detailSyncTarget(selectedBusinessId) });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to ${action} manufacturing.`);
+    } finally {
+      setBusy(false);
     }
-    patchProduction({ selectedBusinessId, manufacturing: payload.status });
   }
 
   return (

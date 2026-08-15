@@ -711,6 +711,10 @@ export default function BusinessDetailsClient({
       if (payload.line) {
         updateManufacturingLine(payload.line);
       }
+      await syncMutationViews({
+        employees: true,
+        businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
+      });
     }, "Error unassigning manufacturing line");
   }
 
@@ -725,6 +729,10 @@ export default function BusinessDetailsClient({
       if (payload.line) {
         updateManufacturingLine(payload.line);
       }
+      await syncMutationViews({
+        businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
+        production: true,
+      });
     }, "Error updating manufacturing line status");
   }
 
@@ -741,6 +749,10 @@ export default function BusinessDetailsClient({
         updateManufacturingLine(payload.line);
       }
       setManufacturingRetoolSelections((prev) => ({ ...prev, [lineId]: "" }));
+      await syncMutationViews({
+        businessDetails: detailSyncTarget(business.id, selectedFinancePeriod),
+        production: true,
+      });
     }, "Error retooling manufacturing line");
   }
 

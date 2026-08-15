@@ -254,6 +254,10 @@ export default function BankingClient({ initialData }: Props) {
   );
   const recentNetFlow = recentCredits - recentDebits;
   const loanSummary = loanData.summary;
+  // Any one of these forms mutating at once is enough to race the others' resyncs
+  // (see slice-fetch-guard.ts) into visually clobbering each other, so all five
+  // submit buttons share a single lock even though each keeps its own "was I the
+  // one submitting" flag for its button label.
   const allBusy = transferSubmitting || personalBusinessSubmitting || ownedBusinessSubmitting || loanSubmitting || paymentSubmitting;
 
   function resetMessages() {
@@ -262,7 +266,7 @@ export default function BankingClient({ initialData }: Props) {
   }
 
   async function submitTransfer() {
-    if (transferSubmitting) return;
+    if (allBusy) return;
     const amount = Number(transferAmount);
     setTransferSubmitting(true);
     resetMessages();
@@ -333,7 +337,7 @@ export default function BankingClient({ initialData }: Props) {
   }
 
   async function submitPersonalBusinessTransfer() {
-    if (personalBusinessSubmitting) return;
+    if (allBusy) return;
     const amount = Number(personalBusinessAmount);
     setPersonalBusinessSubmitting(true);
     resetMessages();
@@ -404,7 +408,7 @@ export default function BankingClient({ initialData }: Props) {
   }
 
   async function submitOwnedBusinessTransfer() {
-    if (ownedBusinessSubmitting) return;
+    if (allBusy) return;
     const amount = Number(ownedBusinessAmount);
     setOwnedBusinessSubmitting(true);
     resetMessages();
@@ -461,7 +465,7 @@ export default function BankingClient({ initialData }: Props) {
   }
 
   async function submitLoanApplication() {
-    if (loanSubmitting) return;
+    if (allBusy) return;
     const principal = Number(loanPrincipal);
     setLoanSubmitting(true);
     resetMessages();
@@ -552,7 +556,7 @@ export default function BankingClient({ initialData }: Props) {
   }
 
   async function submitLoanPayment() {
-    if (!loanData?.summary?.loan.id || paymentSubmitting) return;
+    if (!loanData?.summary?.loan.id || allBusy) return;
     const loanId = loanData.summary.loan.id;
     const amount = Number(paymentAmount);
     setPaymentSubmitting(true);
@@ -792,7 +796,7 @@ export default function BankingClient({ initialData }: Props) {
                 ? `Moving ${formatCurrency(Number(transferAmount) || 0)} from ${BANK_ACCOUNT_LABELS[fromAccount.account_type]} to ${BANK_ACCOUNT_LABELS[toAccount.account_type]}`
                 : "Select both source and destination accounts."}
             </div>
-            <button onClick={submitTransfer} disabled={!fromAccountId || !toAccountId || fromAccountId === toAccountId || Number(transferAmount) <= 0 || transferSubmitting}>
+            <button onClick={submitTransfer} disabled={!fromAccountId || !toAccountId || fromAccountId === toAccountId || Number(transferAmount) <= 0 || allBusy}>
               {transferSubmitting ? "Transferring..." : "Submit Transfer"}
             </button>
           </div>
@@ -842,7 +846,7 @@ export default function BankingClient({ initialData }: Props) {
                 ? `${personalBusinessDirection === "to_business" ? "Funding" : "Withdrawing from"} ${selectedBusiness.name} using ${BANK_ACCOUNT_LABELS[personalBusinessAccount.account_type]}.`
                 : "Choose an account and business to continue."}
             </div>
-            <button onClick={submitPersonalBusinessTransfer} disabled={!personalBusinessAccountId || !personalBusinessId || Number(personalBusinessAmount) <= 0 || personalBusinessSubmitting}>
+            <button onClick={submitPersonalBusinessTransfer} disabled={!personalBusinessAccountId || !personalBusinessId || Number(personalBusinessAmount) <= 0 || allBusy}>
               {personalBusinessSubmitting ? "Transferring..." : "Submit Transfer"}
             </button>
           </div>
@@ -887,7 +891,7 @@ export default function BankingClient({ initialData }: Props) {
             </div>
             <button
               onClick={submitOwnedBusinessTransfer}
-              disabled={!fromOwnedBusinessId || !toOwnedBusinessId || fromOwnedBusinessId === toOwnedBusinessId || Number(ownedBusinessAmount) <= 0 || ownedBusinessSubmitting}
+              disabled={!fromOwnedBusinessId || !toOwnedBusinessId || fromOwnedBusinessId === toOwnedBusinessId || Number(ownedBusinessAmount) <= 0 || allBusy}
             >
               {ownedBusinessSubmitting ? "Transferring..." : "Submit Transfer"}
             </button>
@@ -934,7 +938,7 @@ export default function BankingClient({ initialData }: Props) {
                 <FieldLabel><TooltipLabel label="Payment Amount" content="How much of the loan you want to pay down right now from checking." /></FieldLabel>
                 <input type="number" min="0" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder="0.00" />
               </label>
-              <button onClick={submitLoanPayment} disabled={Number(paymentAmount) <= 0 || paymentSubmitting}>
+              <button onClick={submitLoanPayment} disabled={Number(paymentAmount) <= 0 || allBusy}>
                 {paymentSubmitting ? "Submitting Payment..." : "Pay Loan"}
               </button>
             </div>
@@ -944,7 +948,7 @@ export default function BankingClient({ initialData }: Props) {
                 <FieldLabel><TooltipLabel label="Loan Principal" content="The amount you want to borrow. Approved principal is deposited into checking." /></FieldLabel>
                 <input type="number" min="0" step="0.01" value={loanPrincipal} onChange={(event) => setLoanPrincipal(event.target.value)} placeholder="1000.00" />
               </label>
-              <button onClick={submitLoanApplication} disabled={Number(loanPrincipal) <= 0 || loanSubmitting}>
+              <button onClick={submitLoanApplication} disabled={Number(loanPrincipal) <= 0 || allBusy}>
                 {loanSubmitting ? "Applying..." : "Apply For Loan"}
               </button>
             </div>
