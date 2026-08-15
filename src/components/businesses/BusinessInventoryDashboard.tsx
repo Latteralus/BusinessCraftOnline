@@ -1,6 +1,5 @@
 "use client";
 
-import { DEFAULT_INVENTORY_UNIT_COST, INVENTORY_BASELINE_UNIT_COSTS } from "@/config/finance";
 import { TooltipLabel } from "@/components/ui/tooltip";
 import { summarizeBusinessInventory, type BusinessInventoryItem } from "@/domains/inventory";
 import type { StoreShelfItem } from "@/domains/stores";
@@ -12,6 +11,7 @@ import { useEffect, useState } from "react";
 type Props = {
   inventory: BusinessInventoryItem[];
   shelfItems: StoreShelfItem[];
+  inventoryAssetValue: number;
 };
 
 function InventoryCard(props: { label: ReactNode; value: string; sub?: string; tone?: "neutral" | "positive" | "negative" }) {
@@ -109,7 +109,7 @@ function FlowRail(props: { label: string; sub: string; progress: number; color: 
   );
 }
 
-export default function BusinessInventoryDashboard({ inventory, shelfItems }: Props) {
+export default function BusinessInventoryDashboard({ inventory, shelfItems, inventoryAssetValue }: Props) {
   const [nowMs, setNowMs] = useState(0);
 
   useEffect(() => {
@@ -121,13 +121,6 @@ export default function BusinessInventoryDashboard({ inventory, shelfItems }: Pr
   }, []);
 
   const summary = summarizeBusinessInventory(inventory, shelfItems);
-  const estimatedAssetValue = inventory.reduce((sum, row) => {
-    const unitCost =
-      row.unit_cost && row.unit_cost > 0
-        ? row.unit_cost
-        : INVENTORY_BASELINE_UNIT_COSTS[row.item_key] ?? DEFAULT_INVENTORY_UNIT_COST;
-    return sum + row.quantity * unitCost;
-  }, 0);
   const topLines = inventory
     .map((row) => ({ label: `${formatItemKey(row.item_key)} Q${row.quality}`, value: row.quantity }))
     .sort((a, b) => b.value - a.value)
@@ -151,7 +144,7 @@ export default function BusinessInventoryDashboard({ inventory, shelfItems }: Pr
           <InventoryCard label={<TooltipLabel label="Available Stock" content="Units currently free to move, sell, or feed into operations." />} value={`${summary.availableUnits} units`} sub={`${inventory.length} inventory lines`} tone="positive" />
           <InventoryCard label={<TooltipLabel label="Reserved Stock" content="Units already committed to shelves, listings, or other downstream obligations." />} value={`${summary.reservedUnits} units`} sub="Committed to shelves or listings" tone={summary.reservedUnits > 0 ? "negative" : "neutral"} />
           <InventoryCard label={<TooltipLabel label="Shelf Staging" content="Units currently placed onto live shelves for retail sale." />} value={`${summary.shelfUnits} units`} sub={`${shelfItems.length} shelf rows live`} />
-          <InventoryCard label={<TooltipLabel label="Asset Estimate" content="Approximate inventory value using observed unit cost or fallback baseline costs." />} value={formatCurrency(estimatedAssetValue)} sub="Based on observed or baseline cost" />
+          <InventoryCard label={<TooltipLabel label="Asset Estimate" content="Inventory valued at the average active market price per item, or 100% of the NPC buying price where nothing is currently listed." />} value={formatCurrency(inventoryAssetValue)} sub="Based on live market pricing" />
           <InventoryCard label={<TooltipLabel label="Total Footprint" content="All units held by the business, regardless of whether they are free or reserved." />} value={`${summary.totalUnits} units`} sub="Across all item grades" />
         </div>
       </div>
@@ -172,7 +165,7 @@ export default function BusinessInventoryDashboard({ inventory, shelfItems }: Pr
             { label: "Shelf Rows", value: `${shelfItems.length}` },
             { label: "Available Units", value: `${summary.availableUnits}` },
             { label: "Reserved Units", value: `${summary.reservedUnits}` },
-            { label: "Estimated Asset", value: formatCurrency(estimatedAssetValue) },
+            { label: "Estimated Asset", value: formatCurrency(inventoryAssetValue) },
           ]}
         />
       </div>

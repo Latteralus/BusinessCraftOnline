@@ -19,6 +19,7 @@ export {
   STOREFRONT_AD_BUDGET_FOR_MAX_EFFECT,
   STOREFRONT_AD_MAX_TRAFFIC_BOOST,
   getDemandCurveMultiplierForHour,
+  getNpcSuggestedBasePrice,
 } from "../../shared/economy";
 
 export {

@@ -5,11 +5,6 @@ import {
 import { supportsStorefront } from "@/domains/businesses";
 import { addBusinessAccountEntry } from "@/domains/businesses/service";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
-import {
-  insertBusinessFinancialEvents,
-  previewInventoryCostByRowId,
-  refreshInventoryCostByRowId,
-} from "@/domains/businesses/financial-events";
 import { reconcileBusinessInventoryReservations } from "@/domains/inventory";
 import { round2, round4, toNumber } from "@/lib/core/number";
 import { addHoursToNowIso, nowIso, toIso } from "@/lib/core/time";
@@ -171,13 +166,6 @@ async function getOwnedListing(client: QueryClient, playerId: string, listingId:
   if (error) throw error;
   if (!data) throw new Error("Listing not found.");
 
-  return normalizeListing(data as MarketListing);
-}
-
-async function getListing(client: QueryClient, listingId: string): Promise<MarketListing> {
-  const { data, error } = await client.from("market_listings").select("*").eq("id", listingId).maybeSingle();
-  if (error) throw error;
-  if (!data) throw new Error("Listing not found.");
   return normalizeListing(data as MarketListing);
 }
 
@@ -514,12 +502,17 @@ export async function buyMarketListing(
   playerId: string,
   input: BuyMarketListingInput
 ): Promise<{ listing: MarketListing; transaction: MarketTransaction }> {
-  const listingBeforePurchase = await getListing(client, input.listingId);
-  const sellerInventoryCost =
-    listingBeforePurchase.source_type === "business" && listingBeforePurchase.source_inventory_id
-      ? await previewInventoryCostByRowId(client, listingBeforePurchase.source_inventory_id, input.quantity)
-      : null;
-
+  // Weighted-average cost basis on both the buyer's and (for business-sourced
+  // listings) the seller's inventory rows, and all finance-dashboard
+  // bookkeeping (revenue/COGS/inventory/fee financial events), are computed
+  // and written atomically inside execute_market_purchase itself (see
+  // 20260815160000_088_execute_market_purchase_atomic_financial_events.sql) —
+  // under the same locks that move the quantity and money, in the same
+  // transaction as the trade. A prior version of this function did the
+  // seller-side correction afterwards in separate, unlocked round trips,
+  // which could leave the finance dashboard permanently desynced from the
+  // real trade if that follow-up step ever failed after the RPC had already
+  // committed.
   const { data, error } = await client.rpc("execute_market_purchase", {
     p_listing_id: input.listingId,
     p_quantity: input.quantity,
@@ -536,87 +529,9 @@ export async function buyMarketListing(
     throw new Error("Market purchase did not return listing and transaction.");
   }
 
-  const transaction = normalizeTransaction(result.transaction);
-  if (
-    listingBeforePurchase.source_type === "business" &&
-    listingBeforePurchase.source_business_id &&
-    listingBeforePurchase.source_inventory_id &&
-    sellerInventoryCost
-  ) {
-    await refreshInventoryCostByRowId(
-      client,
-      listingBeforePurchase.source_inventory_id,
-      sellerInventoryCost.unitCost
-    );
-
-    await insertBusinessFinancialEvents(client, listingBeforePurchase.owner_player_id, [
-      {
-        business_id: listingBeforePurchase.source_business_id,
-        account_code: "revenue",
-        amount: transaction.gross_total,
-        quantity: transaction.quantity,
-        item_key: transaction.item_key,
-        reference_type: "market_transaction",
-        reference_id: transaction.id,
-        description: `Player sale revenue: ${transaction.quantity}x ${transaction.item_key}`,
-        metadata: { buyerType: "player" },
-      },
-      {
-        business_id: listingBeforePurchase.source_business_id,
-        account_code: "cogs",
-        amount: sellerInventoryCost.totalCost,
-        quantity: sellerInventoryCost.quantity,
-        item_key: transaction.item_key,
-        reference_type: "market_transaction",
-        reference_id: transaction.id,
-        description: `COGS on player sale: ${transaction.quantity}x ${transaction.item_key}`,
-        metadata: { estimatedCost: sellerInventoryCost.estimated },
-      },
-      {
-        business_id: listingBeforePurchase.source_business_id,
-        account_code: "inventory",
-        amount: sellerInventoryCost.totalCost,
-        quantity: sellerInventoryCost.quantity,
-        item_key: transaction.item_key,
-        reference_type: "market_transaction",
-        reference_id: transaction.id,
-        description: `Inventory relieved on player sale: ${transaction.quantity}x ${transaction.item_key}`,
-        metadata: { direction: "out", estimatedCost: sellerInventoryCost.estimated },
-      },
-      {
-        business_id: listingBeforePurchase.source_business_id,
-        account_code: "operating_expense",
-        amount: transaction.market_fee,
-        quantity: transaction.quantity,
-        item_key: transaction.item_key,
-        reference_type: "market_transaction",
-        reference_id: transaction.id,
-        description: `Market fee expense: ${transaction.quantity}x ${transaction.item_key}`,
-      },
-    ]);
-  }
-
-  // Weighted-average cost basis on the buyer's inventory row is now computed
-  // inside execute_market_purchase itself (see
-  // 20260815070000_079_execute_market_purchase_cost_basis.sql), under the same
-  // lock that updates quantity — a separate read-then-write here raced with
-  // concurrent purchases of the same item and could clobber the cost basis.
-  await insertBusinessFinancialEvents(client, playerId, [
-    {
-      business_id: input.buyerBusinessId,
-      account_code: "inventory",
-      amount: transaction.gross_total,
-      quantity: transaction.quantity,
-      item_key: transaction.item_key,
-      reference_type: "market_transaction",
-      reference_id: transaction.id,
-      description: `Inventory acquired: ${transaction.quantity}x ${transaction.item_key}`,
-    },
-  ]);
-
   return {
     listing: normalizeListing(result.listing),
-    transaction,
+    transaction: normalizeTransaction(result.transaction),
   };
 }
 

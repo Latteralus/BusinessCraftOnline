@@ -97,6 +97,7 @@ export default function BusinessDetailsClient({
   upgradeDefinitions = [],
   financeDashboard,
   ownedBusinesses = [],
+  inventoryAssetValue: initialInventoryAssetValue,
   initialTab,
 }: Props) {
   const router = useRouter();
@@ -144,6 +145,7 @@ export default function BusinessDetailsClient({
     ownedBusinesses: ownedBusinessesState,
     financeDashboard: financeDashboardState,
     upgradeDefinitions: upgradeDefinitionsState,
+    inventoryAssetValue,
     patchDetail,
     refreshFinanceDashboard,
     updateEmployeeRecord,
@@ -166,6 +168,7 @@ export default function BusinessDetailsClient({
     upgradeDefinitions,
     financeDashboard,
     ownedBusinesses,
+    inventoryAssetValue: initialInventoryAssetValue,
     initialTab,
   });
   const selectedFinancePeriod = (() => {
@@ -1628,7 +1631,7 @@ export default function BusinessDetailsClient({
         {activeTab === "inventory" && (
           <div>
             <h3 style={{ marginBottom: 16 }}>Inventory</h3>
-            <BusinessInventoryDashboard inventory={inventory} shelfItems={shelfItems} />
+            <BusinessInventoryDashboard inventory={inventory} shelfItems={shelfItems} inventoryAssetValue={inventoryAssetValue} />
             {inventory.length > 0 ? (
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>

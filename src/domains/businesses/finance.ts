@@ -1,11 +1,10 @@
 import {
   BUSINESS_LEDGER_CATEGORY_CLASSIFICATION,
   BUSINESS_VALUATION_MULTIPLIERS,
-  DEFAULT_INVENTORY_UNIT_COST,
   FINANCE_PERIODS,
-  INVENTORY_BASELINE_UNIT_COSTS,
   type FinancePeriod,
 } from "@/config/finance";
+import { getNpcSuggestedBasePrice } from "@/config/market";
 import { round2, toNumber } from "@/lib/core/number";
 import { addHoursToNowIso, nowIso } from "@/lib/core/time";
 import type { QueryClient } from "@/lib/db/query-client";
@@ -403,44 +402,71 @@ function getPostingType(event: LedgerEvent | DerivedFinancialEvent): "debit" | "
   }
 }
 
-function getInventoryUnitCost(row: InventorySnapshotRow): { unitCost: number; estimated: boolean } {
-  const explicitUnitCost = row.unit_cost === undefined || row.unit_cost === null ? null : toNumber(row.unit_cost);
-  if (explicitUnitCost !== null && explicitUnitCost > 0) {
-    return { unitCost: explicitUnitCost, estimated: false };
+type MarketListingPriceRow = {
+  item_key: string;
+  unit_price: number | string;
+};
+
+// Assets are valued at what they'd fetch right now, not at what was paid for
+// them: the average asking price across active open-market listings for that
+// item, or — when nothing is currently listed — 100% of the NPC buying price
+// (the midpoint of the NPC buy band, e.g. water at $1-$5 values at $2.50).
+// This is deliberately separate from COGS/cost-basis accounting (unit_cost /
+// total_cost on business_inventory), which still reflects actual acquisition
+// cost and must not change.
+async function getMarketAverageUnitPrices(client: QueryClient, itemKeys: string[]): Promise<Record<string, number>> {
+  const uniqueItemKeys = [...new Set(itemKeys)];
+  if (uniqueItemKeys.length === 0) return {};
+
+  const { data, error } = await client
+    .from("market_listings")
+    .select("item_key, unit_price")
+    .eq("status", "active")
+    .in("item_key", uniqueItemKeys);
+
+  if (error || !data) return {};
+
+  const totals = new Map<string, { sum: number; count: number }>();
+  for (const row of data as MarketListingPriceRow[]) {
+    const price = toNumber(row.unit_price);
+    const entry = totals.get(row.item_key) ?? { sum: 0, count: 0 };
+    entry.sum += price;
+    entry.count += 1;
+    totals.set(row.item_key, entry);
   }
 
-  const explicitTotalCost = row.total_cost === undefined || row.total_cost === null ? null : toNumber(row.total_cost);
-  const quantity = Math.max(0, toNumber(row.quantity));
-  if (explicitTotalCost !== null && explicitTotalCost > 0 && quantity > 0) {
-    return { unitCost: round2(explicitTotalCost / quantity), estimated: false };
-  }
-
-  return {
-    unitCost: INVENTORY_BASELINE_UNIT_COSTS[row.item_key] ?? DEFAULT_INVENTORY_UNIT_COST,
-    estimated: true,
-  };
+  return Object.fromEntries(
+    Array.from(totals.entries()).map(([itemKey, { sum, count }]) => [itemKey, round2(sum / count)])
+  );
 }
 
-function buildInventorySnapshot(rows: InventorySnapshotRow[]) {
+function getAssetUnitPrice(
+  itemKey: string,
+  marketAvgByItemKey: Record<string, number>
+): { unitPrice: number; source: "market" | "npc_fallback" } {
+  const marketAvg = marketAvgByItemKey[itemKey];
+  if (marketAvg && marketAvg > 0) {
+    return { unitPrice: marketAvg, source: "market" };
+  }
+  return { unitPrice: getNpcSuggestedBasePrice(itemKey), source: "npc_fallback" };
+}
+
+export async function computeInventoryAssetValue(
+  client: QueryClient,
+  rows: Array<{ item_key: string; quantity: number | string }>
+): Promise<{ inventoryAssetValue: number; npcFallbackRows: number }> {
+  const marketAvgByItemKey = await getMarketAverageUnitPrices(client, rows.map((row) => row.item_key));
   let inventoryAssetValue = 0;
-  let estimatedRows = 0;
+  let npcFallbackRows = 0;
 
   for (const row of rows) {
     const quantity = Math.max(0, toNumber(row.quantity));
-    const totalCost = row.total_cost === undefined || row.total_cost === null ? null : toNumber(row.total_cost);
-    if (totalCost !== null && totalCost > 0) {
-      inventoryAssetValue += totalCost;
-      continue;
-    }
-    const { unitCost, estimated } = getInventoryUnitCost(row);
-    inventoryAssetValue += quantity * unitCost;
-    if (estimated) estimatedRows += 1;
+    const { unitPrice, source } = getAssetUnitPrice(row.item_key, marketAvgByItemKey);
+    inventoryAssetValue += quantity * unitPrice;
+    if (source === "npc_fallback") npcFallbackRows += 1;
   }
 
-  return {
-    inventoryAssetValue: round2(inventoryAssetValue),
-    estimatedRows,
-  };
+  return { inventoryAssetValue: round2(inventoryAssetValue), npcFallbackRows };
 }
 
 function normalizeStorefrontSnapshotRow(row: StorefrontSnapshotRow) {
@@ -677,10 +703,15 @@ function buildSeries(
     bucketMs,
     (row) => row.amount
   );
+  // Signed by the ledger's own entry_type (credit = cash in, debit = cash
+  // out) rather than an accountCode allowlist — every currently-used category
+  // is unidirectional so this produces the same result as before for them,
+  // but it also correctly nets bidirectional flows like a buy-order escrow
+  // hold (debit) followed by its cancellation refund (credit), which an
+  // accountCode-only heuristic would otherwise count as cash leaving twice.
   const cashDeltaByBucket = groupAmountByBucket(ledgerEvents, bucketMs, (row) => {
     if (row.accountCode === "intercompany") return 0;
-    if (row.accountCode === "revenue" || row.accountCode === "owner_equity") return row.amount;
-    return -row.amount;
+    return row.entryType === "credit" ? row.amount : -row.amount;
   });
 
   let runningCash = round2(
@@ -910,7 +941,8 @@ export async function getBusinessFinanceDashboard(
     )
   ) as Record<FinancePeriod, ReturnType<typeof normalizeStorefrontTransactionAggregate>>;
   const cashBalance = round2(toNumber(balanceValue.data));
-  const { inventoryAssetValue, estimatedRows } = buildInventorySnapshot(
+  const { inventoryAssetValue, npcFallbackRows } = await computeInventoryAssetValue(
+    client,
     (inventoryRes.data as InventorySnapshotRow[]) ?? []
   );
   const liabilities = 0;
@@ -1037,12 +1069,14 @@ export async function getBusinessFinanceDashboard(
             transferRevenueReferenceIds.has(row.referenceId)
           )
       );
-      // Exclude storefront_sale financial events — they are internal double-entry journal
-      // entries (revenue, cogs, inventory, operating_expense) already represented by the
-      // business_accounts ledger entries and market_transactions rows. Showing them
-      // produces 4–7 duplicate lines per sale in the user-facing transaction log.
+      // Exclude storefront_sale and market_transaction financial events — both are
+      // internal double-entry journal entries (revenue, cogs, inventory, operating_expense)
+      // already represented by the business_accounts ledger entries and market_transactions
+      // rows (player purchases, NPC open-market sales, and buy-order fills all post their
+      // cash-side entries to the ledger too). Showing them produces 3-4 duplicate lines per
+      // trade in the user-facing transaction log.
       const financialForLog = financialInRange.filter(
-        (row) => row.referenceType !== "storefront_sale"
+        (row) => row.referenceType !== "storefront_sale" && row.referenceType !== "market_transaction"
       );
       const recentEvents = [...recentLedger, ...financialForLog]
         .sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt))
@@ -1094,7 +1128,18 @@ export async function getBusinessFinanceDashboard(
         ],
         cashFlow: [
           { label: "Operating Cash Flow", amount: round2(revenue - cogs - operatingExpense) },
-          { label: "Investing Cash Flow", amount: round2(-sumAmounts(ledgerInRange, (row) => row.accountCode === "inventory", (row) => row.amount)) },
+          {
+            // Net debits (cash committed to inventory, e.g. market purchases
+            // or a buy-order escrow hold) against credits (e.g. an escrowed
+            // buy order's cancellation refund) within the same accountCode,
+            // rather than summing raw amounts — see cashDeltaByBucket above
+            // for why a blind sum double-counts a hold-then-refund pair.
+            label: "Investing Cash Flow",
+            amount: round2(
+              sumAmounts(ledgerInRange, (row) => row.accountCode === "inventory" && row.entryType === "credit", (row) => row.amount) -
+                sumAmounts(ledgerInRange, (row) => row.accountCode === "inventory" && row.entryType === "debit", (row) => row.amount)
+            ),
+          },
           { label: "Financing Cash Flow", amount: round2(ownerContributions - ownerDraws) },
         ],
         capital: {
@@ -1130,10 +1175,10 @@ export async function getBusinessFinanceDashboard(
     valuation,
     health,
     assumptions: [
-      "Weighted-average inventory costing is used when explicit inventory cost exists.",
-      estimatedRows > 0
-        ? `Some inventory value uses baseline estimated costs (${estimatedRows} row${estimatedRows === 1 ? "" : "s"}).`
-        : "Inventory values are based on observed cost data.",
+      "Inventory is valued at the average active open-market asking price for each item.",
+      npcFallbackRows > 0
+        ? `Some inventory value uses the NPC buying-price midpoint as a fallback where nothing is currently listed on the market (${npcFallbackRows} row${npcFallbackRows === 1 ? "" : "s"}).`
+        : "All inventory value is based on live open-market pricing.",
       "Business liabilities are currently modeled as zero until business debt instruments are introduced.",
     ],
   };

@@ -18,6 +18,8 @@ export const BUSINESS_LEDGER_CATEGORY_CLASSIFICATION = {
   storefront_ads: "operating_expense",
   upgrade_purchase: "operating_expense",
   market_purchase: "inventory",
+  buy_order_escrow: "inventory",
+  buy_order_release: "inventory",
   owner_transfer_in: "owner_equity",
   owner_transfer_out: "owner_draw",
   business_transfer_in: "intercompany",

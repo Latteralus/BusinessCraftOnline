@@ -1,7 +1,7 @@
 "use client";
 
 import { TooltipLabel } from "@/components/ui/tooltip";
-import type { Business } from "@/domains/businesses";
+import { getBusinessOperationalMode, type Business } from "@/domains/businesses";
 import type { Employee, EmployeeAssignment } from "@/domains/employees";
 import { summarizeBusinessInventory, type BusinessInventoryItem } from "@/domains/inventory";
 import {
@@ -232,12 +232,40 @@ function OpsTable(props: { title: string; rows: Array<{ label: string; value: st
   );
 }
 
+function OperationsDataUnavailable(props: { businessTypeLabel: string }) {
+  return (
+    <div
+      style={{
+        background: "radial-gradient(circle at top left, rgba(248, 113, 113, 0.1), transparent 35%), linear-gradient(180deg, #08111f 0%, #050912 100%)",
+        border: "1px solid rgba(248, 113, 113, 0.24)",
+        borderRadius: 18,
+        padding: 20,
+        marginBottom: 18,
+        color: "var(--text-secondary)",
+      }}
+    >
+      <div style={{ fontSize: 12, letterSpacing: "0.2em", textTransform: "uppercase", color: "#fca5a5", marginBottom: 10 }}>
+        Operations Data Unavailable
+      </div>
+      <div>
+        Couldn&apos;t load operations status for this {props.businessTypeLabel} business right now. This is usually
+        transient — try reopening the tab, and if it keeps happening the underlying data for this business may need
+        attention.
+      </div>
+    </div>
+  );
+}
+
 export default function BusinessOperationsDashboard(props: Props) {
   const nowMs = useNowMs();
   const assignedEmployees = props.employees.filter((employee) => employee.employer_business_id === props.business.id);
   const inventorySummary = summarizeBusinessInventory(props.inventory, props.shelfItems);
+  const operationalMode = getBusinessOperationalMode(props.business.type);
 
-  if (props.production) {
+  if (operationalMode === "extraction") {
+    if (!props.production) {
+      return <OperationsDataUnavailable businessTypeLabel={formatBusinessType(props.business.type)} />;
+    }
     const { production } = props;
     const activeSlots = production.summary.active;
     const { throughputPerMinute, degradedSlots, outputItemKey } = buildExtractionOperationsView(production);
@@ -323,7 +351,10 @@ export default function BusinessOperationsDashboard(props: Props) {
     );
   }
 
-  if (props.manufacturing) {
+  if (operationalMode === "manufacturing") {
+    if (!props.manufacturing) {
+      return <OperationsDataUnavailable businessTypeLabel={formatBusinessType(props.business.type)} />;
+    }
     const {
       leadLine,
       recipe,

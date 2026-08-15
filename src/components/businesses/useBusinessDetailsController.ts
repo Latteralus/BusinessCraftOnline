@@ -26,6 +26,7 @@ type PatchableBusinessDetail = Partial<{
   upgradeProjects: BusinessUpgradeProject[];
   employees: LocalEmployee[];
   financeDashboard: BusinessFinanceDashboard | null;
+  inventoryAssetValue: number;
 }>;
 
 export function useBusinessDetailsController(input: BusinessDetailsClientProps) {
@@ -47,6 +48,7 @@ export function useBusinessDetailsController(input: BusinessDetailsClientProps) 
       input.financeDashboard,
       input.ownedBusinesses,
       input.upgradeDefinitions,
+      input.inventoryAssetValue,
     ]
   );
 
@@ -81,6 +83,7 @@ export function useBusinessDetailsController(input: BusinessDetailsClientProps) 
       financeDashboard: currentDetail?.financeDashboard ?? view.financeDashboard,
       ownedBusinesses: currentDetail?.ownedBusinesses ?? view.ownedBusinesses,
       upgradeDefinitions: currentDetail?.upgradeDefinitions ?? view.upgradeDefinitions,
+      inventoryAssetValue: currentDetail?.inventoryAssetValue ?? view.inventoryAssetValue,
       ...value,
     });
   }

@@ -25,6 +25,7 @@ export type BusinessDetailsClientProps = {
   financeDashboard?: BusinessFinanceDashboard | null;
   ownedBusinesses?: Array<Pick<Business, "id" | "name" | "city_id">>;
   initialTab?: string;
+  inventoryAssetValue?: number;
 };
 
 export type LocalEmployee = Employee & {
@@ -114,6 +115,7 @@ export function createBusinessDetailsEntry(input: BusinessDetailsClientProps): B
     financeDashboard: input.financeDashboard ?? null,
     ownedBusinesses: input.ownedBusinesses ?? [],
     upgradeDefinitions: input.upgradeDefinitions ?? [],
+    inventoryAssetValue: input.inventoryAssetValue ?? 0,
   };
 }
 
@@ -146,6 +148,7 @@ export function shouldSyncBusinessDetailsEntry(
       (value) => value.financeDashboard,
       (value) => value.ownedBusinesses,
       (value) => value.upgradeDefinitions,
+      (value) => value.inventoryAssetValue,
     ],
   });
 }
@@ -166,5 +169,6 @@ export function resolveBusinessDetailsView(
     ownedBusinesses: Array.isArray(detail?.ownedBusinesses) ? detail.ownedBusinesses : initial.ownedBusinesses,
     financeDashboard: detail?.financeDashboard ?? initial.financeDashboard ?? null,
     upgradeDefinitions: detail?.upgradeDefinitions ?? initial.upgradeDefinitions,
+    inventoryAssetValue: detail?.inventoryAssetValue ?? initial.inventoryAssetValue,
   };
 }

@@ -17,6 +17,8 @@ export {
   summarizeBusinessesWithBalances,
 } from "./service";
 
+export { computeInventoryAssetValue } from "./finance";
+
 export {
   getBusinessOperationalMode,
   isProductionBusinessType,

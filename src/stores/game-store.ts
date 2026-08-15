@@ -91,6 +91,7 @@ export type BusinessDetailsEntry = {
   financeDashboard: BusinessFinanceDashboard | null;
   ownedBusinesses: Array<Pick<BusinessWithBalance, "id" | "name" | "city_id">>;
   upgradeDefinitions: UpgradeDefinition[];
+  inventoryAssetValue: number;
 };
 
 export type BusinessDetailsSliceData = Record<string, BusinessDetailsEntry>;

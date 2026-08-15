@@ -81,6 +81,7 @@ export default async function BusinessDetailsPage(props: { params: Promise<{ id:
           upgradeDefinitions={detail.upgradeDefinitions}
           financeDashboard={detail.financeDashboard}
           ownedBusinesses={detail.ownedBusinesses}
+          inventoryAssetValue={detail.inventoryAssetValue}
           initialTab={searchParams.tab}
         />
       </GameHydrationProvider>

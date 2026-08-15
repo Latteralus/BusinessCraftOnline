@@ -1,5 +1,6 @@
 import { type FinancePeriod } from "@/config/finance";
 import {
+  computeInventoryAssetValue,
   getBusinessById,
   getBusinessFinanceDashboard,
   getBusinessUpgradeProjects,
@@ -42,6 +43,7 @@ export function createBusinessDetailsShell(input: {
     financeDashboard: null,
     ownedBusinesses: input.ownedBusinesses,
     upgradeDefinitions: [],
+    inventoryAssetValue: 0,
   };
 }
 
@@ -81,7 +83,8 @@ export async function loadBusinessDetailsEntry(
       .select("*, employee_assignments(*, business:businesses(*))")
       .eq("player_id", playerId)
       .eq("employer_business_id", business.id)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false })
+      .catch(() => ({ data: [], error: null })),
     getUpgradeDefinitionsForBusinessType(client, business.type as BusinessType).catch(() => []),
     getBusinessFinanceDashboard(client, playerId, business.id, period).catch(() => null),
     getBusinessesWithBalances(client, playerId).catch(() => []),
@@ -99,6 +102,7 @@ export async function loadBusinessDetailsEntry(
     financeDashboard,
     ownedBusinesses,
     upgradeDefinitions,
+    inventoryAssetValue: financeDashboard?.balanceSheet.find((row) => row.label === "Inventory")?.amount ?? 0,
   };
 }
 
@@ -135,7 +139,8 @@ export async function loadBusinessDetailsSection(
         .select("*, employee_assignments(*, business:businesses(*))")
         .eq("player_id", playerId)
         .eq("employer_business_id", business.id)
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false })
+        .catch(() => ({ data: [], error: null })),
     ]);
 
     return {
@@ -154,7 +159,8 @@ export async function loadBusinessDetailsSection(
       .select("*, employee_assignments(*, business:businesses(*))")
       .eq("player_id", playerId)
       .eq("employer_business_id", business.id)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .catch(() => ({ data: [], error: null }));
 
     return {
       business,
@@ -168,12 +174,16 @@ export async function loadBusinessDetailsSection(
       getStoreShelfItems(client, playerId, { businessId: business.id }).catch(() => []),
       getBusinessesWithBalances(client, playerId).catch(() => []),
     ]);
+    const { inventoryAssetValue } = await computeInventoryAssetValue(client, inventory).catch(() => ({
+      inventoryAssetValue: 0,
+    }));
 
     return {
       business,
       inventory,
       shelfItems,
       ownedBusinesses,
+      inventoryAssetValue,
     };
   }
 
@@ -207,7 +217,8 @@ export async function loadBusinessDetailsSection(
       .select("*, employee_assignments(*, business:businesses(*))")
       .eq("player_id", playerId)
       .eq("employer_business_id", business.id)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false })
+      .catch(() => ({ data: [], error: null })),
     getBusinessFinanceDashboard(client, playerId, business.id, period).catch(() => null),
   ]);
 
@@ -220,5 +231,6 @@ export async function loadBusinessDetailsSection(
     upgrades,
     employees: employeesRes.data ?? [],
     financeDashboard,
+    inventoryAssetValue: financeDashboard?.balanceSheet.find((row) => row.label === "Inventory")?.amount ?? 0,
   };
 }
