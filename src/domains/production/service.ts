@@ -1,6 +1,5 @@
 import {
   EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS,
-  EXTRACTION_BUSINESS_TYPES,
   EXTRACTION_LINE_LABEL_BY_BUSINESS,
   EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
   EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
@@ -313,7 +312,11 @@ function getManufacturingInputRequirementsPerMinute(
   }));
 }
 
-async function finalizeExtractionRetools(client: QueryClient, businessId: string): Promise<void> {
+async function finalizeExtractionRetools(
+  client: QueryClient,
+  businessId: string,
+  businessType: ExtractionBusinessType
+): Promise<void> {
   const nowIso = new Date().toISOString();
   const { data, error } = await client
     .from("extraction_slots")
@@ -326,16 +329,6 @@ async function finalizeExtractionRetools(client: QueryClient, businessId: string
 
   const rows = ((data as ExtractionSlot[]) ?? []).map(normalizeSlot);
   if (rows.length === 0) return;
-
-  const { data: businessRow, error: businessError } = await client
-    .from("businesses")
-    .select("type")
-    .eq("id", businessId)
-    .single();
-  if (businessError) throw businessError;
-  const businessTypeValue = String((businessRow as { type: string }).type);
-  if (!(EXTRACTION_BUSINESS_TYPES as readonly string[]).includes(businessTypeValue)) return;
-  const businessType = businessTypeValue as ExtractionBusinessType;
 
   for (const slot of rows) {
     const nextConfigured = slot.pending_item_key;
@@ -475,23 +468,36 @@ async function getManufacturingLineByIdForPlayer(
   return { ...line, business_type: business.type };
 }
 
-export async function ensureExtractionSlots(
-  client: QueryClient,
-  playerId: string,
-  businessId: string
-): Promise<ExtractionSlot[]> {
-  const business = await ensureOwnedExtractionBusiness(client, playerId, businessId);
-  const effects = await getResolvedUpgradeEffects(client, business.id, business.type);
-  const targetSlots = getMaxLines(effects.workerCapacitySlots);
-
-  const { data: existingRows, error: existingError } = await client
+async function fetchExtractionSlots(client: QueryClient, businessId: string): Promise<ExtractionSlot[]> {
+  const { data, error } = await client
     .from("extraction_slots")
     .select("*")
-    .eq("business_id", business.id)
+    .eq("business_id", businessId)
     .order("slot_number", { ascending: true });
-  if (existingError) throw existingError;
+  if (error) throw error;
+  return ((data as ExtractionSlot[]) ?? []).map(normalizeSlot);
+}
 
-  const existing = ((existingRows as ExtractionSlot[]) ?? []).map(normalizeSlot);
+// Provisions/refreshes slots for a business whose ownership + upgrade
+// effects the caller already resolved, so getProductionStatus can share one
+// business+effects lookup with this instead of paying for it twice.
+async function provisionExtractionSlots(
+  client: QueryClient,
+  business: { id: string; type: ExtractionBusinessType },
+  effects: Awaited<ReturnType<typeof getResolvedUpgradeEffects>>
+): Promise<ExtractionSlot[]> {
+  const targetSlots = getMaxLines(effects.workerCapacitySlots);
+
+  // These three reads/writes touch disjoint slot sets (by slot_number
+  // presence, by pending retool, by tool_broken status), so running them
+  // concurrently is safe -- the final re-select below picks up whatever they
+  // each wrote.
+  const [existing] = await Promise.all([
+    fetchExtractionSlots(client, business.id),
+    finalizeExtractionRetools(client, business.id, business.type),
+    reactivateFallbackExtractionSlots(client, business.id, business.type),
+  ]);
+
   const existingNumbers = new Set(existing.map((row) => row.slot_number));
   const defaultItemKey = EXTRACTION_OUTPUT_ITEM_BY_BUSINESS[business.type];
 
@@ -512,17 +518,17 @@ export async function ensureExtractionSlots(
     if (insertError) throw insertError;
   }
 
-  await finalizeExtractionRetools(client, business.id);
-  await reactivateFallbackExtractionSlots(client, business.id, business.type);
+  return fetchExtractionSlots(client, business.id);
+}
 
-  const { data: finalRows, error: finalError } = await client
-    .from("extraction_slots")
-    .select("*")
-    .eq("business_id", business.id)
-    .order("slot_number", { ascending: true });
-  if (finalError) throw finalError;
-
-  return ((finalRows as ExtractionSlot[]) ?? []).map(normalizeSlot);
+export async function ensureExtractionSlots(
+  client: QueryClient,
+  playerId: string,
+  businessId: string
+): Promise<ExtractionSlot[]> {
+  const business = await ensureOwnedExtractionBusiness(client, playerId, businessId);
+  const effects = await getResolvedUpgradeEffects(client, business.id, business.type);
+  return provisionExtractionSlots(client, business, effects);
 }
 
 async function ensureManufacturingLines(
@@ -603,31 +609,36 @@ async function ensureManufacturingLines(
   return ((finalRows as ManufacturingLine[]) ?? []).map(normalizeManufacturingLine);
 }
 
+async function fetchToolsForSlots(client: QueryClient, slotIds: string[]): Promise<ToolDurability[]> {
+  if (slotIds.length === 0) return [];
+  const { data, error } = await client
+    .from("tool_durability")
+    .select("*")
+    .in("extraction_slot_id", slotIds);
+  if (error) throw error;
+  return ((data as ToolDurability[]) ?? []).map(normalizeTool);
+}
+
 export async function getProductionStatus(
   client: QueryClient,
   playerId: string,
   businessId: string
 ): Promise<ProductionStatus> {
   const business = await ensureOwnedExtractionBusiness(client, playerId, businessId);
-  const slots = await ensureExtractionSlots(client, playerId, business.id);
-
-  const { data: toolRows, error: toolError } = await client
-    .from("tool_durability")
-    .select("*")
-    .in("extraction_slot_id", slots.map((slot) => slot.id));
-  if (toolError) throw toolError;
-
-  const tools = ((toolRows as ToolDurability[]) ?? []).map(normalizeTool);
-  const toolBySlot = new Map(tools.map((tool) => [tool.extraction_slot_id, tool]));
-
   const effects = await getResolvedUpgradeEffects(client, business.id, business.type);
+  const slots = await provisionExtractionSlots(client, business, effects);
   const maxSlots = getMaxLines(effects.workerCapacitySlots);
 
-  const employees = await getEmployeesByIds(
-    client,
-    playerId,
-    slots.flatMap((slot) => (slot.employee_id ? [slot.employee_id] : []))
-  );
+  const [tools, employees] = await Promise.all([
+    fetchToolsForSlots(client, slots.map((slot) => slot.id)),
+    getEmployeesByIds(
+      client,
+      playerId,
+      slots.flatMap((slot) => (slot.employee_id ? [slot.employee_id] : []))
+    ),
+  ]);
+
+  const toolBySlot = new Map(tools.map((tool) => [tool.extraction_slot_id, tool]));
   const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
 
   const detailed: ExtractionSlotWithDetails[] = [];
