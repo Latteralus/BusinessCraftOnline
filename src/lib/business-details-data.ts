@@ -27,6 +27,24 @@ export type BusinessDetailsSection =
 
 export type BusinessDetailsPatch = Partial<BusinessDetailsEntry>;
 
+// Supabase's query builder only implements `.then()` (PromiseLike), not
+// `.catch()`/`.finally()` -- chaining `.catch()` straight onto a builder
+// throws "catch is not a function" at runtime (TypeScript doesn't catch this
+// because QueryClient.from() is typed `any`). Centralizing this fetch behind
+// a real `await`/try-catch also removes 4 copies of the same query.
+async function fetchBusinessEmployees(client: QueryClient, playerId: string, businessId: string) {
+  try {
+    return await client
+      .from("employees")
+      .select("*, employee_assignments(*, business:businesses(*))")
+      .eq("player_id", playerId)
+      .eq("employer_business_id", businessId)
+      .order("created_at", { ascending: false });
+  } catch {
+    return { data: [], error: null };
+  }
+}
+
 export function createBusinessDetailsShell(input: {
   business: BusinessDetailsEntry["business"];
   ownedBusinesses: BusinessDetailsEntry["ownedBusinesses"];
@@ -78,13 +96,7 @@ export async function loadBusinessDetailsEntry(
     getStoreShelfItems(client, playerId, { businessId: business.id }).catch(() => []),
     getBusinessUpgradesById(client, business.id).catch(() => []),
     getBusinessUpgradeProjectsById(client, business.id).catch(() => []),
-    client
-      .from("employees")
-      .select("*, employee_assignments(*, business:businesses(*))")
-      .eq("player_id", playerId)
-      .eq("employer_business_id", business.id)
-      .order("created_at", { ascending: false })
-      .catch(() => ({ data: [], error: null })),
+    fetchBusinessEmployees(client, playerId, business.id),
     getUpgradeDefinitionsForBusinessType(client, business.type as BusinessType).catch(() => []),
     getBusinessFinanceDashboardForBusiness(client, playerId, business, period).catch(() => null),
     getBusinessesWithBalances(client, playerId).catch(() => []),
@@ -134,13 +146,7 @@ export async function loadBusinessDetailsSection(
       isManufacturing ? getManufacturingStatus(client, playerId, business.id).catch(() => null) : Promise.resolve(null),
       getBusinessInventory(client, playerId, business.id).catch(() => []),
       getStoreShelfItems(client, playerId, { businessId: business.id }).catch(() => []),
-      client
-        .from("employees")
-        .select("*, employee_assignments(*, business:businesses(*))")
-        .eq("player_id", playerId)
-        .eq("employer_business_id", business.id)
-        .order("created_at", { ascending: false })
-        .catch(() => ({ data: [], error: null })),
+      fetchBusinessEmployees(client, playerId, business.id),
     ]);
 
     return {
@@ -154,13 +160,7 @@ export async function loadBusinessDetailsSection(
   }
 
   if (section === "employees") {
-    const employeesRes = await client
-      .from("employees")
-      .select("*, employee_assignments(*, business:businesses(*))")
-      .eq("player_id", playerId)
-      .eq("employer_business_id", business.id)
-      .order("created_at", { ascending: false })
-      .catch(() => ({ data: [], error: null }));
+    const employeesRes = await fetchBusinessEmployees(client, playerId, business.id);
 
     return {
       business,
@@ -212,13 +212,7 @@ export async function loadBusinessDetailsSection(
     getBusinessInventory(client, playerId, business.id).catch(() => []),
     getStoreShelfItems(client, playerId, { businessId: business.id }).catch(() => []),
     getBusinessUpgradesById(client, business.id).catch(() => []),
-    client
-      .from("employees")
-      .select("*, employee_assignments(*, business:businesses(*))")
-      .eq("player_id", playerId)
-      .eq("employer_business_id", business.id)
-      .order("created_at", { ascending: false })
-      .catch(() => ({ data: [], error: null })),
+    fetchBusinessEmployees(client, playerId, business.id),
     getBusinessFinanceDashboardForBusiness(client, playerId, business, period).catch(() => null),
   ]);
 
