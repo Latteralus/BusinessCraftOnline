@@ -38,8 +38,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Sign our custom JWT
-    const token = await signCustomJwt(newPlayerId);
+    // Sign our custom JWT. New players always start with the default
+    // "player" role (players.role default), so no extra lookup is needed.
+    const token = await signCustomJwt(newPlayerId, "player");
 
     // Set as an HttpOnly cookie so the client sends it automatically
     const cookieStore = await cookies();

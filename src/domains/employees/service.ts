@@ -233,6 +233,11 @@ async function restoreSettledEmployeeToOpenSpot(
   return null;
 }
 
+// Bounded default so one player's full employee roster (including every
+// fired/historical hire) can't become an unbounded result set. Resolves
+// audit finding M1.
+const EMPLOYEES_DEFAULT_LIMIT = 500;
+
 export async function getPlayerEmployees(
   client: QueryClient,
   playerId: string,
@@ -242,7 +247,8 @@ export async function getPlayerEmployees(
     .from("employees")
     .select("*")
     .eq("player_id", playerId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(filters?.limit ?? EMPLOYEES_DEFAULT_LIMIT);
 
   if (filters?.status) {
     query = query.eq("status", filters.status);
@@ -305,6 +311,16 @@ export async function getEmployeeAssignment(
   const employee = await getEmployeeById(client, playerId, employeeId);
   if (!employee) throw new Error("Employee not found.");
 
+  return getEmployeeAssignmentById(client, employeeId);
+}
+
+// Skips the ownership-verifying employees select -- for callers that already
+// hold a verified Employee row (e.g. getEmployeeWithDetails below). Resolves
+// audit finding L1 (Documents/SBAudit.md).
+export async function getEmployeeAssignmentById(
+  client: QueryClient,
+  employeeId: string
+): Promise<EmployeeAssignment | null> {
   const { data, error } = await client
     .from("employee_assignments")
     .select("*")
@@ -324,6 +340,14 @@ export async function getEmployeeSkills(
   const employee = await getEmployeeById(client, playerId, employeeId);
   if (!employee) throw new Error("Employee not found.");
 
+  return getEmployeeSkillsById(client, employeeId);
+}
+
+// Skips the ownership-verifying employees select -- see getEmployeeAssignmentById.
+export async function getEmployeeSkillsById(
+  client: QueryClient,
+  employeeId: string
+): Promise<EmployeeSkill[]> {
   const { data, error } = await client
     .from("employee_skills")
     .select("*")
@@ -343,8 +367,8 @@ export async function getEmployeeWithDetails(
   if (!employee) return null;
 
   const [assignment, skills] = await Promise.all([
-    getEmployeeAssignment(client, playerId, employeeId),
-    getEmployeeSkills(client, playerId, employeeId),
+    getEmployeeAssignmentById(client, employeeId),
+    getEmployeeSkillsById(client, employeeId),
   ]);
 
   return {

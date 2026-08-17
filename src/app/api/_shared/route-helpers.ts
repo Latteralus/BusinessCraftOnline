@@ -1,5 +1,4 @@
-import { getPlayer } from "@/domains/auth-character";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServerClient, getCachedServerUser } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
 import type { z, ZodTypeAny } from "zod";
 
@@ -34,15 +33,14 @@ export async function requireAdminUser() {
     return auth;
   }
 
-  const player = await getPlayer(auth.supabase, auth.user.id).catch(() => null);
-  if (!player) {
-    return {
-      ok: false as const,
-      response: NextResponse.json({ error: "Player not found." }, { status: 404 }),
-    };
-  }
-
-  if (player.role !== "admin") {
+  // The player's app-level role is embedded in the session JWT at login
+  // (see signCustomJwt / M6 in changelog 2026-08-17), so this no longer
+  // needs its own `players` select on every admin request. Trade-off: a
+  // role revoked mid-session stays trusted until that session's token
+  // expires/re-issues (CUSTOM_SESSION_TTL_SECONDS), since there's no
+  // separate session-revocation mechanism.
+  const { user } = await getCachedServerUser();
+  if (!user || user.appRole !== "admin") {
     return {
       ok: false as const,
       response: NextResponse.json({ error: "Forbidden." }, { status: 403 }),
@@ -53,7 +51,6 @@ export async function requireAdminUser() {
     ok: true as const,
     supabase: auth.supabase,
     user: auth.user,
-    player,
   };
 }
 

@@ -4,7 +4,7 @@ import { cache } from "react";
 import { verifyCustomJwt } from "./auth-jwt";
 import { CUSTOM_SESSION_COOKIE_NAME } from "./session";
 
-const getCachedServerUser = cache(async () => {
+export const getCachedServerUser = cache(async () => {
   const cookieStore = await cookies();
   const customToken = cookieStore.get(CUSTOM_SESSION_COOKIE_NAME)?.value;
 
@@ -18,7 +18,8 @@ const getCachedServerUser = cache(async () => {
       return { user: null, token: customToken };
     }
 
-    return { user: { id: payload.sub }, token: customToken };
+    const appRole = payload.app_role === "admin" ? "admin" : "player";
+    return { user: { id: payload.sub, appRole }, token: customToken };
   } catch {
     return { user: null, token: customToken };
   }

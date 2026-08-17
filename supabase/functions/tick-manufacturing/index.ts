@@ -10,7 +10,7 @@ import {
   getManufacturingOutputQuantityPerTick,
   getManufacturingRecipeByKey,
 } from "../_shared/manufacturing-config.ts";
-import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
+import { getResolvedBusinessUpgradeEffectsForBusinesses } from "../_shared/business-upgrades.ts";
 import { NPC_PRICE_CEILINGS } from "../../../shared/economy.ts";
 import {
   CONTRACT_FULFILLABLE_STATUSES,
@@ -264,7 +264,7 @@ Deno.serve(async (request) => {
 
     const { data: readyRetools } = await supabase
       .from("manufacturing_lines")
-      .select("id, pending_recipe_key")
+      .select("id, business_id, pending_recipe_key")
       .not("pending_recipe_key", "is", null)
       .not("retool_complete_at", "is", null)
       .lte("retool_complete_at", nowIso);
@@ -283,17 +283,8 @@ Deno.serve(async (request) => {
           updated_at: nowIso,
         })
         .eq("id", line.id);
-    }
 
-    if ((readyRetools ?? []).length > 0) {
-      const { data: retooledBusinessRows } = await supabase
-        .from("manufacturing_lines")
-        .select("business_id")
-        .in("id", (readyRetools ?? []).map((line) => line.id));
-
-      for (const row of retooledBusinessRows ?? []) {
-        if (row.business_id) businessesNeedingLegacySync.add(String(row.business_id));
-      }
+      if (line.business_id) businessesNeedingLegacySync.add(String(line.business_id));
     }
 
     const { data: jobs, error: jobsError } = await supabase
@@ -314,6 +305,23 @@ Deno.serve(async (request) => {
     let contractsFulfilled = 0;
     let workerlessJobs = 0;
 
+    const jobBusinessIds = [...new Set((jobs ?? []).map((job) => job.business_id))];
+    const { data: jobBusinessRows } = jobBusinessIds.length
+      ? await supabase.from("businesses").select("id, player_id, city_id, type").in("id", jobBusinessIds)
+      : { data: [] as Array<{ id: string; player_id: string; city_id: string; type: string }> };
+
+    const businessById = new Map(
+      (jobBusinessRows ?? []).map((row) => [row.id, row as { id: string; player_id: string; city_id: string; type: string }])
+    );
+
+    // Resolved once per business per tick instead of once per active line --
+    // getResolvedBusinessUpgradeEffectsForBusinesses batches the underlying
+    // upgrade/project lookups across every business touched this tick.
+    const upgradeEffectsByBusiness = await getResolvedBusinessUpgradeEffectsForBusinesses(
+      supabase,
+      [...businessById.values()].map((business) => ({ id: business.id, type: business.type }))
+    );
+
     for (const job of jobs ?? []) {
      try {
     businessesNeedingLegacySync.add(job.business_id);
@@ -323,15 +331,11 @@ Deno.serve(async (request) => {
     if (!recipe) continue;
     const existingInputProgress = normalizeProgressMap(job.input_progress);
 
-    const { data: business } = await supabase
-      .from("businesses")
-      .select("id, player_id, city_id, type")
-      .eq("id", job.business_id)
-      .maybeSingle();
+    const business = businessById.get(job.business_id) ?? null;
 
     if (!business) continue;
 
-    const effects = await getResolvedBusinessUpgradeEffects(supabase, business.id, business.type);
+    const effects = upgradeEffectsByBusiness.get(business.id)!;
     const recipeInputs = recipe.inputs
       .map((input) => {
         const resolved = resolveDeterministicQuantity(

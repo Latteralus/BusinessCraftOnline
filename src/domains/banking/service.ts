@@ -92,32 +92,26 @@ export async function ensurePersonalAccounts(
     return sortAccounts(existing);
   }
 
-  const insertedRows: BankAccount[] = [];
+  // One batched insert for every missing account type instead of one insert
+  // per type. Resolves audit finding L2 (Documents/SBAudit.md).
+  const { data: inserted, error: insertError } = await client
+    .from("bank_accounts")
+    .insert(missingTypes.map((accountType) => ({ player_id: playerId, account_type: accountType })))
+    .select("*");
 
-  for (const accountType of missingTypes) {
-    const { data: inserted, error: insertError } = await client
-      .from("bank_accounts")
-      .insert({
-        player_id: playerId,
-        account_type: accountType,
-      })
-      .select("*")
-      .single();
+  if (insertError) throw insertError;
 
-    if (insertError) throw insertError;
+  const insertedRows = (inserted as BankAccount[]) ?? [];
+  const checkingAccount = insertedRows.find((account) => account.account_type === "checking");
 
-    const insertedAccount = inserted as BankAccount;
-    insertedRows.push(insertedAccount);
-
-    if (accountType === "checking") {
-      await appendPersonalTransaction(client, playerId, {
-        accountId: insertedAccount.id,
-        amount: STARTING_CHECKING_BALANCE,
-        direction: "credit",
-        transactionType: "account_opening",
-        description: "Starting checking balance",
-      });
-    }
+  if (checkingAccount) {
+    await appendPersonalTransaction(client, playerId, {
+      accountId: checkingAccount.id,
+      amount: STARTING_CHECKING_BALANCE,
+      direction: "credit",
+      transactionType: "account_opening",
+      description: "Starting checking balance",
+    });
   }
 
   return sortAccounts([...existing, ...insertedRows]);

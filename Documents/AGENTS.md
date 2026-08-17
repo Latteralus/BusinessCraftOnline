@@ -64,15 +64,29 @@ again, re-run both before trusting it; TS majors are the most likely to surface 
   these to `authenticated`; call only from server code via the service-role client.
 
 ## Open threads (update or remove as they resolve)
-- **2026-08-15 — NPC open-market purchases built but not deployed.** New edge
-  function `tick-npc-market-purchases`, RPC `settle_market_listing_npc_sale_atomic`,
-  and migrations 081–083 exist locally (typecheck/build/`typecheck:edge` all pass)
-  but have not been pushed to the hosted Supabase project. Needs
-  `npx supabase db push` and `npx supabase functions deploy tick-npc-market-purchases`,
-  then confirm `tick_run_logs` shows it running with `status: "ok"`. Full detail in
-  `changelog.md` (2026-08-15, "Added NPC open-market purchases").
+- **2026-08-17 — H7 batched NPC-sale settlement RPC unexercised against real
+  data.** `settle_store_inventory_sales_atomic` (migration 092) and the
+  tick-npc-purchases rewrite that calls it are deployed and running clean,
+  but this environment has no store businesses yet, so every run so far has
+  settled an empty batch (`storesProcessed: 0`). Worth a manual smoke test —
+  create a store, stock a shelf, let a tick run, check `market_transactions`
+  and `business_accounts` land correctly — before fully trusting it under
+  real NPC traffic. See `changelog.md` (2026-08-17).
+- **2026-08-17 — M6 admin role staleness.** `requireAdminUser` now trusts an
+  `app_role` claim embedded in the session JWT at login instead of querying
+  `players` per request. A role change (grant or revoke) only takes effect
+  on that player's next login — up to `CUSTOM_SESSION_TTL_SECONDS` (48h)
+  later — since there's no session-revocation mechanism. Fine for a single
+  admin account pre-launch; revisit if/when there are multiple admins. Any
+  admin session signed before this change lacks the claim and needs a
+  re-login to be recognized as admin again.
 
 ## Resolved
+- **2026-08-15 — NPC open-market purchases built but not deployed.** Confirmed
+  resolved as of 2026-08-17: `tick-npc-market-purchases` is live on the hosted
+  project, `tick_run_logs` shows it running `status: "ok"` on its `* * * * *`
+  cadence. (Deployed sometime between 2026-08-15 and 2026-08-17; this note was
+  stale.)
 - **2026-08-15 — Stale UI until manual refresh.** Root cause was a race condition, not
   a missing resync call: `syncMutationViews` (fired after a mutation's own API call)
   and the realtime provider (fired off the DB's postgres_changes notification for the

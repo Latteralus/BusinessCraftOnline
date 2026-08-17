@@ -19,6 +19,11 @@ import type { QueryClient } from "@/lib/db/query-client";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase-service-role";
 import { isProductionBusinessType } from "./capabilities";
 import { getBusinessFinanceDashboard as buildBusinessFinanceDashboard } from "./finance";
+
+// Re-exported so callers that already hold a verified Business row can build
+// the finance dashboard without paying for another ownership-verifying
+// `businesses` select. See changelog 2026-08-17 (H5).
+export { buildBusinessFinanceDashboard as getBusinessFinanceDashboardForBusiness };
 import type {
   Business,
   BusinessAccountEntry,
@@ -146,7 +151,10 @@ export async function getBusinessUpgrades(
   return getBusinessUpgradesById(client, businessId);
 }
 
-async function getBusinessUpgradesById(
+// Exported so callers that already hold a verified Business row (e.g. the
+// business-details page loader, which fetches it once up front) can skip
+// re-verifying ownership on every section fetch. See changelog 2026-08-17 (H5).
+export async function getBusinessUpgradesById(
   client: QueryClient,
   businessId: string
 ): Promise<BusinessUpgrade[]> {
@@ -170,6 +178,13 @@ export async function getBusinessUpgradeProjects(
   const business = await getBusinessById(client, playerId, businessId);
   if (!business) throw new Error("Business not found.");
 
+  return getBusinessUpgradeProjectsById(client, businessId);
+}
+
+export async function getBusinessUpgradeProjectsById(
+  client: QueryClient,
+  businessId: string
+): Promise<BusinessUpgradeProject[]> {
   const projects = await getBusinessUpgradeProjectState(client, businessId);
   return projects.map(normalizeUpgradeProject);
 }
@@ -408,7 +423,7 @@ export async function purchaseUpgrade(
     throw new Error(`Upgrade definition '${upgradeKey}' not found.`);
   }
 
-  const existingUpgrades = await getBusinessUpgrades(client, playerId, businessId);
+  const existingUpgrades = await getBusinessUpgradesById(client, businessId);
   const existing = existingUpgrades.find((row) => row.upgrade_key === upgradeKey) ?? null;
   const currentLevel = existing?.level ?? 0;
   const nextLevel = currentLevel + 1;
@@ -452,7 +467,7 @@ export async function purchaseUpgrade(
     currentLevel,
   });
   const upgradeCost = preview.nextCost;
-  const currentBalance = await getBusinessBalance(client, playerId, businessId);
+  const currentBalance = await getBusinessBalanceById(client, businessId);
 
   if (currentBalance < upgradeCost) {
     throw new Error(
@@ -475,7 +490,7 @@ export async function purchaseUpgrade(
     referenceId: project.id,
   });
 
-  const resultingBalance = await getBusinessBalance(client, playerId, businessId);
+  const resultingBalance = await getBusinessBalanceById(client, businessId);
 
   return {
     businessId,

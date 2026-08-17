@@ -12,6 +12,7 @@ export type StoreShelfItem = {
 
 export type StoreShelfItemFilter = {
   businessId?: string;
+  limit?: number;
 };
 
 export type UpsertStoreShelfItemInput = {

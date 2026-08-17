@@ -16,6 +16,10 @@ function normalizeStoreShelfItem(row: StoreShelfItem): StoreShelfItem {
   };
 }
 
+// Bounded default so a player's full shelf listing across every store
+// can't become an unbounded result set. Resolves audit finding M1.
+const STORE_SHELF_ITEMS_DEFAULT_LIMIT = 1000;
+
 export async function getStoreShelfItems(
   client: QueryClient,
   playerId: string,
@@ -25,7 +29,8 @@ export async function getStoreShelfItems(
     .from("store_shelf_items")
     .select("*")
     .eq("owner_player_id", playerId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(filter.limit ?? STORE_SHELF_ITEMS_DEFAULT_LIMIT);
 
   if (filter.businessId) {
     query = query.eq("business_id", filter.businessId);

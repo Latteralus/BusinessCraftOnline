@@ -96,6 +96,7 @@ export type EmployeeListFilter = {
   status?: EmployeeStatus;
   employeeType?: EmployeeType;
   businessId?: string;
+  limit?: number;
 };
 
 export type { EmployeeRole, EmployeeSkillKey, EmployeeStatus, EmployeeType };

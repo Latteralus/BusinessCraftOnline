@@ -114,41 +114,41 @@ function resolveEffectsFromLevels(
   return effects;
 }
 
-async function applyCompletedProjects(
+async function applyCompletedProjectsForBusinesses(
   supabase: EdgeSupabaseClient,
-  businessId: string
+  businessIds: string[]
 ) {
+  if (businessIds.length === 0) return;
+
   const currentIso = new Date().toISOString();
   const { data: projects, error } = await supabase
     .from("business_upgrade_projects")
-    .select("id, upgrade_key, target_level, project_status, completes_at, downtime_policy")
-    .eq("business_id", businessId)
-    .order("created_at", { ascending: false });
+    .select("id, business_id, upgrade_key, target_level, project_status, completes_at, downtime_policy")
+    .in("business_id", businessIds)
+    .eq("project_status", "installing")
+    .lte("completes_at", currentIso);
 
   if (error) throw error;
 
-  const parsedProjects = ((projects ?? []) as ProjectRow[]).filter(
-    (project) =>
-      project.project_status === "installing" &&
-      project.completes_at !== null &&
-      project.completes_at <= currentIso
-  );
+  const parsedProjects = (projects ?? []) as (ProjectRow & { business_id: string })[];
+  if (parsedProjects.length === 0) return;
+
+  // One lookup covering every (business_id, upgrade_key) pair that might be
+  // touched this pass, instead of one select per completing project.
+  const { data: existingUpgrades, error: existingError } = await supabase
+    .from("business_upgrades")
+    .select("id, business_id, upgrade_key")
+    .in("business_id", businessIds);
+
+  if (existingError) throw existingError;
+
+  const existingIdByKey = new Map<string, string>();
+  for (const row of (existingUpgrades ?? []) as Array<{ id: string; business_id: string; upgrade_key: string }>) {
+    existingIdByKey.set(`${row.business_id}:${row.upgrade_key}`, row.id);
+  }
 
   for (const project of parsedProjects) {
-    const { data: existingUpgrades, error: existingError } = await supabase
-      .from("business_upgrades")
-      .select("id")
-      .eq("business_id", businessId)
-      .eq("upgrade_key", project.upgrade_key)
-      .limit(1);
-
-    if (existingError) throw existingError;
-    const existingUpgrade = Array.isArray(existingUpgrades) ? existingUpgrades[0] : null;
-
-    const existingUpgradeId =
-      existingUpgrade && typeof existingUpgrade === "object" && "id" in existingUpgrade
-        ? String((existingUpgrade as { id: string }).id)
-        : null;
+    const existingUpgradeId = existingIdByKey.get(`${project.business_id}:${project.upgrade_key}`) ?? null;
 
     if (existingUpgradeId) {
       const { error: updateError } = await supabase
@@ -163,7 +163,7 @@ async function applyCompletedProjects(
       if (updateError) throw updateError;
     } else {
       const { error: insertError } = await supabase.from("business_upgrades").insert({
-        business_id: businessId,
+        business_id: project.business_id,
         upgrade_key: project.upgrade_key,
         level: toNumber(project.target_level),
         purchased_at: currentIso,
@@ -185,35 +185,72 @@ async function applyCompletedProjects(
   }
 }
 
-export async function getResolvedBusinessUpgradeEffects(
+/**
+ * Resolves upgrade effects for every given business in a small constant
+ * number of round trips, regardless of how many active slots/lines/stores
+ * those businesses have. Replaces calling getResolvedBusinessUpgradeEffects
+ * once per row inside a tick's per-row loop (each call re-fetched and
+ * re-derived the same per-business data every time).
+ */
+export async function getResolvedBusinessUpgradeEffectsForBusinesses(
   supabase: EdgeSupabaseClient,
-  businessId: string,
-  businessType: string
-) {
-  await applyCompletedProjects(supabase, businessId);
+  businesses: Array<{ id: string; type: string }>
+): Promise<Map<string, BusinessUpgradeEffects>> {
+  const businessIds = [...new Set(businesses.map((business) => business.id))];
+  if (businessIds.length === 0) return new Map();
+
+  await applyCompletedProjectsForBusinesses(supabase, businessIds);
 
   const [{ data: upgradeRows, error: upgradeError }, { data: projectRows, error: projectError }] =
     await Promise.all([
-      supabase.from("business_upgrades").select("upgrade_key, level").eq("business_id", businessId),
+      supabase.from("business_upgrades").select("business_id, upgrade_key, level").in("business_id", businessIds),
       supabase
         .from("business_upgrade_projects")
-        .select("downtime_policy")
-        .eq("business_id", businessId)
+        .select("business_id, downtime_policy")
+        .in("business_id", businessIds)
         .in("project_status", ["queued", "installing"]),
     ]);
 
   if (upgradeError) throw upgradeError;
   if (projectError) throw projectError;
 
-  const levels = Object.fromEntries(
-    ((upgradeRows ?? []) as Array<{ upgrade_key: string; level: number | string }>).map((row) => [
-      row.upgrade_key,
-      toNumber(row.level),
-    ])
-  );
-  const activePolicies = ((projectRows ?? []) as Array<{ downtime_policy: UpgradeDowntimePolicy }>).map(
-    (project) => project.downtime_policy
-  );
+  const levelsByBusiness = new Map<string, Record<string, number>>();
+  for (const row of (upgradeRows ?? []) as Array<{ business_id: string; upgrade_key: string; level: number | string }>) {
+    const levels = levelsByBusiness.get(row.business_id) ?? {};
+    levels[row.upgrade_key] = toNumber(row.level);
+    levelsByBusiness.set(row.business_id, levels);
+  }
 
-  return resolveEffectsFromLevels(businessType, levels, activePolicies);
+  const policiesByBusiness = new Map<string, UpgradeDowntimePolicy[]>();
+  for (const row of (projectRows ?? []) as Array<{ business_id: string; downtime_policy: UpgradeDowntimePolicy }>) {
+    const policies = policiesByBusiness.get(row.business_id) ?? [];
+    policies.push(row.downtime_policy);
+    policiesByBusiness.set(row.business_id, policies);
+  }
+
+  const effectsByBusiness = new Map<string, BusinessUpgradeEffects>();
+  for (const business of businesses) {
+    if (effectsByBusiness.has(business.id)) continue;
+    effectsByBusiness.set(
+      business.id,
+      resolveEffectsFromLevels(
+        business.type,
+        levelsByBusiness.get(business.id) ?? {},
+        policiesByBusiness.get(business.id) ?? []
+      )
+    );
+  }
+
+  return effectsByBusiness;
+}
+
+export async function getResolvedBusinessUpgradeEffects(
+  supabase: EdgeSupabaseClient,
+  businessId: string,
+  businessType: string
+) {
+  const effects = await getResolvedBusinessUpgradeEffectsForBusinesses(supabase, [
+    { id: businessId, type: businessType },
+  ]);
+  return effects.get(businessId)!;
 }

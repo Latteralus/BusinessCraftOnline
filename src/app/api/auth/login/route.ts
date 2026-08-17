@@ -5,6 +5,7 @@ import {
   CUSTOM_SESSION_TTL_SECONDS,
 } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase-service-role";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -37,9 +38,20 @@ export async function POST(request: Request) {
       );
     }
 
+    // Fetch the player's app-level role once at login so it can be embedded
+    // in the session JWT (see signCustomJwt / M6 in changelog 2026-08-17) --
+    // this is the only place that role needs a DB round trip anymore. Uses
+    // the service-role client because no session JWT exists yet at this
+    // point in the flow -- players_select_own RLS would otherwise return
+    // nothing (auth.uid() is null) and silently default every login to
+    // "player", including real admins.
+    const serviceClient = createSupabaseServiceRoleClient();
+    const { data: playerRow } = await serviceClient.from("players").select("role").eq("id", playerId).maybeSingle();
+    const appRole = playerRow?.role === "admin" ? "admin" : "player";
+
     // Since we are no longer using Supabase Auth, we don't upsert the player here,
     // they are already in the DB. We just sign a token.
-    const token = await signCustomJwt(playerId);
+    const token = await signCustomJwt(playerId, appRole);
 
     const cookieStore = await cookies();
     cookieStore.set(CUSTOM_SESSION_COOKIE_NAME, token, {

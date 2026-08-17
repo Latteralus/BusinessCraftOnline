@@ -1,7 +1,9 @@
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
 import {
-  consumeBusinessInventoryCost,
+  consumeInventoryRowsCost,
+  getAvailableInventoryQuantity,
   insertBusinessFinancialEvents,
+  loadBusinessInventoryRowsForItem,
 } from "@/domains/businesses/financial-events";
 import { addBusinessAccountEntry } from "@/domains/businesses";
 import type { QueryClient } from "@/lib/db/query-client";
@@ -42,36 +44,9 @@ async function getContractOrThrow(client: QueryClient, playerId: string, contrac
   return normalizeContract(data as Contract);
 }
 
-async function hasEnoughBusinessInventory(
-  client: QueryClient,
-  playerId: string,
-  businessId: string,
-  itemKey: string,
-  quantity: number
-): Promise<boolean> {
-  const { data: rows, error } = await client
-    .from("business_inventory")
-    .select("id, quantity, reserved_quantity")
-    .eq("owner_player_id", playerId)
-    .eq("business_id", businessId)
-    .eq("item_key", itemKey)
-    .order("quality", { ascending: false });
-
-  if (error) throw error;
-
-  const inventoryRows = (rows ?? []) as Array<{
-    id: string;
-    quantity: number | string;
-    reserved_quantity: number | string;
-  }>;
-
-  let availableTotal = 0;
-  for (const row of inventoryRows) {
-    availableTotal += Math.max(0, toNumber(row.quantity) - toNumber(row.reserved_quantity));
-  }
-
-  return availableTotal >= quantity;
-}
+// Bounded default so one player's full contract history (all statuses,
+// forever) can't become an unbounded result set. Resolves audit finding M1.
+const CONTRACTS_DEFAULT_LIMIT = 500;
 
 export async function getContracts(
   client: QueryClient,
@@ -82,7 +57,8 @@ export async function getContracts(
     .from("contracts")
     .select("*")
     .eq("owner_player_id", playerId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(filter.limit ?? CONTRACTS_DEFAULT_LIMIT);
 
   if (filter.businessId) {
     query = query.eq("business_id", filter.businessId);
@@ -206,15 +182,18 @@ export async function fulfillContract(
     throw new Error("Contract is already fully delivered.");
   }
 
-  const available = await hasEnoughBusinessInventory(
+  // Fetch once and reuse for both the availability check and the actual
+  // consumption below, instead of hasEnoughBusinessInventory and
+  // consumeBusinessInventoryCost each independently re-selecting the same
+  // rows. Resolves audit finding L1 (Documents/SBAudit.md).
+  const inventoryRows = await loadBusinessInventoryRowsForItem(
     client,
     playerId,
     contract.business_id,
-    contract.item_key,
-    remaining
+    contract.item_key
   );
 
-  if (!available) {
+  if (getAvailableInventoryQuantity(inventoryRows) < remaining) {
     const { error: inProgressError } = await client
       .from("contracts")
       .update({ status: "in_progress", updated_at: new Date().toISOString() })
@@ -223,13 +202,7 @@ export async function fulfillContract(
     throw new Error("Not enough inventory to fulfill this contract.");
   }
 
-  const inventoryCost = await consumeBusinessInventoryCost(
-    client,
-    playerId,
-    contract.business_id,
-    contract.item_key,
-    remaining
-  );
+  const inventoryCost = await consumeInventoryRowsCost(client, inventoryRows, remaining);
 
   const payout = Number((remaining * contract.unit_price).toFixed(2));
 

@@ -49,11 +49,15 @@ Deno.serve(async (request) => {
     const nowIso = now.toISOString();
     const nowMs = now.getTime();
 
+    // Fired employees can never be charged again (no transition back out of
+    // "fired"), so excluding them keeps this scan bounded by the current
+    // workforce instead of every employee ever hired across the game's life.
     const { data: employeeRows, error: employeesError } = await supabase
       .from("employees")
       .select(
         "id, player_id, first_name, last_name, status, unpaid_wage_due, employer_business_id, wage_per_hour, last_wage_charged_at, created_at"
       )
+      .neq("status", "fired")
       .order("created_at", { ascending: true });
 
     if (employeesError) throw employeesError;

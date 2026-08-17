@@ -402,10 +402,17 @@ function getPostingType(event: LedgerEvent | DerivedFinancialEvent): "debit" | "
   }
 }
 
-type MarketListingPriceRow = {
+type MarketAveragePriceRow = {
   item_key: string;
-  unit_price: number | string;
+  avg_unit_price: number | string;
 };
+
+// A per-item-key-set cache with a short TTL: this is a valuation *estimate*
+// used on every finance dashboard load, not a live price feed, so it doesn't
+// need to be recomputed on every visit. Only helps within one warm server
+// instance, but that's the common case for repeated dashboard loads.
+const MARKET_AVERAGE_PRICE_CACHE_TTL_MS = 30_000;
+const marketAveragePriceCache = new Map<string, { expiresAt: number; prices: Record<string, number> }>();
 
 // Assets are valued at what they'd fetch right now, not at what was paid for
 // them: the average asking price across active open-market listings for that
@@ -414,30 +421,32 @@ type MarketListingPriceRow = {
 // This is deliberately separate from COGS/cost-basis accounting (unit_cost /
 // total_cost on business_inventory), which still reflects actual acquisition
 // cost and must not change.
+//
+// The averaging itself happens in Postgres (get_market_average_unit_prices),
+// not in JS, so only one aggregated row per item key crosses the wire
+// instead of every matching listing across every player/city.
 async function getMarketAverageUnitPrices(client: QueryClient, itemKeys: string[]): Promise<Record<string, number>> {
-  const uniqueItemKeys = [...new Set(itemKeys)];
+  const uniqueItemKeys = [...new Set(itemKeys)].sort();
   if (uniqueItemKeys.length === 0) return {};
 
-  const { data, error } = await client
-    .from("market_listings")
-    .select("item_key, unit_price")
-    .eq("status", "active")
-    .in("item_key", uniqueItemKeys);
+  const cacheKey = uniqueItemKeys.join("|");
+  const cached = marketAveragePriceCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.prices;
+  }
+
+  const { data, error } = await client.rpc("get_market_average_unit_prices", {
+    p_item_keys: uniqueItemKeys,
+  });
 
   if (error || !data) return {};
 
-  const totals = new Map<string, { sum: number; count: number }>();
-  for (const row of data as MarketListingPriceRow[]) {
-    const price = toNumber(row.unit_price);
-    const entry = totals.get(row.item_key) ?? { sum: 0, count: 0 };
-    entry.sum += price;
-    entry.count += 1;
-    totals.set(row.item_key, entry);
-  }
-
-  return Object.fromEntries(
-    Array.from(totals.entries()).map(([itemKey, { sum, count }]) => [itemKey, round2(sum / count)])
+  const prices = Object.fromEntries(
+    (data as MarketAveragePriceRow[]).map((row) => [row.item_key, round2(toNumber(row.avg_unit_price))])
   );
+
+  marketAveragePriceCache.set(cacheKey, { expiresAt: Date.now() + MARKET_AVERAGE_PRICE_CACHE_TTL_MS, prices });
+  return prices;
 }
 
 function getAssetUnitPrice(

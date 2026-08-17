@@ -1,3 +1,4 @@
+import { toNumber } from "@/lib/core/number";
 import type { QueryClient } from "@/lib/db/query-client";
 import type {
   MailMessage,
@@ -293,36 +294,13 @@ export async function getUnreadMailCount(
   client: QueryClient,
   playerId: string
 ): Promise<number> {
-  const { data, error } = await client
-    .from("mail_thread_participants")
-    .select("thread_id, last_read_message_created_at")
-    .eq("player_id", playerId)
-    .is("deleted_at", null);
+  const { data, error } = await client.rpc("get_unread_mail_count", { p_player_id: playerId });
 
   if (error) {
     throw error;
   }
 
-  const participants = (data as Array<Pick<MailParticipantRow, "thread_id" | "last_read_message_created_at">>) ?? [];
-  if (participants.length === 0) {
-    return 0;
-  }
-
-  const latestMessagesByThreadId = await getLatestMessagesForThreads(
-    client,
-    participants.map((participant) => participant.thread_id)
-  );
-
-  return participants.filter((participant) => {
-    const latest = latestMessagesByThreadId.get(participant.thread_id);
-    if (!latest?.created_at) {
-      return false;
-    }
-    if (!participant.last_read_message_created_at) {
-      return true;
-    }
-    return new Date(latest.created_at).getTime() > new Date(participant.last_read_message_created_at).getTime();
-  }).length;
+  return toNumber(data);
 }
 
 export async function createPlayerMail(

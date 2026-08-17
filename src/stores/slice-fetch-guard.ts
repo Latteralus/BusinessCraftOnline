@@ -32,14 +32,41 @@ export function isLatestSliceFetch(key: string, token: number): boolean {
   return generations.get(key) === token;
 }
 
+// Resolves audit finding H1 (Documents/SBAudit.md): a mutation's own resync
+// and the realtime provider's postgres_changes-triggered refetch of the same
+// table used to each fire their own GET for the same slice whenever they
+// landed close together -- the generation counter above already stopped the
+// stale one from being *applied*, but both requests still went out over the
+// wire. Track one in-flight fetch per key so a second caller for the same
+// key shares the first caller's request/response instead of firing another.
+// Safe to skip the second caller's own `apply`: every call site for a given
+// key fetches and applies the same slice shape, so whichever call's `apply`
+// runs produces the same resulting state.
+const inFlightFetches = new Map<string, Promise<unknown>>();
+
 export async function runGuardedSliceFetch<T>(
   key: string,
   fetcher: () => Promise<T>,
   apply: (data: T) => void
 ): Promise<void> {
+  const existing = inFlightFetches.get(key);
+  if (existing) {
+    await existing;
+    return;
+  }
+
   const token = beginSliceFetch(key);
-  const data = await fetcher();
-  if (isLatestSliceFetch(key, token)) {
-    apply(data);
+  const promise = fetcher();
+  inFlightFetches.set(key, promise);
+
+  try {
+    const data = await promise;
+    if (isLatestSliceFetch(key, token)) {
+      apply(data);
+    }
+  } finally {
+    if (inFlightFetches.get(key) === promise) {
+      inFlightFetches.delete(key);
+    }
   }
 }

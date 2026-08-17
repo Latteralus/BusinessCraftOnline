@@ -3,7 +3,7 @@ import {
   startTickRequest,
   type EdgeSupabaseClient,
 } from "../_shared/tick-runtime.ts";
-import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
+import { getResolvedBusinessUpgradeEffectsForBusinesses } from "../_shared/business-upgrades.ts";
 import {
   STORE_BUSINESS_TYPES,
   isStoreBusinessType,
@@ -34,6 +34,8 @@ import {
   STOREFRONT_AD_MAX_TRAFFIC_BOOST,
 } from "../../../shared/economy.ts";
 import { makeNpcShopperName } from "../../../shared/core/npc-shopper-names.ts";
+
+const STORE_ROW_CAP = 200;
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
@@ -148,20 +150,38 @@ async function persistSubtickState(
   if (error) throw error;
 }
 
-async function settleStoreInventorySale(
-  supabase: EdgeSupabaseClient,
+type PendingStoreSale = {
+  shelfItemId: string;
+  ownerPlayerId: string;
+  businessId: string;
+  itemKey: string;
+  quality: number;
+  cityId: string;
+  businessName: string;
+  soldQty: number;
+  unitPrice: number;
+  baselineUnitCost: number;
+  shopperName: string | null;
+  shopperTier: string | null;
+  shopperBudget: number | null;
+  subTickIndex: number | null;
+  tickWindowStartedAt: string | null;
+};
+
+type SettledStoreSale = { ok: boolean; soldQty: number; gross?: number; fee?: number; net?: number };
+
+function buildPendingStoreSale(
   shelfRow: {
     id: string;
     owner_player_id: string;
     business_id: string;
     item_key: string;
     quality: number | string;
-    quantity: number | string;
-    unit_price: number | string;
     city_id: string;
     business_name?: string;
   },
   soldQty: number,
+  unitPrice: number,
   meta?: {
     shopperName?: string | null;
     shopperTier?: string | null;
@@ -169,36 +189,68 @@ async function settleStoreInventorySale(
     subTickIndex?: number | null;
     tickWindowStartedAt?: string | null;
   }
-) {
+): PendingStoreSale {
   // Baseline cost = 55% of NPC price ceiling, matching INVENTORY_BASELINE_UNIT_COSTS in finance config.
   // Used by the RPC when no cost basis was recorded on the inventory row (produced goods, not purchased).
   // Computed here (not in SQL) so shared/economy.ts stays the single source of truth for pricing.
   const baselineUnitCost = round2((NPC_PRICE_CEILINGS[shelfRow.item_key as keyof typeof NPC_PRICE_CEILINGS] ?? 0) * 0.55);
 
-  // The actual read-lock-write happens atomically in settle_store_inventory_sale_atomic,
-  // mirroring execute_market_purchase's locking so concurrent NPC sales / player listing
-  // changes against the same inventory row can't race.
-  const { data, error } = await supabase.rpc("settle_store_inventory_sale_atomic", {
-    p_shelf_item_id: shelfRow.id,
-    p_owner_player_id: shelfRow.owner_player_id,
-    p_business_id: shelfRow.business_id,
-    p_item_key: shelfRow.item_key,
-    p_quality: toNumber(shelfRow.quality),
-    p_city_id: shelfRow.city_id,
-    p_business_name: shelfRow.business_name ?? null,
-    p_sold_qty: soldQty,
-    p_unit_price: toNumber(shelfRow.unit_price),
-    p_baseline_unit_cost: baselineUnitCost,
-    p_shopper_name: meta?.shopperName ?? null,
-    p_shopper_tier: meta?.shopperTier ?? null,
-    p_shopper_budget: meta?.shopperBudget ?? null,
-    p_sub_tick_index: meta?.subTickIndex ?? null,
-    p_tick_window_started_at: meta?.tickWindowStartedAt ?? null,
+  return {
+    shelfItemId: shelfRow.id,
+    ownerPlayerId: shelfRow.owner_player_id,
+    businessId: shelfRow.business_id,
+    itemKey: shelfRow.item_key,
+    quality: toNumber(shelfRow.quality),
+    cityId: shelfRow.city_id,
+    businessName: shelfRow.business_name ?? "Unknown Business",
+    soldQty,
+    unitPrice,
+    baselineUnitCost,
+    shopperName: meta?.shopperName ?? null,
+    shopperTier: meta?.shopperTier ?? null,
+    shopperBudget: meta?.shopperBudget ?? null,
+    subTickIndex: meta?.subTickIndex ?? null,
+    tickWindowStartedAt: meta?.tickWindowStartedAt ?? null,
+  };
+}
+
+// Every purchase decision (which shelf row, how many units, at what price)
+// is already made entirely in-memory before this is called -- this just
+// persists a whole store's decided sales for the subtick in one round trip
+// instead of one settle_store_inventory_sale_atomic call per purchase.
+// settle_store_inventory_sales_atomic still locks and settles each sale
+// individually inside one transaction; a sale that no longer has enough
+// backing inventory by settlement time comes back with ok:false instead of
+// throwing, so one stale decision can't cost every other shopper in the same
+// store their purchase this subtick.
+async function settleStoreSalesBatch(
+  supabase: EdgeSupabaseClient,
+  sales: PendingStoreSale[]
+): Promise<SettledStoreSale[]> {
+  if (sales.length === 0) return [];
+
+  const { data, error } = await supabase.rpc("settle_store_inventory_sales_atomic", {
+    p_sales: sales.map((sale) => ({
+      shelfItemId: sale.shelfItemId,
+      ownerPlayerId: sale.ownerPlayerId,
+      businessId: sale.businessId,
+      itemKey: sale.itemKey,
+      quality: sale.quality,
+      cityId: sale.cityId,
+      businessName: sale.businessName,
+      soldQty: sale.soldQty,
+      unitPrice: sale.unitPrice,
+      baselineUnitCost: sale.baselineUnitCost,
+      shopperName: sale.shopperName,
+      shopperTier: sale.shopperTier,
+      shopperBudget: sale.shopperBudget,
+      subTickIndex: sale.subTickIndex,
+      tickWindowStartedAt: sale.tickWindowStartedAt,
+    })),
   });
 
   if (error) throw error;
-  const result = data as { gross: number; fee: number; net: number };
-  return { gross: result.gross, fee: result.fee, net: result.net };
+  return (data as SettledStoreSale[]) ?? [];
 }
 
 async function writeTickRunLog(
@@ -310,8 +362,20 @@ Deno.serve(async (request) => {
     let feeTotal = 0;
     let adSpendTotal = 0;
     let adEnabledStores = 0;
+    let inventoryCapHits = 0;
+    let shelfCapHits = 0;
 
     const demandMultiplier = getDemandCurveMultiplierForHour(now.getUTCHours());
+
+    // Resolved once per store per tick instead of once per store per call --
+    // getResolvedBusinessUpgradeEffectsForBusinesses batches the underlying
+    // upgrade/project lookups across every store touched this tick.
+    const upgradeEffectsByStore = await getResolvedBusinessUpgradeEffectsForBusinesses(
+      supabase,
+      (stores ?? [])
+        .filter((store) => isStoreBusinessType(String(store.type)))
+        .map((store) => ({ id: store.id, type: store.type }))
+    );
 
     for (const store of stores ?? []) {
      try {
@@ -322,9 +386,7 @@ Deno.serve(async (request) => {
       let storeFeeTotal = 0;
       let storeStockOutCount = 0;
       const isStoreType = isStoreBusinessType(String(store.type));
-      const effects = isStoreType
-        ? await getResolvedBusinessUpgradeEffects(supabase, store.id, store.type)
-        : null;
+      const effects = isStoreType ? upgradeEffectsByStore.get(store.id) ?? null : null;
 
       const trafficMultiplier = isStoreType ? effects?.storefrontTrafficMultiplier ?? 1 : 1;
       const priceToleranceMultiplier = isStoreType
@@ -395,6 +457,11 @@ Deno.serve(async (request) => {
 
     adSpendTotal += adBudgetApplied;
 
+    // Row caps below are a deliberate bound on per-store query size, not a
+    // silent one -- a store hitting either cap gets logged and counted so
+    // scaling past it (restocking stops looking right / traffic stops
+    // reaching some stores) shows up instead of failing invisibly. See
+    // audit finding M10 (Documents/SBAudit.md).
     const [{ data: inventoryRows }, { data: shelfRows }] = await Promise.all([
       supabase
         .from("business_inventory")
@@ -403,15 +470,24 @@ Deno.serve(async (request) => {
         .eq("business_id", store.id)
         .gt("reserved_quantity", 0)
         .gt("quantity", 0)
-        .limit(200),
+        .limit(STORE_ROW_CAP),
       supabase
         .from("store_shelf_items")
         .select("id, owner_player_id, business_id, item_key, quality, quantity, unit_price")
         .eq("owner_player_id", store.player_id)
         .eq("business_id", store.id)
         .gt("quantity", 0)
-        .limit(200),
+        .limit(STORE_ROW_CAP),
     ]);
+
+    if ((inventoryRows ?? []).length >= STORE_ROW_CAP) {
+      inventoryCapHits += 1;
+      console.warn(`[tick-npc-purchases] store ${store.id} business_inventory hit the ${STORE_ROW_CAP}-row cap`);
+    }
+    if ((shelfRows ?? []).length >= STORE_ROW_CAP) {
+      shelfCapHits += 1;
+      console.warn(`[tick-npc-purchases] store ${store.id} store_shelf_items hit the ${STORE_ROW_CAP}-row cap`);
+    }
 
     const inventoryByKey = new Map(
       (inventoryRows ?? []).map((row) => [`${row.item_key}:${row.quality}`, row])
@@ -461,6 +537,10 @@ Deno.serve(async (request) => {
 
     const usedShopperNames = new Set<string>();
     const buyersThisSubtick = new Set<string>();
+    // Every purchase this subtick is decided in-memory here and only
+    // persisted once, in a single batch, after the shopper loop -- see
+    // settleStoreSalesBatch.
+    const pendingSales: PendingStoreSale[] = [];
 
     for (let shopperIndex = 0; shopperIndex < shoppersThisSubtick; shopperIndex += 1) {
       const tier = pickWeighted(NPC_SHOPPER_TIERS as unknown as Array<(typeof NPC_SHOPPER_TIERS)[number]>, (row) => row.spawnWeight, seededRng);
@@ -560,13 +640,20 @@ Deno.serve(async (request) => {
           continue;
         }
 
-        const settled = await settleStoreInventorySale(supabase, chosen, soldQty, {
-          shopperName,
-          shopperTier: tier.key,
-          shopperBudget,
-          subTickIndex,
-          tickWindowStartedAt,
-        });
+        pendingSales.push(
+          buildPendingStoreSale(chosen, soldQty, chosenPrice, {
+            shopperName,
+            shopperTier: tier.key,
+            shopperBudget,
+            subTickIndex,
+            tickWindowStartedAt,
+          })
+        );
+
+        // Estimated gross for in-session budget tracking only -- mirrors the
+        // settlement RPC's v_gross formula exactly for the common case where
+        // nothing races the decision between now and the batch settle below.
+        const estimatedGross = round2(Math.max(0.01, chosenPrice) * soldQty);
 
         chosen.quantity = Math.max(0, toNumber(chosen.quantity) - soldQty);
         chosen.inventory_quantity = Math.max(0, toNumber(chosen.inventory_quantity) - soldQty);
@@ -585,16 +672,8 @@ Deno.serve(async (request) => {
           storeStockOutCount += 1;
         }
 
-        remainingBudget = round2(Math.max(0, remainingBudget - settled.gross));
+        remainingBudget = round2(Math.max(0, remainingBudget - estimatedGross));
         remainingItems = Math.max(0, remainingItems - soldQty);
-        salesCount += 1;
-        storeSalesCount += 1;
-        unitsSold += soldQty;
-        storeUnitsSold += soldQty;
-        grossRevenue += settled.gross;
-        storeGrossRevenue += settled.gross;
-        feeTotal += settled.fee;
-        storeFeeTotal += settled.fee;
 
         if (!shopperHasBought) {
           shopperHasBought = true;
@@ -604,6 +683,19 @@ Deno.serve(async (request) => {
     }
 
     storeBuyersCount = buyersThisSubtick.size;
+
+    const settledSales = await settleStoreSalesBatch(supabase, pendingSales);
+    for (const settled of settledSales) {
+      if (!settled.ok) continue;
+      salesCount += 1;
+      storeSalesCount += 1;
+      unitsSold += settled.soldQty;
+      storeUnitsSold += settled.soldQty;
+      grossRevenue += settled.gross ?? 0;
+      storeGrossRevenue += settled.gross ?? 0;
+      feeTotal += settled.fee ?? 0;
+      storeFeeTotal += settled.fee ?? 0;
+    }
 
       await writeStorefrontSnapshot(supabase, {
         ownerPlayerId: store.player_id,
@@ -645,6 +737,8 @@ Deno.serve(async (request) => {
       grossRevenue: Number(grossRevenue.toFixed(2)),
       feeTotal: Number(feeTotal.toFixed(2)),
       netRevenue: Number((grossRevenue - feeTotal).toFixed(2)),
+      inventoryCapHits,
+      shelfCapHits,
     };
 
     const finishedAtIso = new Date().toISOString();

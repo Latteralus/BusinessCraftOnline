@@ -8,7 +8,7 @@ import {
   type EdgeSupabaseClient,
 } from "../_shared/tick-runtime.ts";
 import { isWorkerOperational } from "../_shared/employee-status.ts";
-import { getResolvedBusinessUpgradeEffects } from "../_shared/business-upgrades.ts";
+import { getResolvedBusinessUpgradeEffectsForBusinesses } from "../_shared/business-upgrades.ts";
 import {
   EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS,
   EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
@@ -326,15 +326,33 @@ Deno.serve(async (request) => {
     let brokenTools = 0;
     let reducedOutputCount = 0;
 
-    for (const slot of parseExtractionSlotRows(slotRows)) {
-     try {
-    const { data: business } = await supabase
-      .from("businesses")
-      .select("id, player_id, city_id, type")
-      .eq("id", slot.business_id)
-      .maybeSingle();
+    const parsedSlots = parseExtractionSlotRows(slotRows);
+    const slotBusinessIds = [...new Set(parsedSlots.map((slot) => slot.business_id))];
 
-    const typedBusiness = parseBusinessRow(business);
+    const { data: businessRows } = slotBusinessIds.length
+      ? await supabase
+          .from("businesses")
+          .select("id, player_id, city_id, type")
+          .in("id", slotBusinessIds)
+      : { data: [] as unknown[] };
+
+    const businessById = new Map<string, BusinessRow>();
+    for (const row of businessRows ?? []) {
+      const parsed = parseBusinessRow(row);
+      if (parsed) businessById.set(parsed.id, parsed);
+    }
+
+    // Resolved once per business per tick instead of once per active slot --
+    // getResolvedBusinessUpgradeEffectsForBusinesses batches the underlying
+    // upgrade/project lookups across every business touched this tick.
+    const upgradeEffectsByBusiness = await getResolvedBusinessUpgradeEffectsForBusinesses(
+      supabase,
+      [...businessById.values()].map((business) => ({ id: business.id, type: business.type }))
+    );
+
+    for (const slot of parsedSlots) {
+     try {
+    const typedBusiness = businessById.get(slot.business_id) ?? null;
     if (!typedBusiness) {
       await failSlot(supabase, slot.id, "idle");
       continue;
@@ -448,11 +466,7 @@ Deno.serve(async (request) => {
         }
       }
 
-    const effects = await getResolvedBusinessUpgradeEffects(
-      supabase,
-      typedBusiness.id,
-      typedBusiness.type as BusinessRow["type"]
-    );
+    const effects = upgradeEffectsByBusiness.get(typedBusiness.id)!;
 
     let nextInputProgress = slot.input_progress;
     if (typedBusiness.type === "farm") {

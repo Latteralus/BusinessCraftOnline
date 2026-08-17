@@ -2,9 +2,9 @@ import { type FinancePeriod } from "@/config/finance";
 import {
   computeInventoryAssetValue,
   getBusinessById,
-  getBusinessFinanceDashboard,
-  getBusinessUpgradeProjects,
-  getBusinessUpgrades,
+  getBusinessFinanceDashboardForBusiness,
+  getBusinessUpgradeProjectsById,
+  getBusinessUpgradesById,
   getBusinessesWithBalances,
   supportsExtraction,
   supportsManufacturing,
@@ -76,8 +76,8 @@ export async function loadBusinessDetailsEntry(
     isManufacturing ? getManufacturingStatus(client, playerId, business.id).catch(() => null) : Promise.resolve(null),
     getBusinessInventory(client, playerId, business.id).catch(() => []),
     getStoreShelfItems(client, playerId, { businessId: business.id }).catch(() => []),
-    getBusinessUpgrades(client, playerId, business.id).catch(() => []),
-    getBusinessUpgradeProjects(client, playerId, business.id).catch(() => []),
+    getBusinessUpgradesById(client, business.id).catch(() => []),
+    getBusinessUpgradeProjectsById(client, business.id).catch(() => []),
     client
       .from("employees")
       .select("*, employee_assignments(*, business:businesses(*))")
@@ -86,7 +86,7 @@ export async function loadBusinessDetailsEntry(
       .order("created_at", { ascending: false })
       .catch(() => ({ data: [], error: null })),
     getUpgradeDefinitionsForBusinessType(client, business.type as BusinessType).catch(() => []),
-    getBusinessFinanceDashboard(client, playerId, business.id, period).catch(() => null),
+    getBusinessFinanceDashboardForBusiness(client, playerId, business, period).catch(() => null),
     getBusinessesWithBalances(client, playerId).catch(() => []),
   ]);
 
@@ -124,7 +124,7 @@ export async function loadBusinessDetailsSection(
   if (section === "finance") {
     return {
       business,
-      financeDashboard: await getBusinessFinanceDashboard(client, playerId, business.id, period).catch(() => null),
+      financeDashboard: await getBusinessFinanceDashboardForBusiness(client, playerId, business, period).catch(() => null),
     };
   }
 
@@ -189,8 +189,8 @@ export async function loadBusinessDetailsSection(
 
   if (section === "upgrades") {
     const [upgrades, upgradeProjects, upgradeDefinitions] = await Promise.all([
-      getBusinessUpgrades(client, playerId, business.id).catch(() => []),
-      getBusinessUpgradeProjects(client, playerId, business.id).catch(() => []),
+      getBusinessUpgradesById(client, business.id).catch(() => []),
+      getBusinessUpgradeProjectsById(client, business.id).catch(() => []),
       getUpgradeDefinitionsForBusinessType(client, business.type as BusinessType).catch(() => []),
     ]);
 
@@ -211,7 +211,7 @@ export async function loadBusinessDetailsSection(
     isManufacturing ? getManufacturingStatus(client, playerId, business.id).catch(() => null) : Promise.resolve(null),
     getBusinessInventory(client, playerId, business.id).catch(() => []),
     getStoreShelfItems(client, playerId, { businessId: business.id }).catch(() => []),
-    getBusinessUpgrades(client, playerId, business.id).catch(() => []),
+    getBusinessUpgradesById(client, business.id).catch(() => []),
     client
       .from("employees")
       .select("*, employee_assignments(*, business:businesses(*))")
@@ -219,7 +219,7 @@ export async function loadBusinessDetailsSection(
       .eq("employer_business_id", business.id)
       .order("created_at", { ascending: false })
       .catch(() => ({ data: [], error: null })),
-    getBusinessFinanceDashboard(client, playerId, business.id, period).catch(() => null),
+    getBusinessFinanceDashboardForBusiness(client, playerId, business, period).catch(() => null),
   ]);
 
   return {

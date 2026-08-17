@@ -141,16 +141,24 @@ export async function reconcileBusinessInventoryReservations(
   }
 }
 
+// Bounded defaults so a player's full inventory (every item/quality tier,
+// across every business) can't become an unbounded result set. Resolves
+// audit finding M1.
+const PERSONAL_INVENTORY_DEFAULT_LIMIT = 1000;
+const BUSINESS_INVENTORY_DEFAULT_LIMIT = 2000;
+
 export async function getPersonalInventory(
   client: QueryClient,
-  playerId: string
+  playerId: string,
+  limit: number = PERSONAL_INVENTORY_DEFAULT_LIMIT
 ): Promise<PersonalInventoryItem[]> {
   const { data, error } = await client
     .from("personal_inventory")
     .select("*")
     .eq("player_id", playerId)
     .order("item_key", { ascending: true })
-    .order("quality", { ascending: false });
+    .order("quality", { ascending: false })
+    .limit(limit);
 
   if (error) throw error;
   return ((data as PersonalInventoryItem[]) ?? []).map(normalizePersonalRow);
@@ -159,7 +167,8 @@ export async function getPersonalInventory(
 export async function getBusinessInventory(
   client: QueryClient,
   playerId: string,
-  businessId?: string
+  businessId?: string,
+  limit: number = BUSINESS_INVENTORY_DEFAULT_LIMIT
 ): Promise<BusinessInventoryItem[]> {
   let query = client
     .from("business_inventory")
@@ -167,7 +176,8 @@ export async function getBusinessInventory(
     .eq("owner_player_id", playerId)
     .order("business_id", { ascending: true })
     .order("item_key", { ascending: true })
-    .order("quality", { ascending: false });
+    .order("quality", { ascending: false })
+    .limit(limit);
 
   if (businessId) {
     query = query.eq("business_id", businessId);

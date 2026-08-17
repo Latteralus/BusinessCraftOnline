@@ -55,6 +55,7 @@ export type Contract = {
 export type ContractListFilter = {
   businessId?: string;
   status?: ContractStatus;
+  limit?: number;
 };
 
 export type CreateContractInput = {

@@ -45,6 +45,7 @@ import { makeNpcShopperName } from "../../../shared/core/npc-shopper-names.ts";
 // separately so the two channels advance independently.
 const SUBTICK_STATE_KEY = "open_market";
 const ELIGIBLE_ITEM_KEYS = [...NPC_OPEN_MARKET_ELIGIBLE_ITEMS];
+const MARKET_LISTING_ROW_CAP = 2000;
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
@@ -243,6 +244,10 @@ Deno.serve(async (request) => {
 
     await persistSubtickState(supabase, { tickWindowStartedAt, subTickIndex });
 
+    // MARKET_LISTING_ROW_CAP is a deliberate bound, not a silent one -- if a
+    // tick actually hits it, that's logged and surfaced in this run's
+    // metrics instead of silently under-covering the open market. See audit
+    // finding M10 (Documents/SBAudit.md).
     const { data: listingRows, error: listingsError } = await supabase
       .from("market_listings")
       .select(
@@ -252,9 +257,16 @@ Deno.serve(async (request) => {
       .in("item_key", ELIGIBLE_ITEM_KEYS)
       .gt("quantity", 0)
       .gt("unit_price", 0)
-      .limit(2000);
+      .limit(MARKET_LISTING_ROW_CAP);
 
     if (listingsError) throw listingsError;
+
+    const listingCapHit = (listingRows ?? []).length >= MARKET_LISTING_ROW_CAP;
+    if (listingCapHit) {
+      console.warn(
+        `[tick-npc-market-purchases] active eligible listings hit the ${MARKET_LISTING_ROW_CAP}-row cap`
+      );
+    }
 
     const listingsByCity = new Map<string, typeof listingRows>();
     for (const row of listingRows ?? []) {
@@ -435,6 +447,7 @@ Deno.serve(async (request) => {
       grossRevenue: Number(grossRevenue.toFixed(2)),
       feeTotal: Number(feeTotal.toFixed(2)),
       netRevenue: Number((grossRevenue - feeTotal).toFixed(2)),
+      listingCapHit,
     };
 
     const finishedAtIso = new Date().toISOString();

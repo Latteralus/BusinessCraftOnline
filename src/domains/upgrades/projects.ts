@@ -40,6 +40,12 @@ export async function applyCompletedUpgradeProjects(
       project.completes_at <= currentIso
   );
 
+  // Nothing to apply -- skip the redundant re-select of the same table this
+  // function's caller just paid for. Resolves audit finding M3.
+  if (readyProjects.length === 0) {
+    return projects;
+  }
+
   for (const project of readyProjects) {
     const { data: existingUpgrade, error: existingError } = await client
       .from("business_upgrades")
@@ -82,9 +88,13 @@ export async function applyCompletedUpgradeProjects(
       .eq("id", project.id);
 
     if (projectUpdateError) throw projectUpdateError;
+
+    project.project_status = "completed";
+    project.applied_at = currentIso;
+    project.updated_at = currentIso;
   }
 
-  return getBusinessUpgradeProjects(client, businessId);
+  return projects;
 }
 
 export async function createUpgradeProject(

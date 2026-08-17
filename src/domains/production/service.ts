@@ -707,15 +707,19 @@ export async function installToolForSlot(
   playerId: string,
   input: InstallToolInput
 ): Promise<{ slot: ExtractionSlot; tool: ToolDurability }> {
+  // getSlotByIdForPlayer already verifies ownership (via
+  // ensureOwnedExtractionBusiness) and returns business_type, and the slot
+  // row itself already carries business_id -- no need to re-fetch the
+  // parent business a second time. Resolves audit finding L1.
   const slot = await getSlotByIdForPlayer(client, playerId, input.slotId);
-  const business = await ensureOwnedExtractionBusiness(client, playerId, slot.business_id);
+  const businessType = slot.business_type;
 
-  const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[business.type] ?? null;
+  const requiredTool = EXTRACTION_REQUIRED_TOOL_BY_BUSINESS[businessType] ?? null;
   if (requiredTool && requiredTool !== input.itemType) {
-    throw new Error(`Business type '${business.type}' requires tool '${requiredTool}'.`);
+    throw new Error(`Business type '${businessType}' requires tool '${requiredTool}'.`);
   }
 
-  const effects = await getResolvedUpgradeEffects(client, business.id, business.type);
+  const effects = await getResolvedUpgradeEffects(client, slot.business_id, businessType);
   const uses = Math.max(1, Math.round(TOOL_BASE_DURABILITY[input.itemType] * effects.toolDurabilityMultiplier));
 
   const { data: toolRow, error: toolError } = await client
@@ -742,7 +746,7 @@ export async function installToolForSlot(
         slot.status === "retooling"
           ? "retooling"
           : slot.employee_id
-            ? resolveExtractionStatus({ ...slot, tool_item_key: input.itemType }, business.type)
+            ? resolveExtractionStatus({ ...slot, tool_item_key: input.itemType }, businessType)
             : "idle",
       updated_at: new Date().toISOString(),
     })

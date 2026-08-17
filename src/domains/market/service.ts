@@ -155,6 +155,26 @@ async function getStorefrontTransactionAggregate(
   return normalizeStorefrontTransactionAggregate(row as Partial<StorefrontTransactionAggregate> | null | undefined);
 }
 
+// One grouped call covering every business instead of one RPC call per
+// business. Resolves audit finding M3.
+async function getStorefrontTransactionAggregatesByBusiness(
+  client: QueryClient,
+  input: { playerId: string; from: string; to: string }
+): Promise<Map<string, StorefrontTransactionAggregate>> {
+  const { data, error } = await client.rpc("get_storefront_transaction_aggregates_by_business", {
+    p_seller_player_id: input.playerId,
+    p_from: input.from,
+    p_to: input.to,
+  });
+
+  if (error) throw error;
+
+  const rows = (data as Array<Partial<StorefrontTransactionAggregate> & { seller_business_id: string }>) ?? [];
+  return new Map(
+    rows.map((row) => [row.seller_business_id, normalizeStorefrontTransactionAggregate(row)])
+  );
+}
+
 async function getOwnedListing(client: QueryClient, playerId: string, listingId: string): Promise<MarketListing> {
   const { data, error } = await client
     .from("market_listings")
@@ -909,15 +929,17 @@ export async function getStorefrontPerformanceSummary(
     snapshotsByBusiness.set(snapshot.business_id, existing);
   }
 
+  const transactionAggregatesByBusiness = await getStorefrontTransactionAggregatesByBusiness(client, {
+    playerId,
+    from,
+    to,
+  });
+
   const businessSummaries = await Promise.all(
     businessRows.map(async (business) => {
       const businessSnapshots = snapshotsByBusiness.get(business.id) ?? [];
-      const businessTransactionAggregate = await getStorefrontTransactionAggregate(client, {
-        playerId,
-        businessId: business.id,
-        from,
-        to,
-      });
+      const businessTransactionAggregate =
+        transactionAggregatesByBusiness.get(business.id) ?? normalizeStorefrontTransactionAggregate(null);
       const businessAnalytics = buildStorefrontAnalytics({
         snapshotTotals: summarizeStorefrontSnapshots(businessSnapshots),
         transactionTotals: summarizeStorefrontTransactionAggregate(businessTransactionAggregate),

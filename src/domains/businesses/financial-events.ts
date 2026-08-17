@@ -59,6 +59,44 @@ export function computeWeightedAverageCost(input: {
   };
 }
 
+function computeRowConsumption(row: InventoryRow, quantityToConsume: number) {
+  const quantity = Math.max(0, toNumber(row.quantity));
+  const used = Math.min(quantityToConsume, quantity);
+  const { unitCost, estimated } = getRowUnitCost(row);
+  const nextQuantity = quantity - used;
+  return {
+    used,
+    unitCost,
+    estimated,
+    consumedTotalCost: round2(used * unitCost),
+    nextQuantity,
+    nextReserved: Math.min(toNumber(row.reserved_quantity), nextQuantity),
+  };
+}
+
+async function writeRowConsumption(
+  client: QueryClient,
+  row: Pick<InventoryRow, "id">,
+  consumption: ReturnType<typeof computeRowConsumption>
+): Promise<void> {
+  if (consumption.nextQuantity <= 0) {
+    const { error } = await client.from("business_inventory").delete().eq("id", row.id);
+    if (error) throw error;
+  } else {
+    const { error } = await client
+      .from("business_inventory")
+      .update({
+        quantity: consumption.nextQuantity,
+        reserved_quantity: consumption.nextReserved,
+        unit_cost: consumption.unitCost,
+        total_cost: round2(consumption.nextQuantity * consumption.unitCost),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", row.id);
+    if (error) throw error;
+  }
+}
+
 export async function consumeInventoryCostByRowId(
   client: QueryClient,
   rowId: string,
@@ -75,31 +113,10 @@ export async function consumeInventoryCostByRowId(
   }
 
   const row = data as InventoryRow;
-  const quantity = Math.max(0, toNumber(row.quantity));
-  const used = Math.min(quantityToConsume, quantity);
-  const { unitCost, estimated } = getRowUnitCost(row);
-  const consumedTotalCost = round2(used * unitCost);
-  const nextQuantity = quantity - used;
-  const nextReserved = Math.min(toNumber(row.reserved_quantity), nextQuantity);
+  const consumption = computeRowConsumption(row, quantityToConsume);
+  await writeRowConsumption(client, row, consumption);
 
-  if (nextQuantity <= 0) {
-    const { error: deleteError } = await client.from("business_inventory").delete().eq("id", row.id);
-    if (deleteError) throw deleteError;
-  } else {
-    const { error: updateError } = await client
-      .from("business_inventory")
-      .update({
-        quantity: nextQuantity,
-        reserved_quantity: nextReserved,
-        unit_cost: unitCost,
-        total_cost: round2(nextQuantity * unitCost),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", row.id);
-    if (updateError) throw updateError;
-  }
-
-  return { totalCost: consumedTotalCost, itemKey: row.item_key, quantity: used, estimated };
+  return { totalCost: consumption.consumedTotalCost, itemKey: row.item_key, quantity: consumption.used, estimated: consumption.estimated };
 }
 
 export async function previewInventoryCostByRowId(
@@ -156,13 +173,17 @@ export async function refreshInventoryCostByRowId(
   if (updateError) throw updateError;
 }
 
-export async function consumeBusinessInventoryCost(
+// Exported so a caller that needs to both check availability and (if
+// sufficient) consume the same rows -- e.g. fulfillContract -- can fetch
+// once and reuse the result for both, instead of hasEnoughInventory-style
+// callers re-querying the same rows consumeBusinessInventoryCost is about to
+// select again. Resolves audit finding L1 (Documents/SBAudit.md).
+export async function loadBusinessInventoryRowsForItem(
   client: QueryClient,
   playerId: string,
   businessId: string,
-  itemKey: string,
-  quantityToConsume: number
-): Promise<{ totalCost: number; quantityConsumed: number; estimated: boolean }> {
+  itemKey: string
+): Promise<InventoryRow[]> {
   const { data, error } = await client
     .from("business_inventory")
     .select("id, owner_player_id, business_id, item_key, quality, quantity, reserved_quantity, unit_cost, total_cost")
@@ -172,19 +193,35 @@ export async function consumeBusinessInventoryCost(
     .order("quality", { ascending: false });
   if (error) throw error;
 
-  const rows = (data as InventoryRow[]) ?? [];
+  return (data as InventoryRow[]) ?? [];
+}
+
+export function getAvailableInventoryQuantity(rows: InventoryRow[]): number {
+  return rows.reduce((sum, row) => sum + Math.max(0, toNumber(row.quantity) - toNumber(row.reserved_quantity)), 0);
+}
+
+export async function consumeInventoryRowsCost(
+  client: QueryClient,
+  rows: InventoryRow[],
+  quantityToConsume: number
+): Promise<{ totalCost: number; quantityConsumed: number; estimated: boolean }> {
   let remaining = quantityToConsume;
   let totalCost = 0;
   let estimated = false;
 
+  // rows were already fully loaded by the caller -- consume in-memory
+  // instead of re-selecting each row by id before writing it (was one extra
+  // select per quality tier on every sale/fulfillment). Resolves audit
+  // finding M3 (Documents/SBAudit.md).
   for (const row of rows) {
     if (remaining <= 0) break;
-    const quantity = Math.max(0, toNumber(row.quantity) - toNumber(row.reserved_quantity));
-    if (quantity <= 0) continue;
-    const used = Math.min(remaining, quantity);
-    const result = await consumeInventoryCostByRowId(client, row.id, used);
-    totalCost = round2(totalCost + result.totalCost);
-    estimated = estimated || result.estimated;
+    const available = Math.max(0, toNumber(row.quantity) - toNumber(row.reserved_quantity));
+    if (available <= 0) continue;
+    const used = Math.min(remaining, available);
+    const consumption = computeRowConsumption(row, used);
+    await writeRowConsumption(client, row, consumption);
+    totalCost = round2(totalCost + consumption.consumedTotalCost);
+    estimated = estimated || consumption.estimated;
     remaining -= used;
   }
 
@@ -193,6 +230,17 @@ export async function consumeBusinessInventoryCost(
     quantityConsumed: quantityToConsume - remaining,
     estimated,
   };
+}
+
+export async function consumeBusinessInventoryCost(
+  client: QueryClient,
+  playerId: string,
+  businessId: string,
+  itemKey: string,
+  quantityToConsume: number
+): Promise<{ totalCost: number; quantityConsumed: number; estimated: boolean }> {
+  const rows = await loadBusinessInventoryRowsForItem(client, playerId, businessId, itemKey);
+  return consumeInventoryRowsCost(client, rows, quantityToConsume);
 }
 
 export async function insertBusinessFinancialEvents(
