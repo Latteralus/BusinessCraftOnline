@@ -8,6 +8,7 @@ import {
   getBusinessCashBalance,
   getCityIds,
   getFinancialEvents,
+  getJournalLines,
   getLedgerEntries,
   playerClient,
   serviceRoleClient,
@@ -21,15 +22,12 @@ import {
 // Debit Wages Payable / Credit Cash. Do not recognize payroll expense again
 // when the liability is paid."
 //
-// This suite drives the exact wage-charge branch logic currently in
-// supabase/functions/tick-wages/index.ts (mirrored inline below rather than
-// invoked over HTTP, since it's a Deno edge function with no Node runtime
-// here -- see runCurrentWageChargeLogic, which is a line-for-line port of
-// that function's per-employee branch as of migration 095/commit f6a14fd).
-// The point isn't to test my port of the tick; it's to test the real RPCs
-// and tables that port calls (business_accounts insert, employees update,
-// get_business_account_balance), which are exactly what the Deno function
-// touches too.
+// Phase B moved the wage-charge branch logic that used to live inline in
+// supabase/functions/tick-wages/index.ts into a single atomic RPC,
+// charge_employee_wage_atomic (migration 098), which the tick now calls.
+// This suite calls that same RPC directly instead of re-implementing the
+// tick's per-employee branch, so it's testing the real production code path,
+// not a port of it.
 async function hireTempEmployee(client: TestClient, playerId: string, businessId: string) {
   const asPlayer = await playerClient(playerId);
   const { data, error } = await asPlayer.rpc("hire_employee_atomic", {
@@ -54,42 +52,14 @@ async function hireTempEmployee(client: TestClient, playerId: string, businessId
   return employee;
 }
 
-/** Mirrors tick-wages/index.ts's single-employee branch for exactly one charge window. Returns what actually happened, not what should happen. */
-async function runCurrentWageChargeLogic(client: TestClient, employeeId: string, businessId: string) {
-  const { data: employeeRow, error } = await client
-    .from("employees")
-    .select("id, first_name, last_name, wage_per_hour, unpaid_wage_due")
-    .eq("id", employeeId)
-    .single();
+async function chargeEmployeeWage(client: TestClient, employeeId: string, wageAmount: number) {
+  const { data, error } = await client.rpc("charge_employee_wage_atomic", {
+    p_employee_id: employeeId,
+    p_wage_amount: wageAmount,
+    p_charge_anchor_at: new Date().toISOString(),
+  });
   if (error) throw error;
-  const employee = employeeRow as { id: string; first_name: string; last_name: string; wage_per_hour: number; unpaid_wage_due: number };
-
-  const wageAmount = calculatePayrollCharge(Number(employee.wage_per_hour), 1);
-  const balance = await getBusinessCashBalance(client, businessId);
-
-  if (balance >= wageAmount) {
-    const { error: insertError } = await client.from("business_accounts").insert({
-      business_id: businessId,
-      amount: wageAmount,
-      entry_type: "debit",
-      category: "wage_payment",
-      reference_id: employee.id,
-      description: `Wage payment: ${employee.first_name} ${employee.last_name}`,
-    });
-    if (insertError) throw insertError;
-    return { branch: "paid" as const, wageAmount };
-  }
-
-  const { error: updateError } = await client
-    .from("employees")
-    .update({
-      status: "unpaid",
-      unpaid_wage_due: Number(employee.unpaid_wage_due) + wageAmount,
-      unpaid_since: new Date().toISOString(),
-    })
-    .eq("id", employee.id);
-  if (updateError) throw updateError;
-  return { branch: "unpaid" as const, wageAmount };
+  return data as { branch: "paid" | "unpaid"; employee: { id: string; status: string; unpaid_wage_due: number } };
 }
 
 describe("payroll (AccountingFixPlan item 39)", () => {
@@ -110,14 +80,13 @@ describe("payroll (AccountingFixPlan item 39)", () => {
     expect(calculatePayrollCharge(40, 1)).toBe(10);
   });
 
-  it("payroll paid: sufficient cash charges wage_payment and debits exactly the tick amount", async () => {
+  it("payroll paid: sufficient cash debits Payroll Expense/credits Cash, and posts a balanced journal entry", async () => {
     await fundBusinessFromOwner(client, playerId, businessId, 1_000);
     const employee = await hireTempEmployee(client, playerId, businessId);
 
     const before = await getBusinessCashBalance(client, businessId);
-    const result = await runCurrentWageChargeLogic(client, employee.id, businessId);
+    const result = await chargeEmployeeWage(client, employee.id, 10);
     expect(result.branch).toBe("paid");
-    expect(result.wageAmount).toBe(10);
 
     const after = await getBusinessCashBalance(client, businessId);
     expect(after).toBe(before - 10);
@@ -125,6 +94,20 @@ describe("payroll (AccountingFixPlan item 39)", () => {
     const entries = await getLedgerEntries(client, businessId);
     const wageEntry = entries.find((e) => e.category === "wage_payment" && e.reference_id === employee.id);
     expect(wageEntry).toMatchObject({ amount: 10, entry_type: "debit" });
+
+    const financialEvents = await getFinancialEvents(client, businessId);
+    const payrollEvent = financialEvents.find((e) => e.account_code === "payroll_expense" && e.reference_id === employee.id);
+    expect(payrollEvent).toMatchObject({ amount: 10 });
+
+    const journalLines = await getJournalLines(client, businessId);
+    const wageJournalLines = journalLines.filter(
+      (l) => (l.account_code === "payroll_expense" || l.account_code === "cash") && l.debit + l.credit === 10
+    );
+    const payrollDebit = wageJournalLines.find((l) => l.account_code === "payroll_expense");
+    const cashCredit = wageJournalLines.find((l) => l.account_code === "cash");
+    expect(payrollDebit).toMatchObject({ debit: 10, credit: 0 });
+    expect(cashCredit).toMatchObject({ debit: 0, credit: 10 });
+    expect(payrollDebit!.entry_id).toBe(cashCredit!.entry_id);
   });
 
   describe("payroll accrued but unpaid", () => {
@@ -138,28 +121,29 @@ describe("payroll (AccountingFixPlan item 39)", () => {
       employee = await hireTempEmployee(client, playerId, poorBusinessId);
     });
 
-    it("moves the employee to unpaid status with the correct amount owed", async () => {
-      const result = await runCurrentWageChargeLogic(client, employee.id, poorBusinessId);
+    it("recognizes a payroll expense at accrual time (Debit Payroll Expense / Credit Wages Payable), even though cash wasn't paid", async () => {
+      const result = await chargeEmployeeWage(client, employee.id, 10);
       expect(result.branch).toBe("unpaid");
+      expect(result.employee.status).toBe("unpaid");
+      expect(Number(result.employee.unpaid_wage_due)).toBe(10);
 
-      const { data } = await client.from("employees").select("status, unpaid_wage_due").eq("id", employee.id).single();
-      expect((data as any).status).toBe("unpaid");
-      expect(Number((data as any).unpaid_wage_due)).toBe(10);
-    });
+      // No cash moved, so business_accounts must stay untouched for this event.
+      const entries = await getLedgerEntries(client, poorBusinessId);
+      expect(entries.find((e) => e.reference_id === employee.id)).toBeUndefined();
 
-    // AccountingFixPlan item 39: earned-but-unpaid wages must still be
-    // recognized as an expense the moment they're earned (Debit Payroll
-    // Expense / Credit Wages Payable), not deferred until cash actually
-    // moves. tick-wages currently writes nothing at all to
-    // business_accounts or business_financial_events when it can't pay --
-    // the liability accrues invisibly to every report. This is exactly the
-    // bug Phase B fixes; it.fails() so this test flips to a normal
-    // (passing) assertion once that phase lands, instead of silently
-    // staying green on unfixed behavior.
-    it.fails("recognizes a payroll expense at accrual time even though cash wasn't paid", async () => {
       const financialEvents = await getFinancialEvents(client, poorBusinessId);
-      const accrualEvent = financialEvents.find((e) => e.account_code === "operating_expense" || e.account_code === "cogs");
-      expect(accrualEvent, "expected some expense-recognizing financial event for the unpaid wage accrual").toBeDefined();
+      const accrualEvent = financialEvents.find((e) => e.account_code === "payroll_expense" && e.reference_id === employee.id);
+      expect(accrualEvent, "expected a payroll_expense financial event for the unpaid wage accrual").toMatchObject({ amount: 10 });
+
+      const journalLines = await getJournalLines(client, poorBusinessId);
+      const accrualLines = journalLines.filter(
+        (l) => (l.account_code === "payroll_expense" || l.account_code === "wages_payable") && l.debit + l.credit === 10
+      );
+      const payrollDebit = accrualLines.find((l) => l.account_code === "payroll_expense");
+      const wagesPayableCredit = accrualLines.find((l) => l.account_code === "wages_payable");
+      expect(payrollDebit).toMatchObject({ debit: 10, credit: 0 });
+      expect(wagesPayableCredit).toMatchObject({ debit: 0, credit: 10 });
+      expect(payrollDebit!.entry_id).toBe(wagesPayableCredit!.entry_id);
     });
 
     it("later settlement pays the liability without double-charging the expense", async () => {
@@ -183,11 +167,40 @@ describe("payroll (AccountingFixPlan item 39)", () => {
       expect(settlementEntries).toHaveLength(1);
       expect(settlementEntries[0]).toMatchObject({ amount: 10, entry_type: "debit" });
 
-      // Exactly one wage-related debit total across the employee's whole
+      // Exactly one wage-related cash debit total across the employee's whole
       // lifecycle (the settlement) -- proves settlement doesn't also
       // re-charge a "wage_payment" entry on top of itself.
       const wagePaymentEntries = entries.filter((e) => e.category === "wage_payment" && e.reference_id === employee.id);
       expect(wagePaymentEntries).toHaveLength(0);
+
+      // Exactly one payroll_expense financial event across the whole
+      // lifecycle (from the earlier accrual) -- proves settlement doesn't
+      // recognize the expense a second time when the liability is paid.
+      const financialEvents = await getFinancialEvents(client, poorBusinessId);
+      const payrollExpenseEvents = financialEvents.filter((e) => e.account_code === "payroll_expense" && e.reference_id === employee.id);
+      expect(payrollExpenseEvents).toHaveLength(1);
+
+      const journalLines = await getJournalLines(client, poorBusinessId);
+      const settlementLines = journalLines.filter(
+        (l) => (l.account_code === "wages_payable" || l.account_code === "cash") && l.debit + l.credit === 10
+      );
+      const wagesPayableDebit = settlementLines.find((l) => l.account_code === "wages_payable" && l.debit === 10);
+      const cashCredit = settlementLines.find((l) => l.account_code === "cash" && l.credit === 10);
+      expect(wagesPayableDebit).toBeDefined();
+      expect(cashCredit).toBeDefined();
+      expect(wagesPayableDebit!.entry_id).toBe(cashCredit!.entry_id);
+
+      // Accounting invariant: every journal entry for this business balances.
+      const byEntry = new Map<string, { debit: number; credit: number }>();
+      for (const line of journalLines) {
+        const totals = byEntry.get(line.entry_id) ?? { debit: 0, credit: 0 };
+        totals.debit += line.debit;
+        totals.credit += line.credit;
+        byEntry.set(line.entry_id, totals);
+      }
+      for (const totals of byEntry.values()) {
+        expect(totals.debit).toBeCloseTo(totals.credit, 2);
+      }
     });
 
     it("rejects settling wages that are already paid", async () => {

@@ -17,7 +17,7 @@ type InventoryRow = {
 
 export type NewBusinessFinancialEvent = {
   business_id: string;
-  account_code: "inventory" | "cogs" | "revenue" | "operating_expense" | "owner_equity" | "owner_draw";
+  account_code: "inventory" | "cogs" | "revenue" | "operating_expense" | "owner_equity" | "owner_draw" | "payroll_expense" | "wages_payable";
   amount: number;
   quantity?: number | null;
   item_key?: string | null;

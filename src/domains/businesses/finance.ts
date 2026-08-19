@@ -21,7 +21,9 @@ type FinancialEventAccountCode =
   | "owner_equity"
   | "owner_draw"
   | "liability"
-  | "other_income_expense";
+  | "other_income_expense"
+  | "payroll_expense"
+  | "wages_payable";
 
 type FinancialEventRow = {
   id: string;
@@ -381,6 +383,10 @@ function getAccountLabel(accountCode: string): string {
       return "Intercompany";
     case "cogs":
       return "Cost of Goods Sold";
+    case "payroll_expense":
+      return "Payroll Expense";
+    case "wages_payable":
+      return "Wages Payable";
     default:
       return toTitleCase(accountCode);
   }
@@ -396,6 +402,7 @@ function getPostingType(event: LedgerEvent | DerivedFinancialEvent): "debit" | "
     case "owner_equity":
     case "liability":
     case "other_income_expense":
+    case "wages_payable":
       return "credit";
     default:
       return "debit";
@@ -702,8 +709,18 @@ function buildSeries(
     bucketMs,
     (row) => row.amount
   );
+  // See operatingExpenseFromLedger/payrollExpense above: payroll is excluded
+  // from the ledger-based bucket and added from financial events instead, to
+  // avoid double-counting it at both accrual and settlement time.
   const opexByBucket = groupAmountByBucket(
-    ledgerEvents.filter((row) => row.accountCode === "operating_expense"),
+    ledgerEvents.filter(
+      (row) => row.accountCode === "operating_expense" && row.category !== "wage_payment" && row.category !== "employee_wage_settlement"
+    ),
+    bucketMs,
+    (row) => row.amount
+  );
+  const payrollExpenseByBucket = groupAmountByBucket(
+    financialEvents.filter((row) => row.accountCode === "payroll_expense"),
     bucketMs,
     (row) => row.amount
   );
@@ -736,7 +753,7 @@ function buildSeries(
     runningCash = round2(runningCash + (cashDeltaByBucket.get(bucketStartMs) ?? 0));
     const revenue = round2((revenueByBucket.get(bucketStartMs) ?? 0) + (transferRevenueByBucket.get(bucketStartMs) ?? 0));
     const cogs = round2(cogsByBucket.get(bucketStartMs) ?? 0);
-    const operatingExpense = round2(opexByBucket.get(bucketStartMs) ?? 0);
+    const operatingExpense = round2((opexByBucket.get(bucketStartMs) ?? 0) + (payrollExpenseByBucket.get(bucketStartMs) ?? 0));
     points.push({
       label: formatBucketLabel(period.key, bucketStartMs),
       bucketStart: new Date(bucketStartMs).toISOString(),
@@ -981,11 +998,24 @@ export async function getBusinessFinanceDashboard(
       const storefrontCogsEventsInRange = financialInRange.filter(
         (row) => row.accountCode === "cogs" && row.referenceType === "storefront_sale"
       );
-      const operatingExpense = sumAmounts(
+      // Payroll is excluded from the ledger-based operating_expense sum and
+      // sourced from business_financial_events' payroll_expense entries
+      // instead (AccountingFixPlan Phase B): payroll expense is now
+      // recognized once, at accrual time, via a financial event, whether or
+      // not cash moved that same moment. Summing the ledger's wage_payment/
+      // employee_wage_settlement cash entries here too would double-count it
+      // (once at accrual, again whenever the cash actually leaves).
+      const operatingExpenseFromLedger = sumAmounts(
         ledgerInRange,
-        (row) => row.accountCode === "operating_expense",
+        (row) => row.accountCode === "operating_expense" && row.category !== "wage_payment" && row.category !== "employee_wage_settlement",
         (row) => row.amount
       );
+      const payrollExpense = sumAmounts(
+        financialInRange,
+        (row) => row.accountCode === "payroll_expense",
+        (row) => row.amount
+      );
+      const operatingExpense = round2(operatingExpenseFromLedger + payrollExpense);
       const storefrontInRange = storefrontSnapshots.filter((row) => !range.since || row.captured_at >= range.since);
       const snapshotShoppersGenerated = storefrontInRange.reduce((sum, row) => sum + row.shoppers_generated, 0);
       const snapshotBuyersCount = storefrontInRange.reduce((sum, row) => sum + row.buyers_count, 0);
@@ -1084,8 +1114,17 @@ export async function getBusinessFinanceDashboard(
       // rows (player purchases, NPC open-market sales, and buy-order fills all post their
       // cash-side entries to the ledger too). Showing them produces 3-4 duplicate lines per
       // trade in the user-facing transaction log.
+      // wage_payment financial events are also excluded here for the same
+      // reason as storefront_sale/market_transaction: the paid branch of
+      // charge_employee_wage_atomic already produces a business_accounts
+      // wage_payment row for the same event, so showing both would double
+      // it up in the log. wage_accrual has no ledger counterpart (no cash
+      // moved) and stays visible -- it's the only record of that accrual.
       const financialForLog = financialInRange.filter(
-        (row) => row.referenceType !== "storefront_sale" && row.referenceType !== "market_transaction"
+        (row) =>
+          row.referenceType !== "storefront_sale" &&
+          row.referenceType !== "market_transaction" &&
+          row.referenceType !== "wage_payment"
       );
       const recentEvents = [...recentLedger, ...financialForLog]
         .sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt))

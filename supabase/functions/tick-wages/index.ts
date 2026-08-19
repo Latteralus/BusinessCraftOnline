@@ -129,61 +129,29 @@ Deno.serve(async (request) => {
         continue;
       }
 
-      const { data: balanceValue, error: balanceError } = await supabase.rpc("get_business_account_balance", {
-        p_business_id: employee.employer_business_id,
+      // Delegates to a single atomic RPC (AccountingFixPlan Phase B) so the
+      // cash debit / payroll_expense recognition / wages_payable accrual and
+      // the employee status change all commit together -- previously this
+      // branch wrote a plain business_accounts row (paid) or a multi-step,
+      // non-atomic employees/employee_assignments/extraction_slots sequence
+      // (unpaid) with zero accounting entries either way.
+      const { data: chargeResult, error: chargeError } = await supabase.rpc("charge_employee_wage_atomic", {
+        p_employee_id: employee.id,
+        p_wage_amount: wageAmount,
+        p_charge_anchor_at: chargeAnchorIso,
       });
 
-      if (balanceError) continue;
+      if (chargeError) continue;
 
-      const balance = toNumber(balanceValue);
+      const branch = (chargeResult as { branch?: string } | null)?.branch;
 
-      if (balance >= wageAmount) {
-        const { error: debitError } = await supabase.from("business_accounts").insert({
-          business_id: employee.employer_business_id,
-          amount: wageAmount,
-          entry_type: "debit",
-          category: "wage_payment",
-          reference_id: employee.id,
-          description: `Wage payment: ${employee.first_name} ${employee.last_name}`,
-        });
-
-        if (debitError) continue;
-
-        await supabase
-          .from("employees")
-          .update({ last_wage_charged_at: chargeAnchorIso, updated_at: nowIso })
-          .eq("id", employee.id);
-
+      if (branch === "paid") {
         wagesCharged += 1;
         totalWages += wageAmount;
         totalHoursCharged += chargeWindowCount * WAGE_CHARGE_INTERVAL_HOURS;
-        continue;
+      } else if (branch === "unpaid") {
+        unpaidTransitions += 1;
       }
-
-      await supabase
-        .from("employees")
-        .update({
-          status: "unpaid",
-          unpaid_wage_due: Number((toNumber(employee.unpaid_wage_due) + wageAmount).toFixed(2)),
-          unpaid_since: nowIso,
-          last_unassigned_for_unpaid_at: nowIso,
-          last_wage_charged_at: chargeAnchorIso,
-          updated_at: nowIso,
-        })
-        .eq("id", employee.id)
-        .eq("player_id", employee.player_id);
-
-      await supabase.from("employee_assignments").delete().eq("employee_id", employee.id);
-      await supabase
-        .from("extraction_slots")
-        .update({
-          employee_id: null,
-          status: "idle",
-          updated_at: nowIso,
-        })
-        .eq("employee_id", employee.id);
-
-      unpaidTransitions += 1;
     }
 
     const finishedAtIso = new Date().toISOString();

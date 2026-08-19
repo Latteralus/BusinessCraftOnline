@@ -6,6 +6,14 @@ When adding an entry: date it, say what changed and why, link the relevant migra
 
 ---
 
+## 2026-08-19 — Fixed `employee_skills_level_check` violation (23514) in tick-manufacturing/tick-extraction
+
+User-reported hosted error (`new row for relation "employee_skills" violates check constraint "employee_skills_level_check"`, 2026-08-19 10:44). Root cause: both [`supabase/functions/tick-manufacturing/index.ts`](../supabase/functions/tick-manufacturing/index.ts) and [`supabase/functions/tick-extraction/index.ts`](../supabase/functions/tick-extraction/index.ts) award skill XP every production tick with a `while (nextXp >= XP_PER_LEVEL) { nextLevel += 1; }` level-up loop that had no upper bound, while `employee_skills.level` is schema-capped at 100 (migration `016`). Any employee who accumulated enough XP to level past 100 made every subsequent skill-XP `UPDATE` on that row fail. No data corruption resulted — the failing writes were rejected/rolled back, so affected rows stayed at whatever valid level they were already at — but that same employee's production tick has been throwing (and presumably failing the tick for that job/slot) since they capped out.
+
+Fix: both loops now stop once `nextLevel` reaches 100 (`while (nextXp >= XP_PER_LEVEL && nextLevel < 100)`), so xp still accrues but level stays valid. No migration/backfill needed. Verified with a clean `npm run typecheck:edge`, then deployed both functions to the hosted project (`npx supabase functions deploy tick-manufacturing` / `tick-extraction`).
+
+---
+
 ## 2026-08-19 — AccountingFixPlan Phase A: finance test suite, canonical Chart of Accounts, double-entry journal schema
 
 Per [`Documents/Plans/AccountingFixPlan`](Plans/AccountingFixPlan) (a from-scratch repair of the finance/accounting system, worked one phase at a time). Phase A is test infrastructure + schema only — no money-moving code path was rewired yet; that starts with Phase B (payroll).

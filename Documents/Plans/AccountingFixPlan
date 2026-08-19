@@ -64,7 +64,7 @@ Important implementation rules:
 Complete 1 Group at a time (mark as complete after work is done):
 
 Phase A: tests + chart of accounts + journal — COMPLETE (2026-08-19)
-Phase B: payroll/liabilities
+Phase B: payroll/liabilities — COMPLETE (2026-08-19)
 Phase C: inventory cost-basis helper
 Phase D: manufacturing/extraction
 Phase E: storefront/market/contracts/B2B
@@ -177,3 +177,79 @@ account_code CHECK constraint literal list on business_journal_lines (new
 migration — Postgres CHECK constraints can't reference a shared source of
 truth) and re-run `npx supabase db reset` locally before trusting the
 journal tests again.
+
+--- Phase B notes (2026-08-19) ---
+
+Migration 098 (`payroll_accounting.sql`). Two changes:
+
+1. `business_financial_events`'s account_code CHECK constraint (from
+   migration 046, predates the Chart of Accounts entirely) only allowed 6
+   values (inventory/cogs/revenue/operating_expense/owner_equity/owner_draw)
+   and had never been widened since. Added `payroll_expense` and
+   `wages_payable`. If a later phase needs another CHART_OF_ACCOUNTS code
+   recognized as a financial-event account_code, this constraint needs
+   widening again the same way — it does not derive from
+   business_journal_lines' own (separately-maintained) CHECK list.
+2. New RPC `charge_employee_wage_atomic(p_employee_id, p_wage_amount,
+   p_charge_anchor_at)`, service_role only. Replaces the inline branch logic
+   that used to live in supabase/functions/tick-wages/index.ts (a plain
+   `business_accounts` insert on the paid path; a non-atomic
+   employees/employee_assignments/extraction_slots sequence with zero
+   accounting entries on the unpaid path). Now, in one transaction: paid ->
+   business_accounts debit (`wage_payment`) + a balanced journal entry
+   (Debit payroll_expense / Credit cash, linked via journal_entry_id) + a
+   `payroll_expense` business_financial_events row; unpaid -> a balanced
+   journal entry (Debit payroll_expense / Credit wages_payable) + a
+   `payroll_expense` financial event, no business_accounts row (no cash
+   moved). tick-wages/index.ts now calls this RPC per employee instead of
+   doing the writes itself; the window-count/skip-condition scheduling logic
+   above it (last_wage_charged_at math, interval/status/employer/assignment
+   skips) was left untouched — that's not an accounting bug, just tick
+   scheduling, out of this phase's scope.
+
+`settle_employee_wages_atomic` (migration 074) was also updated in this
+migration (`create or replace`, same signature) to post a balanced journal
+entry (Debit wages_payable / Credit cash) alongside its existing
+`employee_wage_settlement` business_accounts debit, and link the two via
+journal_entry_id. It deliberately does NOT write another `payroll_expense`
+financial event — the plan is explicit that settlement must not
+double-recognize an expense already recognized at accrual. Both RPCs reuse
+the existing hardened `append_business_account_entry` helper for the cash
+leg (ownership-checked, returns the row so journal_entry_id can be attached
+after) rather than inserting into business_accounts directly — matches
+settle_employee_wages_atomic's pre-existing style. `post_business_journal_entry`
+and `append_business_financial_event` are both service_role-only-granted
+functions called directly (not via PostgREST) from inside these
+SECURITY DEFINER functions; this works regardless of the *invoking* role's
+own grants (tested end-to-end via settle_employee_wages_atomic, which
+`authenticated` calls) because a SECURITY DEFINER function's nested calls
+are privilege-checked against the function owner, not the original caller.
+
+`src/domains/businesses/finance.ts` (the existing per-period dashboard
+aggregator) was updated so the `operatingExpense` KPI and its per-bucket
+series don't double-count payroll: wage-related business_accounts categories
+(`wage_payment`, `employee_wage_settlement`) are now excluded from the
+ledger-based operating_expense sum, and a `payroll_expense` sum from
+business_financial_events is added instead — so an accrued-but-unpaid wage
+(no cash entry at all) now shows up in the dashboard the moment it's earned,
+and a later settlement's cash entry doesn't get counted a second time. This
+is a narrow, payroll-only slice of the eventual full P&L rebuild (Phase G
+rebuilds the whole income statement from journal accounts) — don't be
+tempted to migrate other categories (market_fee, storefront_ads, etc.) off
+the ledger-based bucket in a later phase without doing the same audit, or
+you'll silently zero out their reporting.
+
+payroll.test.ts's `it.fails` known-bug test was flipped to a real `it()` and
+tightened to assert the actual account_code (`payroll_expense`) plus journal
+balance, rather than the original Phase A placeholder predicate (`operating_expense`
+or `cogs`, chosen before this phase's account_code decision existed). 3
+`it.fails` tests remain (shipping/upgrade-purchase for Phase F,
+extraction-cost for Phase D) — payroll's dropped the count from 4 to 3.
+Verified with a clean `npm run typecheck`, `npm run typecheck:edge`, and
+`npm run test:finance` (33 passed, 3 expected-fail) after a fresh
+`npx supabase db reset`.
+
+Not yet pushed to the hosted project — migration 098 and the
+tick-wages/settle_employee_wages_atomic changes need `npx supabase db push`
++ `npx supabase functions deploy tick-wages` before hosted payroll actually
+gets fixed; only local has it so far.
