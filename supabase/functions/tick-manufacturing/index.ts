@@ -510,7 +510,9 @@ Deno.serve(async (request) => {
     if (skill) {
       let nextXp = Number(skill.xp) + XP_PER_TICK;
       let nextLevel = Number(skill.level);
-      while (nextXp >= XP_PER_LEVEL) {
+      // employee_skills.level is capped at 100 by employee_skills_level_check;
+      // stop leveling once maxed instead of letting nextLevel climb past it.
+      while (nextXp >= XP_PER_LEVEL && nextLevel < 100) {
         nextXp -= XP_PER_LEVEL;
         nextLevel += 1;
       }
