@@ -48,7 +48,8 @@ export async function getCityIds(client: TestClient): Promise<string[]> {
 }
 
 export async function createTestPlayer(client: TestClient, label: string): Promise<string> {
-  const username = `fin_${label}_${randomUUID().slice(0, 8)}`;
+  // players.username is checked to 3-24 chars, so keep this short regardless of label length.
+  const username = `f${label.replace(/[^a-z0-9]/gi, "").slice(0, 6)}${randomUUID().slice(0, 8)}`;
   const { data, error } = await client
     .from("players")
     .insert({ username, password_hash: "test-fixture-not-a-real-hash" })

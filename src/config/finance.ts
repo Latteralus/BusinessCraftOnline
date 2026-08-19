@@ -176,7 +176,7 @@ export type AccountCode = keyof typeof CHART_OF_ACCOUNTS;
 
 export const ACCOUNT_CODES = Object.keys(CHART_OF_ACCOUNTS) as AccountCode[];
 
-const CREDIT_NORMAL_TYPES: ReadonlySet<AccountType> = new Set(["liability", "equity", "revenue"]);
+const CREDIT_NORMAL_TYPES: ReadonlySet<AccountType> = new Set(["liability", "equity", "revenue", "contra_asset"]);
 
 /** Which side of a journal entry increases this account's balance. owner_draw is the one equity-typed exception: it's contra-equity, so it's debit-normal like an expense. */
 export function getAccountNormalBalance(code: AccountCode): "debit" | "credit" {
