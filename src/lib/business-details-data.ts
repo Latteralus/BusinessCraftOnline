@@ -16,6 +16,16 @@ import { getUpgradeDefinitionsForBusinessType, type BusinessType } from "@/domai
 import type { QueryClient } from "@/lib/db/query-client";
 import type { BusinessDetailsEntry } from "@/stores/game-store";
 
+// getProductionStatus/getManufacturingStatus are swallowed to null below so a
+// broken operations status never blanks out the rest of the business detail
+// page. Logging here is the only trace of *why* -- without it, a real bug
+// (vs. normal transient failure) is indistinguishable from the UI's generic
+// "Operations Data Unavailable" state.
+function logProductionStatusError(source: string, businessId: string, error: unknown): null {
+  console.error(`[business-details] ${source} failed for business ${businessId}:`, error);
+  return null;
+}
+
 export type BusinessDetailsSection =
   | "overview"
   | "finance"
@@ -90,8 +100,12 @@ export async function loadBusinessDetailsEntry(
     financeDashboard,
     ownedBusinesses,
   ] = await Promise.all([
-    isExtraction ? getProductionStatus(client, playerId, business.id).catch(() => null) : Promise.resolve(null),
-    isManufacturing ? getManufacturingStatus(client, playerId, business.id).catch(() => null) : Promise.resolve(null),
+    isExtraction
+      ? getProductionStatus(client, playerId, business.id).catch((error) => logProductionStatusError("getProductionStatus", business.id, error))
+      : Promise.resolve(null),
+    isManufacturing
+      ? getManufacturingStatus(client, playerId, business.id).catch((error) => logProductionStatusError("getManufacturingStatus", business.id, error))
+      : Promise.resolve(null),
     getBusinessInventory(client, playerId, business.id).catch(() => []),
     getStoreShelfItems(client, playerId, { businessId: business.id }).catch(() => []),
     getBusinessUpgradesById(client, business.id).catch(() => []),
@@ -142,8 +156,12 @@ export async function loadBusinessDetailsSection(
 
   if (section === "operations") {
     const [production, manufacturing, inventory, shelfItems, employeesRes] = await Promise.all([
-      isExtraction ? getProductionStatus(client, playerId, business.id).catch(() => null) : Promise.resolve(null),
-      isManufacturing ? getManufacturingStatus(client, playerId, business.id).catch(() => null) : Promise.resolve(null),
+      isExtraction
+        ? getProductionStatus(client, playerId, business.id).catch((error) => logProductionStatusError("getProductionStatus", business.id, error))
+        : Promise.resolve(null),
+      isManufacturing
+        ? getManufacturingStatus(client, playerId, business.id).catch((error) => logProductionStatusError("getManufacturingStatus", business.id, error))
+        : Promise.resolve(null),
       getBusinessInventory(client, playerId, business.id).catch(() => []),
       getStoreShelfItems(client, playerId, { businessId: business.id }).catch(() => []),
       fetchBusinessEmployees(client, playerId, business.id),
@@ -207,8 +225,12 @@ export async function loadBusinessDetailsSection(
   }
 
   const [production, manufacturing, inventory, shelfItems, upgrades, employeesRes, financeDashboard] = await Promise.all([
-    isExtraction ? getProductionStatus(client, playerId, business.id).catch(() => null) : Promise.resolve(null),
-    isManufacturing ? getManufacturingStatus(client, playerId, business.id).catch(() => null) : Promise.resolve(null),
+    isExtraction
+      ? getProductionStatus(client, playerId, business.id).catch((error) => logProductionStatusError("getProductionStatus", business.id, error))
+      : Promise.resolve(null),
+    isManufacturing
+      ? getManufacturingStatus(client, playerId, business.id).catch((error) => logProductionStatusError("getManufacturingStatus", business.id, error))
+      : Promise.resolve(null),
     getBusinessInventory(client, playerId, business.id).catch(() => []),
     getStoreShelfItems(client, playerId, { businessId: business.id }).catch(() => []),
     getBusinessUpgradesById(client, business.id).catch(() => []),

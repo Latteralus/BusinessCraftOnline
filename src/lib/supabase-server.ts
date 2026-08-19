@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { cache } from "react";
 import { verifyCustomJwt } from "./auth-jwt";
+import { getSupabaseAnonKey, getSupabaseUrl } from "./env";
 import { CUSTOM_SESSION_COOKIE_NAME } from "./session";
 
 export const getCachedServerUser = cache(async () => {
@@ -34,16 +35,12 @@ export async function createSupabaseServerClient() {
     headers.Authorization = `Bearer ${customToken}`;
   }
 
-  const client = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
-    {
-      global: { headers },
-      auth: {
-        persistSession: false,
-      },
-    }
-  );
+  const client = createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+    global: { headers },
+    auth: {
+      persistSession: false,
+    },
+  });
 
   client.auth.getUser = async () => {
     const { user } = await getCachedServerUser();

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getSupabaseServiceRoleKey, getSupabaseUrl } from "./env";
 
 // Server-only client authenticated as the Postgres `service_role`. Bypasses
 // RLS entirely, so only use it for RPCs that are locked down to
@@ -9,15 +10,12 @@ import { createClient } from "@supabase/supabase-js";
 // domain service files that call this (businesses/service.ts,
 // banking/service.ts) are also imported by client components for read-only
 // queries, and pulling "next/headers" transitively into that module graph
-// breaks the client build.
+// breaks the client build. ./env has the same constraint (see its own
+// comment) so it's safe to import here.
 export function createSupabaseServiceRoleClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-    process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-    {
-      auth: {
-        persistSession: false,
-      },
-    }
-  );
+  return createClient(getSupabaseUrl(), getSupabaseServiceRoleKey(), {
+    auth: {
+      persistSession: false,
+    },
+  });
 }

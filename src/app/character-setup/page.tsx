@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState, ChangeEvent } from "react";
+import { apiRoutes } from "@/lib/client/routes";
 
 type City = {
   id: string;
@@ -25,7 +26,7 @@ export default function CharacterSetupPage() {
   useEffect(() => {
     async function loadCities() {
       try {
-        const res = await fetch("/api/cities");
+        const res = await fetch(apiRoutes.cities);
         const data = await res.json();
         if (res.ok && data.cities) {
           setCities(data.cities);
@@ -49,7 +50,7 @@ export default function CharacterSetupPage() {
       currentCityId: formData.currentCityId || null,
     };
 
-    const response = await fetch("/api/character", {
+    const response = await fetch(apiRoutes.character, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { FormEvent, useState, ChangeEvent } from "react";
+import { apiRoutes } from "@/lib/client/routes";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -21,7 +22,7 @@ export default function RegisterPage() {
       username: formData.username,
     };
 
-    const response = await fetch("/api/auth/register", {
+    const response = await fetch(apiRoutes.auth.register, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

@@ -11,6 +11,10 @@ const withSearch = (path: string, params: Record<string, string | number | boole
 };
 
 export const apiRoutes = {
+  auth: {
+    login: "/api/auth/login",
+    register: "/api/auth/register",
+  },
   banking: {
     accounts: "/api/banking/accounts",
     loan: "/api/banking/loan",
@@ -27,6 +31,7 @@ export const apiRoutes = {
       withSearch(`/api/businesses/${businessId}/state`, { period, section }),
     upgrade: (businessId: string) => `/api/businesses/${businessId}/upgrade`,
   },
+  character: "/api/character",
   cities: "/api/cities",
   contracts: {
     root: "/api/contracts",
@@ -89,6 +94,8 @@ export const apiRoutes = {
     delete: (threadId: string) => `/api/mail/${threadId}`,
     recipients: (q: string) => withSearch("/api/mail/recipients", { q }),
   },
+  publicStats: "/api/public-stats",
+  realtimeAuth: "/api/realtime-auth",
   production: {
     assignSlot: "/api/production/slots/assign",
     retoolSlot: "/api/production/slots/retool",

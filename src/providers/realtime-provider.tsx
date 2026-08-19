@@ -6,6 +6,7 @@ import type { RealtimeChannel, RealtimePostgresChangesPayload, SupabaseClient } 
 import { getBusinessesWithBalances } from "@/domains/businesses";
 import { getManufacturingStatus } from "@/domains/production";
 import { fetchAppShell, fetchBankingPageData, fetchBusinessDetailsState, fetchBusinessesPageData, fetchChatMessages, fetchContractsPageData, fetchEmployeesPageData, fetchInventoryPageData, fetchMailbox, fetchMarketPageData, fetchProductionPageData, fetchTravelState } from "@/lib/client/queries";
+import { apiRoutes } from "@/lib/client/routes";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { BusinessWithBalance } from "@/domains/businesses";
 import type { ChatMessage } from "@/domains/chat";
@@ -15,7 +16,7 @@ import { useGameStore } from "@/stores/game-store";
 import { runGuardedSliceFetch, SLICE_KEYS } from "@/stores/slice-fetch-guard";
 
 async function fetchRealtimeToken() {
-  const response = await fetch("/api/realtime-auth");
+  const response = await fetch(apiRoutes.realtimeAuth);
   const payload = (await response.json().catch(() => null)) as { token?: string } | null;
   if (!response.ok || !payload?.token) {
     throw new Error("Failed to create realtime session.");

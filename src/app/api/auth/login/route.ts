@@ -1,5 +1,6 @@
 import { getCharacter, loginSchema } from "@/domains/auth-character";
 import { signCustomJwt } from "@/lib/auth-jwt";
+import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/env";
 import {
   CUSTOM_SESSION_COOKIE_NAME,
   CUSTOM_SESSION_TTL_SECONDS,
@@ -65,11 +66,9 @@ export async function POST(request: Request) {
     // Check if character exists using the newly minted JWT.
     // `createSupabaseServerClient` reads from cookies(), but we need the token
     // active immediately, so we use a direct client with the JWT as a header.
-    const authClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
-      { global: { headers: { Authorization: `Bearer ${token}` } } }
-    );
+    const authClient = createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
 
     const character = await getCharacter(authClient, playerId);
 

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState, ChangeEvent } from "react";
+import { apiRoutes } from "@/lib/client/routes";
 
 type PublicStats = {
   playerCount: number;
@@ -22,7 +23,7 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
 
-    const response = await fetch("/api/auth/login", {
+    const response = await fetch(apiRoutes.auth.login, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(formData),
@@ -49,7 +50,7 @@ export default function LoginPage() {
 
     async function loadPublicStats() {
       try {
-        const response = await fetch("/api/public-stats", { cache: "no-store" });
+        const response = await fetch(apiRoutes.publicStats, { cache: "no-store" });
         if (!response.ok) return;
         const payload = (await response.json()) as PublicStats;
         if (!cancelled) {
