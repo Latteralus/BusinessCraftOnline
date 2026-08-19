@@ -957,6 +957,43 @@ th {
     padding: 24px 28px 60px;
   }
 
+  /* ───── SITE FOOTER ───── */
+  .site-footer {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border-subtle);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .site-footer a {
+    color: var(--text-secondary);
+    text-decoration: none;
+  }
+  .site-footer a:hover {
+    color: var(--text-primary);
+    text-decoration: underline;
+  }
+  .site-footer-sep {
+    color: var(--border-medium);
+  }
+  @media (max-width: 480px) {
+    .site-footer {
+      flex-direction: column;
+      gap: 4px;
+      padding: 12px 16px;
+    }
+    .site-footer-sep {
+      display: none;
+    }
+  }
+
   /* ───── WELCOME STRIP ───── */
   .welcome-strip {
     display: flex;

@@ -2,6 +2,7 @@
   "name": "lifecraftonline",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -9,7 +10,8 @@
     "lint": "npm run typecheck",
     "typecheck": "tsc --noEmit",
     "typecheck:edge": "deno check --config supabase/functions/deno.json supabase/functions/tick-extraction/index.ts supabase/functions/tick-shipping/index.ts supabase/functions/tick-travel/index.ts supabase/functions/tick-manufacturing/index.ts supabase/functions/tick-wages/index.ts supabase/functions/tick-npc-purchases/index.ts supabase/functions/tick-npc-market-purchases/index.ts",
-    "test:finance": "vitest run test/finance"
+    "test:finance": "vitest run test/finance",
+    "test:db-security": "vitest run test/db"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.4",
