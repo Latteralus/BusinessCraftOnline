@@ -63,7 +63,7 @@ Important implementation rules:
 
 Complete 1 Group at a time (mark as complete after work is done):
 
-Phase A: tests + chart of accounts + journal
+Phase A: tests + chart of accounts + journal — COMPLETE (2026-08-19)
 Phase B: payroll/liabilities
 Phase C: inventory cost-basis helper
 Phase D: manufacturing/extraction
@@ -84,3 +84,96 @@ Whether all accounting invariants still pass
 
 AI Notes for other Phases:
 (Use this area for notes to help yourself in future sessions)
+
+--- Phase A notes (2026-08-19) ---
+
+Test infra: `npm run test:finance` runs `vitest run test/finance`. These are
+REAL integration tests against a local `supabase start` Postgres instance
+(Docker), not mocks — they call the exact same RPCs/domain functions
+production code calls. To run them: Docker Desktop must be running, then
+`npx supabase start` (applies all migrations fresh) before `npm run
+test:finance`. Test env (test/finance/env.ts) hardcodes the well-known local
+Supabase demo URL/keys and is completely separate from `.env.local` (which
+points at the HOSTED project) — the suite can never accidentally touch prod.
+test/finance/helpers.ts has the fixture/assertion helpers; test/finance/
+setup-env.ts is a vitest setupFile that points src/lib/env.ts + auth-jwt.ts
+at the local stack. For RPCs that read `auth.uid()` internally
+(execute_market_purchase, execute_inventory_transfer, hire_employee_atomic,
+settle_employee_wages_atomic, accept_contract_atomic), tests use
+`playerClient(playerId)` — a real supabase-js client carrying a JWT minted
+by the app's own `signCustomJwt`, exactly like a real logged-in request.
+Everything else uses `serviceRoleClient()`.
+
+Known-bug tests use vitest's `it.fails(...)` (not `it.skip`/`it.todo`) so
+they PASS while the bug exists and FAIL loudly (telling you to flip them to
+plain `it()`) the moment a later phase's fix makes the assertion true. There
+are 4 right now, each tagged with which future phase fixes it:
+- payroll.test.ts: unpaid wage accrual writes zero accounting entries at all
+  (no business_accounts, no business_financial_events) — Phase B.
+- shipping.test.ts: inbound freight is expensed (shipping_fee opex), never
+  capitalized into the delivered inventory's cost basis — Phase F.
+- upgrade-purchase.test.ts: durable upgrades never post a fixed_assets
+  financial event — Phase F. Note business_financial_events.account_code's
+  CHECK constraint doesn't even include 'fixed_assets' yet — Phase F needs a
+  migration for that, not just a code change.
+- extraction-cost.test.ts: a mine with zero consumed inputs still gets a
+  cost basis derived from NPC_PRICE_CEILINGS * 0.55 — Phase D.
+
+Also worth knowing before Phase D (manufacturing/extraction): per a full RPC
+survey done for this phase, tick-manufacturing and tick-extraction are the
+LEAST atomic paths in the codebase — no RPC, no row locks at all for input
+consumption, just plain per-row `.update()`/`.delete()` in a loop, isolated
+only by a per-job/per-slot try/catch. They also never write
+business_financial_events for production (only business_inventory), and
+tick-manufacturing's own contract auto-fulfillment path writes only a plain
+`business_accounts` credit with zero financial events — inconsistent with
+the manual `fulfillContract()` path (src/domains/contracts/service.ts),
+which does write all three. Before Phase D, decide whether tick-manufacturing
+should call a new atomic completion RPC (consistent with the
+settle_*_atomic pattern already used everywhere else) or keep the
+edge-function-orchestrated approach — this wasn't decided in Phase A.
+
+Also found and fixed in Phase A (not in the plan, but blocking it): a clean
+`supabase db reset` leaves `anon`/`authenticated`/`service_role` with ZERO
+base table privileges (not even SELECT on RLS-less reference tables like
+`cities`) — every migration in this repo runs as role `postgres`, but this
+project's `pg_default_acl` only auto-grants full privileges to those three
+roles for objects created by `supabase_admin`. Invisible on the hosted
+project (its control plane grants this outside migration history) and
+invisible unless you do a from-scratch local reset. Fixed in migration 097
+(`baseline_schema_grants.sql`) — additive/safe, effectively a no-op on
+hosted since hosted already has these grants. **This migration has only been
+applied locally — it has NOT been pushed to the hosted project.** Push it
+(`npx supabase db push`) before assuming local dev/CI parity going forward;
+until then, every session doing a from-scratch `supabase db reset` will hit
+this again.
+
+Chart of Accounts (src/config/finance.ts) is additive-only in Phase A: the
+new CHART_OF_ACCOUNTS/AccountCode/getAccountNormalBalance exports don't
+replace anything yet. BUSINESS_LEDGER_CATEGORY_CLASSIFICATION (the existing
+category->report-bucket map used by src/domains/businesses/finance.ts) is
+now typed as `satisfies Record<LedgerCategory, ...>` so a new category
+string anywhere in the codebase that isn't added there fails typecheck —
+but its VALUES are unchanged except adding the previously-missing
+`shipping_fee -> operating_expense` entry (was already the de facto
+behavior via a `?? "operating_expense"` fallback; now explicit). Migrating
+categories to the richer accounts (payroll_expense, shipping_expense,
+market_fees, etc.) is each phase's job as it fixes that area — don't do it
+all at once in a later phase either, or you'll break finance.ts's report
+logic without updating it in the same change.
+
+Journal (migration 096, business_journal_entries/business_journal_lines):
+schema + balance-enforcing deferred constraint trigger + `service_role`-only
+RPC `post_business_journal_entry(p_business_id, p_lines jsonb, ...)` exist
+and are tested (test/finance/journal.test.ts), but NOTHING calls
+post_business_journal_entry yet outside the tests. business_accounts got a
+nullable `journal_entry_id` column for future linkage, also unused so far.
+Wiring real money-moving RPCs to also post journal entries is Phase B
+onward's job, one area at a time — Phase A was schema-only, per the plan's
+own phase breakdown.
+
+If you add a new account to CHART_OF_ACCOUNTS, you must ALSO update the
+account_code CHECK constraint literal list on business_journal_lines (new
+migration — Postgres CHECK constraints can't reference a shared source of
+truth) and re-run `npx supabase db reset` locally before trusting the
+journal tests again.

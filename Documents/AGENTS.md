@@ -64,6 +64,16 @@ again, re-run both before trusting it; TS majors are the most likely to surface 
   these to `authenticated`; call only from server code via the service-role client.
 
 ## Open threads (update or remove as they resolve)
+- **2026-08-19 — Migration 097 (baseline schema grants) not yet pushed to
+  hosted.** A from-scratch local `supabase db reset` left `anon`/
+  `authenticated`/`service_role` with zero base table privileges (every
+  migration here runs as `postgres`, but this project's `pg_default_acl`
+  only auto-grants full privileges to those roles for objects created by
+  `supabase_admin`) — discovered while building the AccountingFixPlan Phase
+  A finance test suite. Fixed locally by migration 097; run `npx supabase db
+  push` before assuming hosted needs it too (it may already work there via
+  the control plane's own grant mechanism, separate from migration
+  history — not confirmed either way). See `changelog.md` (2026-08-19).
 - **2026-08-17 — H7 batched NPC-sale settlement RPC unexercised against real
   data.** `settle_store_inventory_sales_atomic` (migration 092) and the
   tick-npc-purchases rewrite that calls it are deployed and running clean,
