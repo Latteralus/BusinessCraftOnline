@@ -65,7 +65,7 @@ Complete 1 Group at a time (mark as complete after work is done):
 
 Phase A: tests + chart of accounts + journal — COMPLETE (2026-08-19)
 Phase B: payroll/liabilities — COMPLETE (2026-08-19)
-Phase C: inventory cost-basis helper
+Phase C: inventory cost-basis helper — COMPLETE (2026-08-19)
 Phase D: manufacturing/extraction
 Phase E: storefront/market/contracts/B2B
 Phase F: shipping/upgrades/loans/owner equity
@@ -253,3 +253,90 @@ Not yet pushed to the hosted project — migration 098 and the
 tick-wages/settle_employee_wages_atomic changes need `npx supabase db push`
 + `npx supabase functions deploy tick-wages` before hosted payroll actually
 gets fixed; only local has it so far.
+
+--- Phase C notes (2026-08-19) ---
+
+Migration 099 (`shared_inventory_cost_basis_helpers.sql`). Audited every SQL
+path that writes business_inventory.quantity/total_cost (grepped every
+migration touching `total_cost`) and found the weighted-average RELIEF
+formula duplicated inline across 9 call sites (execute_market_purchase,
+execute_inventory_transfer, settle_store_inventory_sale_atomic +
+settle_store_inventory_sales_atomic (batch), settle_market_listing_npc_sale_atomic,
+and 3 sites inside the buy-order settlement functions:
+place_market_buy_order's own sweep loop, sweep_buy_orders_for_new_listing,
+fulfill_market_buy_order), plus the weighted-average ADDITION formula
+duplicated across 4 sites (add_business_inventory_quantity,
+execute_market_purchase's buyer credit, and 2 sites in the buy-order
+functions: _settle_buy_order_fill and place_market_buy_order's own sweep
+loop). Two new pure-SQL helpers now hold the one canonical implementation of
+each: `compute_inventory_cost_relief(quantity, total_cost, unit_cost,
+relieve_quantity, fallback_unit_cost)` and `compute_inventory_cost_addition
+(existing_quantity, existing_total_cost, existing_unit_cost, added_quantity,
+added_unit_cost)` — both pure (no table access/locking; callers already hold
+`FOR UPDATE` on the row for their own validation before calling, then perform
+the actual UPDATE/DELETE/INSERT themselves with the returned values). Every
+one of those 13 call sites now calls the shared helper instead of
+reimplementing the math. compute_inventory_cost_addition mirrors
+computeWeightedAverageCost() (src/domains/businesses/financial-events.ts),
+the pre-existing TS-side canonical addition formula — that TS helper (plus
+computeRowConsumption/consumeInventoryRowsCost, the TS-side relief
+equivalent) was already the single implementation for every TS-orchestrated
+inventory path, so no TS-side duplication needed fixing, only SQL.
+
+Found and fixed a real accounting bug while unifying the relief formula, not
+just a refactor: two of the three duplicated relief variants
+(execute_inventory_transfer pre-099, and all 3 buy-order-function relief
+sites) left a row's total_cost as NULL forever when the row had no
+total_cost to begin with (falling back to raw/coalesced unit_cost for the
+relief calculation itself, but never reconstructing total_cost afterward).
+A business_inventory row with real quantity but NULL total_cost silently
+contributes $0 to SUM(business_inventory.total_cost) (SQL SUM skips nulls),
+permanently understating that row's Balance Sheet inventory value — this
+directly violated the plan's own invariant ("Inventory accounting value =
+sum of business_inventory.total_cost"). The third variant (storefront/NPC
+market sale sites) already reconstructed total_cost from unit_cost *
+remaining_qty in that case; compute_inventory_cost_relief standardizes on
+that correct behavior everywhere. Also closed a smaller "different math"
+risk: src/domains/inventory/service.ts's transferItems() previously did a
+second, separately-locked pre-read of the source row and recomputed its
+relief cost basis in JS (plain float division, no rounding-per-step) purely
+to log the B2B transfer's COGS financial event amount — this could diverge
+by a cent from what execute_inventory_transfer's SQL side actually relieved.
+execute_inventory_transfer's returned jsonb now additively includes
+`sourceUnitCost`/`sourceRelievedCost` (computed once, in the same
+transaction, via the shared helper), and transferItems() uses those directly
+instead of re-deriving them — the pre-read query was deleted outright. The
+destination-side same-city weighted-average cost-basis write in that same
+function was deliberately left as TS (still using the existing canonical
+computeWeightedAverageCost() helper, so not a "different math" bug, just not
+atomic with the RPC) — making B2B transfers fully atomic end-to-end is
+explicitly Phase E's job ("Make B2B inventory transactions fully atomic"),
+not Phase C's.
+
+Every rewritten function kept its exact existing signature (`create or
+replace function`, same args/return type), so no drops or re-grants were
+needed — Postgres preserves a function's ACLs across CREATE OR REPLACE
+FUNCTION. execute_inventory_transfer's jsonb result gained two additive
+fields only; nothing existing was removed from any return shape.
+
+Deliberately NOT touched this phase (out of scope per the plan's own phase
+breakdown, left for later phases): tick-manufacturing/tick-extraction still
+do zero inventory cost relief on consumed raw materials (per the Phase A
+note above — that's Phase D). fulfillContract() and the other
+TS-orchestrated consumeBusinessInventoryCost()/consumeInventoryRowsCost()
+callers (financial-events.ts) were audited and are already correct/already
+centralized on the TS side — Phase C's gap was specifically the SQL side.
+
+Verified with a clean `npx supabase db reset` (migration 099 applied with no
+errors), `npm run test:finance` (33 passed, 3 expected-fail — same counts as
+Phase B, no regression), `npm run typecheck`, and `npm run typecheck:edge`.
+Also manually spot-checked compute_inventory_cost_relief/addition directly
+against Postgres for the specific numbers in the plan's own worked example
+(100 units @ $1,000 total_cost, relieve 25 -> $250 relieved, 75 units / $750
+remaining) and for the previously-buggy null-total_cost case (confirmed
+total_cost is now reconstructed instead of staying null).
+
+Not yet pushed to the hosted project — migration 099 needs `npx supabase db
+push` before hosted gets either the refactor or the total_cost-NULL bug fix;
+only local has it so far. No edge function changes this phase, so no
+`functions deploy` needed for Phase C specifically.

@@ -250,17 +250,6 @@ export async function transferItems(
     input.destinationType === "business" &&
     Boolean(input.sourceBusinessId) &&
     Boolean(input.destinationBusinessId);
-  const sourceCostBasis =
-    input.sourceType === "business" && input.sourceBusinessId
-      ? await client
-          .from("business_inventory")
-          .select("id, quantity, unit_cost, total_cost")
-          .eq("owner_player_id", playerId)
-          .eq("business_id", input.sourceBusinessId)
-          .eq("item_key", input.itemKey)
-          .eq("quality", input.quality)
-          .maybeSingle()
-      : null;
 
   const { data, error } = await client.rpc("execute_inventory_transfer", {
     p_source_type: input.sourceType,
@@ -286,6 +275,8 @@ export async function transferItems(
     shippingCost?: number;
     shippingMinutes?: number;
     referenceId?: string;
+    sourceUnitCost?: number | string | null;
+    sourceRelievedCost?: number | string | null;
   } | null;
 
   if (!result?.transferType) {
@@ -296,24 +287,16 @@ export async function transferItems(
     isBusinessToBusiness &&
     input.sourceBusinessId &&
     input.destinationBusinessId &&
-    input.unitPrice &&
-    sourceCostBasis &&
-    !sourceCostBasis.error
+    input.unitPrice
   ) {
-    const sourceRow = sourceCostBasis.data as {
-      quantity?: number | string;
-      unit_cost?: number | string | null;
-      total_cost?: number | string | null;
-    } | null;
-    const sourceQuantity = Math.max(0, toNumber(sourceRow?.quantity));
-    const sourceTotalCost = sourceRow?.total_cost === undefined || sourceRow?.total_cost === null
-      ? sourceQuantity * toNumber(sourceRow?.unit_cost)
-      : toNumber(sourceRow?.total_cost);
-    const transferredUnitCost = sourceQuantity > 0 ? sourceTotalCost / sourceQuantity : toNumber(sourceRow?.unit_cost);
     const purchaseUnitCost = input.unitPrice;
     const transferReferenceId = result.referenceId ?? result.shippingQueueItem?.id ?? randomUUID();
     const grossTransferAmount = Number((purchaseUnitCost * input.quantity).toFixed(2));
-    const transferredTotalCost = Number((transferredUnitCost * input.quantity).toFixed(2));
+    // The RPC already computed and applied the source's cost-basis relief
+    // atomically (compute_inventory_cost_relief, migration 099) -- reuse its
+    // returned relieved amount for the COGS/inventory-out financial events
+    // instead of re-deriving it here from a second, separately-locked read.
+    const transferredTotalCost = toNumber(result.sourceRelievedCost);
 
     const financialEvents: NewBusinessFinancialEvent[] = [
       {
