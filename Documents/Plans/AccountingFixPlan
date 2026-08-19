@@ -1,0 +1,86 @@
+Business Craft Online — Finance & Accounting Repair Project
+
+We need to repair and standardize the business finance/accounting system. Do not redesign game balance unless accounting correctness requires it. Preserve existing gameplay behavior wherever possible.
+
+!Important! Do not “fix” a reconciliation failure by changing the report formula until you have traced the underlying transaction. The transaction ledger/accounting records are the source of truth; reports should faithfully derive from them.!Important!
+
+The target is a simplified real-world accrual accounting system using weighted-average inventory costing, with reliable:
+
+Cash tracking
+Revenue
+COGS
+Operating expenses
+Inventory valuation
+Payroll liabilities
+Capital assets
+Owner equity
+Income statement
+Balance sheet
+Cash-flow statement
+Transaction atomicity
+
+The final system must satisfy:
+
+Assets = Liabilities + Equity
+
+Beginning Cash + Net Cash Flow = Ending Cash
+
+Inventory accounting value = sum of business_inventory.total_cost
+
+Revenue - COGS - Expenses = Net Income
+
+Every financial operation must be atomic wherever practical. Do not leave important financial-event writes in TypeScript after an economic SQL transaction has already committed.
+
+Work through the following phases in order. Inspect the current implementation before modifying it, because migrations may have changed. Use the next available migration number rather than assuming one.
+
+Create accounting regression tests before changing behavior. Start by adding a dedicated finance/accounting test suite. The project currently relies heavily on typechecking, which will not catch accounting errors. Create test scenarios for a clean business with known opening cash and verify exact balances after each event. At minimum test: owner funds business, inventory purchase, storefront sale, market sale, B2B sale, payroll paid, payroll accrued but unpaid, later wage settlement, manufacturing, extraction, shipping, upgrade purchase, and contract fulfillment. Add a script such as npm run test:finance. The tests should fail on the existing bugs before the fixes are applied.
+Define one canonical Chart of Accounts. Replace scattered category interpretation with a centralized accounting definition. Keep it deliberately small. At minimum support cash, inventory, fixed_assets, wages_payable, loan_payable if business borrowing exists, owner_capital, owner_draw, retained_earnings, revenue, cogs, payroll_expense, shipping_expense, market_fees, advertising_expense, depreciation_expense, and other currently necessary operating expenses. Update src/config/finance.ts so category names cannot silently fall outside the reports. Add exhaustive TypeScript types where possible.
+Introduce a lightweight double-entry journal. Create journal-header/journal-line tables, or an equivalent schema, so each economic event has balanced debits and credits. Every journal transaction must satisfy SUM(debits) = SUM(credits). Keep business_accounts as the authoritative cash transaction ledger if desired, but connect cash entries to their accounting journal transaction. Do not remove the existing cash ledger unless absolutely necessary. The journal becomes the accounting source for the Income Statement and Balance Sheet. Include business_id, account code, debit, credit, reference type/id, description, effective timestamp, and metadata. Prevent unbalanced journals at the database layer.
+Fix payroll first. The wage tick currently uses categories that are not consistently included in the finance reports. Standardize all normal payroll to the canonical payroll expense account. When wages become earned, recognize the expense immediately. If there is enough cash: Debit Payroll Expense / Credit Cash. If there is not enough cash: Debit Payroll Expense / Credit Wages Payable. When unpaid wages are later settled: Debit Wages Payable / Credit Cash. Do not recognize payroll expense again when the liability is paid. Update the wage tick, employee settlement RPCs, finance configuration, financial events, and tests.
+Fix inventory cost relief everywhere. This is critical. Audit every operation that reduces business_inventory.quantity. Whenever a partial quantity is removed, also proportionally remove its weighted-average total_cost. Example: 100 units with total_cost=$1,000, consuming 25 units must leave 75 units and approximately $750 total_cost; $250 moves to the destination accounting purpose. Never reduce quantity while leaving the entire original total_cost behind. Make one shared database/helper implementation for cost relief so manufacturing, transfers, sales, contracts, and other systems cannot implement different math. Preserve weighted-average costing.
+Repair manufacturing cost accounting. For every manufacturing completion, calculate the exact weighted-average cost of all consumed inputs. Remove those costs from raw-material inventory and add them to finished-goods inventory. Initially use: Finished Goods Cost = Consumed Material Cost. Then, if the existing simulation has clearly attributable production costs, support adding direct production costs separately. Do not invent labor or overhead numbers merely for accounting realism. Employee wages should remain payroll expense unless we intentionally decide later to capitalize production labor. Ensure no input cost remains duplicated after it has been transferred into finished goods.
+Repair extraction/farming cost accounting. Remove the synthetic rule that assigns produced goods a cost based on something like a percentage of the NPC selling-price ceiling. A product's accounting cost must not depend on what NPCs might pay for it. Trace actual consumables used during extraction/farming—water, seeds if applicable, consumable materials, etc.—and transfer their cost basis to the output. For genuinely free natural-resource production where the game has no consumable production cost, zero material cost is more accounting-correct than inventing a market-derived cost. Keep wages/tool depreciation separate unless explicitly implemented. The selling-price model and inventory-cost model must be completely independent.
+Fix all sales and contract fulfillment. Audit storefront sales, open-market sales, buy-order fulfillment, B2B sales, NPC sales, and contract fulfillment. Every sale must atomically perform both sides: Debit Cash/Receivable / Credit Revenue, and Debit COGS / Credit Inventory. Contract fulfillment that pays the business must create revenue. It must also relieve the exact inventory cost of goods delivered. Fees should be their own expense, not silently netted from revenue unless that is an intentional reporting choice. Verify that storefront logic already doing this correctly is preserved rather than rewritten unnecessarily.
+Make B2B inventory transactions fully atomic. Currently parts of inventory transfer/accounting have historically happened in SQL and other parts afterward in TypeScript. Move the entire economic transaction into one database transaction/RPC: validate ownership and funds, relieve source inventory cost, transfer buyer cash to seller, recognize seller revenue, recognize seller COGS, add buyer inventory at acquisition cost, create shipping if necessary, record fees/freight, and create the journal entries. If any part fails, the entire operation rolls back. TypeScript should invoke the RPC and process its result, not finish the accounting afterward.
+Correct shipping and landed inventory cost. Distinguish between freight to acquire inventory and ordinary operating shipping. For inventory acquired by another business, freight-in should normally increase the buyer's inventory cost: Inventory acquisition cost = purchase price + attributable inbound freight. Do not classify ordinary shipping as investing cash flow. Outbound shipping paid to deliver sold goods can remain an operating expense. Update shipping_fee handling so the accounting classification depends on the economic purpose, not merely the string category.
+Fix upgrades/capital expenditures. Stop treating every durable business upgrade as an immediate operating expense. Determine which upgrades represent long-lived improvements. Those should post Debit Fixed Assets / Credit Cash and appear under investing cash flow. Store the capitalized cost, acquisition date, and optionally useful-life/depreciation information. For now it is acceptable to implement straight-line depreciation using a simple configurable useful life, but do not invent complicated tax depreciation. Smaller consumable/temporary upgrades may remain operating expenses where appropriate. Most importantly, project creation + cash payment + accounting must happen atomically.
+Build a real Balance Sheet. Stop setting liabilities to zero. Calculate assets from accounting balances: Cash + Inventory at carrying cost + Fixed Assets net of depreciation + other supported assets. Calculate liabilities from actual payable balances, including Wages Payable and business debt where applicable. Calculate equity as Assets - Liabilities. Owner contributions increase Owner Capital; owner withdrawals reduce equity. Accumulated profits flow to retained earnings. Do not use current market prices to calculate accounting inventory value. Keep market-value calculations available separately as a Business Valuation / Estimated Net Worth feature.
+Rebuild the Income Statement from journal accounts. The P&L should no longer depend on a fragile array of transaction category strings. For a requested period calculate Revenue, COGS, Gross Profit, Operating Expenses, Operating Income, other income/expense where applicable, and Net Income directly from journal/account balances. Normal payroll must appear automatically because it is posted to Payroll Expense. Inventory purchases must not appear as expenses until those goods become COGS.
+Rebuild the Cash Flow Statement from actual cash movements. Do not calculate operating cash flow as Revenue - COGS - Expenses. COGS is an accrual-accounting expense and often has no cash movement at the moment of sale. Build cash flow from actual cash entries and classify each cash transaction as Operating, Investing, or Financing. Examples: customer receipts = Operating; inventory purchases = Operating; payroll = Operating; normal shipping = Operating; durable capital upgrade purchases = Investing; owner contributions/withdrawals = Financing; loan proceeds/principal = Financing; loan interest = Operating. Require Beginning Cash + CFO + CFI + CFF = Ending Cash.
+Separate book value from market/business valuation. Keep the gameplay feature that estimates what inventory/businesses are worth at market prices, but move it out of the accounting Balance Sheet. Label it clearly as Estimated Market Value, Business Valuation, or similar. Balance-sheet inventory should come from business_inventory.total_cost. A $10 item acquired for $6 remains a $6 inventory asset until sold or otherwise adjusted even if NPCs currently value it at $10.
+Handle owner funding correctly. Personal-to-business transfers should not be revenue. They should be Debit Business Cash / Credit Owner Capital. Business-to-personal withdrawals should not be operating expenses. They should reduce owner equity. Make sure these are financing cash flows. Add tests proving that depositing $100,000 into a new business gives $100,000 cash, $100,000 equity, and $0 revenue/profit.
+Audit loans and debt if business borrowing is supported. Loan proceeds must increase cash and liabilities without creating revenue: Debit Cash / Credit Loan Payable. Principal repayments reduce cash and loan liability without being an expense. Interest is an expense. Ensure loan overpayment protections remain intact. Include outstanding loan principal on the Balance Sheet. If loans are personal-only rather than business-level, document that and do not fabricate business debt.
+Add reconciliation RPCs/debug tools. Create a server/admin reconciliation function that can examine one business or every business and report: cash ledger balance vs stored cash_balance; journal debits vs credits; calculated inventory account vs SUM(business_inventory.total_cost); Assets vs Liabilities + Equity; and cash-flow reconciliation for a period. Never silently repair discrepancies in the normal reconciliation check. Report them clearly. A separate explicit admin repair operation can be designed later if needed.
+Create deterministic finance test scenarios. Add tests with simple numbers so mistakes are obvious. Example scenario: owner contributes $10,000; business buys 100 units for $20 each plus $100 inbound freight; inventory becomes $2,100; business sells 40 for $35 each; revenue $1,400; COGS $840; remaining inventory $1,260; then payroll accrues $300 but cannot be paid; wages payable becomes $300; later owner contributes cash and wages are paid without creating another payroll expense. At every step assert the ledger, P&L, Balance Sheet, inventory basis, and cash flow.
+Add accounting invariants directly to tests. Every scenario must automatically assert Assets = Liabilities + Equity, journal debits equal journal credits, ending cash equals actual cash ledger balance, inventory ledger value approximately equals the sum of inventory total_cost, and beginning cash + net cash movements equals ending cash. Use exact decimal/numeric arithmetic for database money wherever possible. Avoid floating-point comparisons for currency.
+Audit rounding and money precision. Search finance code for JavaScript floating-point arithmetic on dollar values. Keep monetary calculations in PostgreSQL numeric, or use integer cents where operations happen in application code. Establish one rounding rule—normally round externally recognized money to 2 decimals—and use it consistently. Avoid repeatedly rounding weighted-average unit costs in ways that cause quantity × unit_cost to diverge materially from authoritative total_cost. Treat total_cost as authoritative and derive display unit cost from it where appropriate.
+Remove duplicated accounting logic. Once all paths use canonical journal/cost helpers, eliminate obsolete logic in src/domains/businesses/finance.ts, financial-events.ts, transfer services, or edge functions that manually attempts to reproduce accounting totals differently. Keep UI/report formatting separate from accounting computation. There should not be five different implementations of “what counts as operating expense.”
+Migrate existing data carefully. Do not simply start the new ledger at zero if existing businesses have balances. Create a migration/backfill that creates opening accounting balances for current Cash, Inventory Cost, known Wages Payable, Fixed Assets that can be reliably reconstructed, and balancing Equity. Existing historical data may not contain enough information to reconstruct perfectly accurate retained earnings. If not, create a clearly documented Opening Equity / Historical Adjustment account rather than manufacturing fake historical transactions.
+Update the Finance UI last. Once the backend reconciles, update BusinessFinanceDashboard.tsx to display the proper Income Statement, Balance Sheet, and Cash Flow Statement. Add optional sections for Market Valuation and accounting reconciliation/debug information. Do not calculate accounting totals independently in React. The frontend should receive authoritative calculated report data from the backend.
+Perform a final end-to-end audit before declaring completion. Search every write to business_accounts, business_financial_events, business_inventory.quantity, business_inventory.total_cost, wages/unpaid wages, upgrades, shipping, contracts, market transactions, storefront transactions, B2B transfers, loans, and owner transfers. For each path document what accounting entry it produces. Any path that moves money, inventory value, assets, liabilities, revenue, or expenses without producing corresponding accounting entries must be fixed. Run typecheck, edge-function typecheck, finance tests, and the reconciliation test suite.
+
+Important implementation rules:
+
+Complete 1 Group at a time (mark as complete after work is done):
+
+Phase A: tests + chart of accounts + journal
+Phase B: payroll/liabilities
+Phase C: inventory cost-basis helper
+Phase D: manufacturing/extraction
+Phase E: storefront/market/contracts/B2B
+Phase F: shipping/upgrades/loans/owner equity
+Phase G: financial statements
+Phase H: migration/backfill + reconciliation + UI
+
+After each phase, stop and report:
+
+Files changed
+Database migrations added
+Accounting behavior changed
+Tests added
+Tests passing/failing
+Any unresolved accounting ambiguity
+Whether all accounting invariants still pass
+
+AI Notes for other Phases:
+(Use this area for notes to help yourself in future sessions)

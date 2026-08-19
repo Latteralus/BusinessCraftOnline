@@ -23,6 +23,8 @@ import { formatCurrency, formatEmployeeType, formatLabel } from "@/lib/formatter
 import type { StorefrontPerformanceBusinessSummary } from "@/domains/market";
 import { formatItemKey } from "@/lib/items";
 import { formatPayrollRateWithTick, formatPayrollTickAmount, formatPayrollTickLabel } from "@/lib/payroll";
+import { formatDurationCountdown } from "@/lib/core/time-display";
+import { useNowMs } from "@/hooks/use-now-ms";
 import { clamp } from "@/lib/core/number";
 import { runOptimisticUpdate } from "@/stores/optimistic";
 import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
@@ -109,6 +111,7 @@ export default function BusinessDetailsClient({
   const businessId = initialBusiness.id;
   
   const defaultTab = (initialTab as TabType) || "overview";
+  const nowMs = useNowMs();
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1957,6 +1960,18 @@ export default function BusinessDetailsClient({
                         Installing Lv.{project.target_level} — completes{" "}
                         {project.completes_at ? new Date(project.completes_at).toLocaleString() : "shortly"}.
                       </span>
+                      {project.completes_at && (
+                        <>
+                          {" "}
+                          <span suppressHydrationWarning style={{ fontWeight: 600 }}>
+                            {nowMs === null
+                              ? ""
+                              : new Date(project.completes_at).getTime() - nowMs > 0
+                                ? `(${formatDurationCountdown(new Date(project.completes_at).getTime() - nowMs)} remaining)`
+                                : "(finishing up…)"}
+                          </span>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2016,6 +2031,17 @@ export default function BusinessDetailsClient({
                       Completes {activeUpgradeProject.completes_at ? new Date(activeUpgradeProject.completes_at).toLocaleString() : "soon"} — Downtime: {formatLabel(activeUpgradeProject.downtime_policy)}
                     </span>
                   </div>
+                  {activeUpgradeProject.completes_at && (
+                    <div style={{ fontSize: "0.85rem", color: "#93c5fd", marginTop: 2, fontWeight: 600 }}>
+                      <span suppressHydrationWarning>
+                        {nowMs === null
+                          ? ""
+                          : new Date(activeUpgradeProject.completes_at).getTime() - nowMs > 0
+                            ? `${formatDurationCountdown(new Date(activeUpgradeProject.completes_at).getTime() - nowMs)} remaining`
+                            : "Finishing up…"}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
