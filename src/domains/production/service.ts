@@ -21,11 +21,12 @@ import {
   type ManufacturingBusinessType,
 } from "@/config/production";
 import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
-import { addBusinessAccountEntry, getBusinessBalance } from "@/domains/businesses/service";
+import { getBusinessBalance } from "@/domains/businesses/service";
 import { getEmployeeById, getEmployeesByIds, getEmployeeStatusFromShift } from "@/domains/employees";
 import { getResolvedUpgradeEffects } from "@/domains/upgrades";
 import type { QueryClient } from "@/lib/db/query-client";
 import { toNumber } from "@/lib/core/number";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase-service-role";
 import type {
   AssignExtractionSlotInput,
   AssignManufacturingLineInput,
@@ -47,10 +48,6 @@ import type {
   UnassignExtractionSlotInput,
   UnassignManufacturingLineInput,
 } from "./types";
-
-function plusMinutes(minutes: number): string {
-  return new Date(Date.now() + minutes * 60 * 1000).toISOString();
-}
 
 function normalizeSlot(row: ExtractionSlot): ExtractionSlot {
   return {
@@ -850,29 +847,26 @@ export async function retoolExtractionSlot(
     if (balance < retoolCost) {
       throw new Error(`Insufficient business funds. Retooling costs $${retoolCost.toFixed(2)}.`);
     }
-    await addBusinessAccountEntry(client, playerId, business.id, {
-      amount: retoolCost,
-      entryType: "debit",
-      category: "upgrade_purchase",
-      description: `Line retool funded: ${option.displayName}`,
-      referenceId: slot.id,
-    });
   }
 
-  const { data, error } = await client
-    .from("extraction_slots")
-    .update({
-      pending_item_key: input.itemKey,
-      retool_started_at: new Date().toISOString(),
-      retool_complete_at: plusMinutes(PRODUCTION_RETOOL_DURATION_MINUTES),
-      status: "retooling",
-      input_progress: 0,
-      output_progress: 0,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", slot.id)
-    .select("*")
-    .single();
+  // retool_extraction_slot_atomic (migration 110, AccountingFixPlan Phase H
+  // item 60) charges the retool cost (Debit operating_expense / Credit cash,
+  // plus a matching business_financial_events row -- the prior
+  // addBusinessAccountEntry-only call left this cost with no financial-event
+  // coverage at all) and applies the retool in one transaction.
+  // service_role-only -- players could otherwise fabricate a free retool via
+  // PostgREST -- so this calls it with a fresh service-role client rather
+  // than the caller's client, matching addBusinessAccountEntry's own
+  // pattern. The checks above are a cheap early-exit that preserve this
+  // function's existing error messages; the RPC re-validates ownership and
+  // funds under a row lock regardless.
+  const { data, error } = await createSupabaseServiceRoleClient().rpc("retool_extraction_slot_atomic", {
+    p_player_id: playerId,
+    p_slot_id: slot.id,
+    p_pending_item_key: input.itemKey,
+    p_retool_cost: retoolCost,
+    p_retool_minutes: PRODUCTION_RETOOL_DURATION_MINUTES,
+  });
   if (error) throw error;
   return normalizeSlot(data as ExtractionSlot);
 }
@@ -1001,28 +995,24 @@ export async function retoolManufacturingLine(
     throw new Error(`Insufficient business funds. Retooling costs $${retoolCost.toFixed(2)}.`);
   }
 
-  await addBusinessAccountEntry(client, playerId, line.business_id, {
-    amount: retoolCost,
-    entryType: "debit",
-    category: "upgrade_purchase",
-    description: `Line retool funded: ${recipe.displayName}`,
-    referenceId: line.id,
+  // retool_manufacturing_line_atomic (migration 110, AccountingFixPlan Phase
+  // H item 60) charges the retool cost (Debit operating_expense / Credit
+  // cash, plus a matching business_financial_events row -- the prior
+  // addBusinessAccountEntry-only call left this cost with no financial-event
+  // coverage at all) and applies the retool in one transaction.
+  // service_role-only -- players could otherwise fabricate a free retool via
+  // PostgREST -- so this calls it with a fresh service-role client rather
+  // than the caller's client, matching addBusinessAccountEntry's own
+  // pattern. The checks above are a cheap early-exit that preserve this
+  // function's existing error messages; the RPC re-validates ownership and
+  // funds under a row lock regardless.
+  const { data, error } = await createSupabaseServiceRoleClient().rpc("retool_manufacturing_line_atomic", {
+    p_player_id: playerId,
+    p_line_id: line.id,
+    p_pending_recipe_key: recipe.key,
+    p_retool_cost: retoolCost,
+    p_retool_minutes: PRODUCTION_RETOOL_DURATION_MINUTES,
   });
-
-  const { data, error } = await client
-    .from("manufacturing_lines")
-    .update({
-      pending_recipe_key: recipe.key,
-      retool_started_at: new Date().toISOString(),
-      retool_complete_at: plusMinutes(PRODUCTION_RETOOL_DURATION_MINUTES),
-      status: "retooling",
-      output_progress: 0,
-      input_progress: {},
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", line.id)
-    .select("*")
-    .single();
   if (error) throw error;
   await syncLegacyManufacturingJobForBusiness(client, line.business_id);
   const normalized = normalizeManufacturingLine(data as ManufacturingLine);

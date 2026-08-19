@@ -70,7 +70,7 @@ Phase D: manufacturing/extraction — COMPLETE (2026-08-19)
 Phase E: storefront/market/contracts/B2B — COMPLETE (2026-08-19)
 Phase F: shipping/upgrades/loans/owner equity — COMPLETE (2026-08-19)
 Phase G: financial statements — COMPLETE (2026-08-19)
-Phase H: migration/backfill + reconciliation + UI
+Phase H: migration/backfill + reconciliation + UI — COMPLETE (2026-08-19)
 
 After each phase, stop and report:
 
@@ -956,3 +956,243 @@ push` before hosted gets any of this phase's journal coverage; only local has
 it so far. No edge function changes this phase (nothing in
 supabase/functions/* calls any of the seven rewired RPCs' signatures
 differently), so no `functions deploy` needed specifically for Phase G.
+
+--- Phase H notes (2026-08-19) ---
+
+Four deliverables, matching the plan's own item breakdown (53 reconciliation,
+58 backfill, 59 UI) plus item 60's mandatory final end-to-end audit, which
+surfaced one real, previously-undocumented bug this phase also fixed.
+
+1. Migration 109 (`reconciliation_and_backfill.sql`): item 53's reconciliation
+   RPC + item 58's backfill, both read-only/idempotent respectively.
+
+   `reconcile_business_accounting(p_business_id)` is a single service_role-only
+   SQL function returning the raw numbers item 53 names: cash ledger balance
+   (SUM business_accounts) vs the maintained `businesses.cash_balance` column
+   (migration 089); journal debits vs credits (business_journal_lines) plus a
+   defensive per-entry-balance sanity count (should always be 0 given the
+   deferred trigger from migration 096 -- included anyway); inventory book
+   value (SUM business_inventory.total_cost) plus a count of quantity>0 rows
+   sitting at exactly $0 cost (informational, not a failure -- legitimately
+   $0 for free extraction output per item 42). It never repairs anything, only
+   reports, per the plan's own explicit rule. `src/domains/businesses/
+   reconciliation.ts` (`getBusinessReconciliation`) combines this SQL output
+   with the *already-canonical* `getBalanceSheet`/`getCashFlowStatement`
+   (statements.ts) for the Assets=Liabilities+Equity and beginning+netCF=ending
+   checks, rather than re-deriving either one in SQL -- one implementation of
+   each check, not two. It accepts an optional `precomputed` param so callers
+   that already have the Balance Sheet/Cash Flow Statement (the finance
+   dashboard) don't pay for a second round trip; the admin route (below) omits
+   it and lets it self-compute. `getAllBusinessesReconciliation` loops over
+   every business sequentially -- a support/debug tool, not a hot path, so a
+   second SQL-side "all businesses" implementation wasn't worth the
+   duplication. The report's overall `ok` deliberately does NOT fold in
+   `journal.discrepancy`: buy-order fills and B2B landed-cost capitalization
+   at delivery are *documented, expected-nonzero* gaps (migration 108's own
+   header comment), not failures -- folding them in would make `ok` false for
+   every business with normal buy-order activity, defeating the report's
+   purpose. `notes[]` explains this and any other non-obvious reading (Balance
+   Sheet not balanced -> likely an in-transit B2B shipment; nonzero
+   zero-cost-row count -> likely legitimate free extraction output) rather
+   than leaving a reader to guess. Exposed at `GET /api/admin/finance/
+   reconciliation` (optional `?businessId=`), which deliberately uses a fresh
+   `createSupabaseServiceRoleClient()`, not the admin's own request-scoped
+   client -- every RLS policy this route reads through is `player_id =
+   auth.uid()`-scoped, so an admin reconciling another player's business
+   through their own session would only ever see their own.
+
+   Two idempotent backfill functions repair the two classes of pre-existing
+   data gap this plan's earlier phases only closed prospectively:
+   - `backfill_reconstruct_inventory_cost_basis()`: any business_inventory row
+     with quantity > 0 and total_cost IS NULL (the exact defect Phase C fixed
+     going forward for every SQL relief/addition path, migration 099) gets
+     total_cost reconstructed from unit_cost * quantity, or an explicit $0 --
+     never a fabricated market-derived guess -- when unit_cost is also
+     unknown. Safe to re-run (a fixed row is no longer a match).
+   - `backfill_capitalize_historical_upgrades()`: any completed/installing
+     business_upgrade_projects row purchased before Phase F's
+     purchase_business_upgrade_atomic (migration 107) existed -- which never
+     wrote a fixed_assets financial event at all -- gets one backfilled from
+     the project's own quoted_cost + started_at/applied_at, guarded by a
+     not-exists check against (account_code='fixed_assets',
+     reference_type='upgrade_project', reference_id=project.id) so it's safe
+     to re-run and can never double-insert for a project the real atomic RPC
+     (or a prior run of this function) already covered.
+   Both are called once at the bottom of migration 109 (a safe no-op on a
+   clean `supabase db reset`) and left in place, callable again by hand
+   against hosted after `db push` if a gap turns up there that a from-scratch
+   local reset would never have had.
+
+   Verified by hand, not just "no error": worked through the balance-sheet
+   arithmetic for a business that spent $2,000 on an upgrade before Phase F
+   existed with zero other activity -- Assets understated by exactly $2,000
+   before the backfill (cash already debited, no fixed_assets event to offset
+   it), exactly balanced after, for both a freshly-backdated acquisition
+   (~$0 depreciated) and one from years ago (a large chunk already
+   depreciated through retained earnings) -- because `computeAccumulatedDepreciation`
+   (statements.ts) has no persisted state and recomputes purely from
+   (cost, acquiredAt, asOf) every time, backfilling the event retroactively
+   "just works" with no separate Opening Equity/Historical Adjustment plug
+   needed. No such plug or backfill step was needed for retained earnings,
+   owner capital, or wages payable either: getIncomeStatement/getBalanceSheet
+   already derive those from business_financial_events/business_accounts/
+   employees.unpaid_wage_due, which existed since before this plan started
+   (business_financial_events dates to migration 046) -- nothing there needed
+   seeding, only the two genuinely-incomplete-until-now paths above.
+
+2. Item 60's final audit (before touching the UI, per the plan's own
+   "inspect before modifying" rule) was delegated to a fresh read-only
+   Explore pass over every business_accounts/business_financial_events/
+   business_inventory/wages/upgrades/shipping/contracts/loans write path,
+   specifically hunting for anything moving money/inventory/assets/
+   liabilities without a corresponding accounting entry. It confirmed
+   everything Phases B-G already fixed is still clean, confirmed loans are
+   still personal-only, confirmed no TS code writes financial totals after a
+   SQL transaction has already committed -- and surfaced one real,
+   previously-undocumented bug: **production line retooling**
+   (retoolExtractionSlot/retoolManufacturingLine, src/domains/production/
+   service.ts) charged its cost via addBusinessAccountEntry (category
+   'upgrade_purchase' -- the same category purchase_business_upgrade_atomic
+   uses) but never wrote a business_financial_events row at all, and did the
+   balance check / cash debit / slot-or-line status update as three separate
+   unlocked round trips with no shared transaction -- the last non-atomic
+   money-moving path left in the codebase. Worse, while fixing it, testing
+   surfaced that this path had *never actually worked*: extraction_slots'
+   status CHECK constraint (migration 018) was never widened to include
+   'retooling' when per-line retooling was introduced (migration 053 gave
+   manufacturing_lines a fresh CHECK with 'retooling' baked in from day one,
+   but only ALTERed extraction_slots to add columns, not its status list) --
+   so retoolExtractionSlot would debit the cost and then throw on the status
+   update, a real pre-existing money-loss bug for players, not something this
+   phase introduced.
+
+   Migration 110 (`production_retool_atomicity.sql`) fixes both: widens
+   extraction_slots_status_check to include 'retooling', and adds two new
+   RPCs (`retool_extraction_slot_atomic`, `retool_manufacturing_line_atomic`)
+   following the exact service_role-only + explicit p_player_id pattern as
+   charge_employee_wage_atomic/fulfill_contract_atomic/
+   purchase_business_upgrade_atomic -- validate ownership under a row lock,
+   debit cash + post a balanced journal entry (Debit operating_expense /
+   Credit cash -- a retool is a routine operating cost, not a durable
+   capitalized asset, unlike a real upgrade) + an operating_expense financial
+   event, then apply the retool, all in one transaction. Recipe/item validity
+   and "already tooled for that" checks stay in TypeScript as a cheap
+   pre-check (same "pre-check is an optimization, the RPC is the authority"
+   split as manufacturing/extraction production in Phase D); the RPC only
+   re-validates what's accounting-critical. `src/domains/production/
+   service.ts`'s two retool functions now call these RPCs via a fresh
+   service-role client (matching addBusinessAccountEntry's own pattern, same
+   reasoning: service_role-only, players could otherwise fabricate a free
+   retool via PostgREST) instead of doing the debit and the status update as
+   separate steps; the now-dead `plusMinutes` helper and the
+   `addBusinessAccountEntry` import were deleted. New tests
+   (`test/finance/production-retool.test.ts`) exercise both RPCs end to end
+   through the real TS service functions: cost shows up as a real operating
+   expense on getIncomeStatement, an unaffordable retool leaves cash *and*
+   slot/line state completely untouched (proving the rollback, not just that
+   the call errored), and the manufacturing case's journal lines balance.
+
+   `src/domains/businesses/financial-events.ts` was also flagged by the audit
+   as dead code (`consumeInventoryCostByRowId`/`consumeInventoryRowsCost`/
+   `writeRowConsumption`/`refreshInventoryCostByRowId` -- a full TS-side
+   inventory-mutation implementation with zero remaining callers anywhere in
+   src/ or supabase/functions/, bypassing compute_inventory_cost_relief/
+   compute_inventory_cost_addition entirely). Left in place rather than
+   deleted this phase: it's unreachable, not a live bug, and deleting
+   dead code in the same phase as a live-bug fix risks conflating two
+   different kinds of change; flagged here for a future cleanup pass instead
+   (the plan's own item 57, "remove duplicated accounting logic", covers this
+   exact case if a future session wants to pick it up).
+
+3. `src/domains/businesses/finance.ts` (`getBusinessFinanceDashboard`): three
+   changes, all additive to the existing return shape except one real bug fix.
+   - Fixed the `liabilities = 0` hardcode Phase G's own notes explicitly
+     flagged as "Phase H's job" (line 981 of the pre-Phase-H file) -- the
+     per-period "Owner Equity"/valuation KPI now subtracts the real Balance
+     Sheet's Wages Payable instead of pretending the business has no
+     liabilities. Market-valuation KPIs otherwise stay deliberately separate
+     from book value, per item 50.
+   - Added `cashFlowStatement` (item 49/59): the authoritative, all-time
+     `getCashFlowStatement` result, replacing nothing -- the existing
+     per-period `cashFlow: CashFlowSection[]` ad hoc 3-line heuristic (which
+     never asserted beginning+net=ending) is left alone, since it's a
+     different, still-useful "this period's cash movement" view and rewriting
+     it risked the sparkline/series machinery Phase G's notes already said not
+     to touch casually.
+   - Added `reconciliation` (item 53/59): this business's own
+     `getBusinessReconciliation` report, computed via the `precomputed`
+     option so it reuses the Balance Sheet/Cash Flow Statement this function
+     already computes rather than re-querying them.
+   Both new fields are computed conditionally: a new `options.includeReconciliation`
+   parameter (default `true`) lets `getBusinessFinanceSummary` (a lightweight
+   cash+inventory widget, not a detail view) opt out and avoid paying for the
+   extra queries -- the two existing detail-page call sites
+   (`getBusinessFinanceDashboard`/`getBusinessFinanceDashboardForBusiness` in
+   service.ts) both keep the default. Both new fields fail closed to `null`
+   (`.catch(() => null)`) rather than throwing and taking down the whole
+   dashboard if the underlying query errors -- e.g. this is exactly what
+   happens today against the hosted project, which doesn't have migrations
+   109/110 yet: the new panels simply don't render instead of 500ing the page.
+
+4. UI (item 59): `BusinessFinanceDashboard.tsx` gained two new panels, reusing
+   the page's existing `StatementTable` component/visual language (no new
+   styling system) -- a "Cash Flow Statement (all-time)" table (Beginning
+   Cash / Operating / Investing / Financing / Ending Cash) and a
+   "Reconciliation" panel (four pass/fail checks with a green check or red
+   "!" per row: cash ledger vs stored balance, journal entries individually
+   balanced, Assets=Liabilities+Equity, beginning+netCF=ending cash, plus the
+   report's own `notes[]` rendered below). Both render conditionally on their
+   field being non-null, per the fail-closed behavior above. Nothing in React
+   computes a total -- every number is read directly off the backend report,
+   per item 59's own rule ("the frontend should receive authoritative
+   calculated report data from the backend"). The pre-existing per-period
+   Income Statement/Balance Sheet/Capital&CashFlow panels were left exactly
+   as they were (Phase G already wired the accounting Balance Sheet in;
+   rewriting the legacy per-period P&L/cash-flow heuristics into a
+   `statements.ts`-only view was deliberately not attempted this phase --
+   see "left for later" below).
+
+Verified with a clean `npx supabase db reset` (migrations 109 and 110 both
+applied with no errors), `npm run typecheck`, `npm run typecheck:edge`,
+`npm run build` (confirms the new `/api/admin/finance/reconciliation` route
+compiles and every page including the finance dashboard still statically
+analyzes/prerenders cleanly), and `npm run test:finance` (56 passed, up from
+48 -- 3 new reconciliation tests, 2 new backfill tests exercising the
+functions directly against manually-inserted legacy-shaped rows since a
+clean reset has no real gaps of its own to backfill, 3 new production-retool
+tests, 0 regressions in any earlier phase's tests). Interactive browser
+verification of the new UI panels was **not** performed this session: the
+only reachable dev server was an already-running instance on port 3000
+(pointed at the hosted project per `.env.local`, which doesn't have
+migrations 109/110 yet) that this session correctly declined to kill, and
+Next.js 16's dev server enforces a one-instance-per-project-directory lock
+that blocked starting a second instance on a different port even with
+local-Supabase env vars overridden. Confirmed instead via
+`npm run build`'s static analysis/prerendering of the component plus the
+integration test suite; flagged here rather than silently claimed.
+
+Unresolved / left for later phases (or a future pass, this plan has no more
+named phases after this one): the two documented journal gaps (buy-order
+fills, delivery-time landed-cost capitalization) and the in-transit-shipment
+Balance Sheet gap remain exactly as Phase G described them -- Phase H's
+reconciliation report surfaces and explains them rather than treating them as
+bugs, per this phase's own scope, but doesn't close them (closing the
+buy-order gap specifically would need a new escrow/prepaid-asset chart-of-accounts
+line, a real economics change, not a reporting one). `getBusinessFinanceDashboard`'s
+legacy per-period `incomeStatement`/`cashFlow` arrays (BUSINESS_LEDGER_CATEGORY_CLASSIFICATION-based)
+still coexist with the new all-time `cashFlowStatement`/`reconciliation`
+fields rather than being replaced -- a full rewrite of that heuristic onto
+`statements.ts` per-period was judged out of scope for this phase (it touches
+the sparkline/series/health/storefront-evidence machinery Phase G's own notes
+said to leave alone) and was not attempted. `src/domains/businesses/
+financial-events.ts`'s dead TS-side inventory-mutation code (flagged above)
+is unreachable but not deleted. Neither retool RPC posts a "fixed_assets"
+alternative for retooling -- it's operating_expense by design (a retool is
+not a durable asset), so no CHART_OF_ACCOUNTS/business_journal_lines CHECK
+widening was needed this phase.
+
+Not yet pushed to the hosted project -- migrations 109 and 110 need
+`npx supabase db push` before hosted gets the reconciliation RPC, either
+backfill, or working (accounted-for, atomic) production line retooling; only
+local has it so far. No edge function changes this phase, so no
+`functions deploy` needed.

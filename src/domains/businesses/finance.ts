@@ -10,7 +10,8 @@ import { addHoursToNowIso, nowIso } from "@/lib/core/time";
 import type { QueryClient } from "@/lib/db/query-client";
 import { formatCurrency } from "@/lib/formatters";
 import { supportsStorefront } from "./capabilities";
-import { getBalanceSheet } from "./statements";
+import { getBusinessReconciliation, type BusinessReconciliationReport } from "./reconciliation";
+import { getBalanceSheet, getCashFlowStatement, type CashFlowStatement } from "./statements";
 import type { Business, BusinessAccountEntry } from "./types";
 
 type FinancialEventAccountCode =
@@ -227,6 +228,10 @@ export type BusinessFinanceDashboard = {
   currentPeriod: FinancePeriod;
   periods: Record<FinancePeriod, BusinessFinancePeriodSnapshot>;
   balanceSheet: BalanceSheetSection[];
+  /** AccountingFixPlan Phase H (item 49/59): the authoritative, all-time Cash Flow Statement from statements.ts -- Beginning Cash + Operating + Investing + Financing = Ending Cash, enforced by construction. Null only if the underlying query failed (never silently substituted with a heuristic). */
+  cashFlowStatement: CashFlowStatement | null;
+  /** AccountingFixPlan Phase H (item 53/59): this business's own reconciliation report (cash ledger vs stored balance, journal balance, Balance Sheet, Cash Flow Statement). Null when not requested (see getBusinessFinanceDashboard's includeReconciliation option) or if it failed to compute -- never silently hidden as "ok". */
+  reconciliation: BusinessReconciliationReport | null;
   valuation: BusinessValuationBreakdown;
   health: BusinessFinanceHealth;
   assumptions: string[];
@@ -903,8 +908,15 @@ export async function getBusinessFinanceDashboard(
   client: QueryClient,
   playerId: string,
   business: Business,
-  currentPeriod: FinancePeriod = "1h"
+  currentPeriod: FinancePeriod = "1h",
+  options: { includeReconciliation?: boolean } = {}
 ): Promise<BusinessFinanceDashboard> {
+  // Defaults to true: every existing call site is a single-business detail
+  // view where the extra queries (one RPC, one more statements.ts call) are
+  // cheap. getBusinessFinanceSummary (below) explicitly passes false -- it's
+  // a lightweight cash+inventory widget, not a place to pay for a full
+  // reconciliation report.
+  const includeReconciliation = options.includeReconciliation ?? true;
   const ranges = getPeriodRanges();
   const isStore = supportsStorefront(business.type);
   const oldestRangeStart = ranges
@@ -972,20 +984,27 @@ export async function getBusinessFinanceDashboard(
     client,
     (inventoryRes.data as InventorySnapshotRow[]) ?? []
   );
-  // Market-valuation-derived KPI throughout this file's per-period snapshots
-  // ("Owner Equity", "valuation", "health") -- deliberately untouched by
-  // AccountingFixPlan Phase G, which only fixes the *accounting* balance
-  // sheet below (`bookBalanceSheet`/the returned `balanceSheet` field). Per
-  // item 50, book value and market value are kept as two separate,
-  // separately-labeled things; this dashboard's other KPIs are Phase H's
-  // job to rewire onto the real statements, not Phase G's.
-  const liabilities = 0;
-
   // AccountingFixPlan Phase G (item 47): the real accounting Balance Sheet --
   // Cash + Inventory at carrying cost (SUM business_inventory.total_cost,
   // never market price) + Fixed Assets net of depreciation, less real
   // liabilities (Wages Payable). See src/domains/businesses/statements.ts.
   const bookBalanceSheet = await getBalanceSheet(client, business);
+
+  // AccountingFixPlan Phase H (item 47/59): the per-period "Owner Equity"/
+  // valuation KPI below used to hardcode liabilities to 0 (flagged explicitly
+  // by Phase G's own notes as Phase H's job) -- now sourced from the real
+  // Balance Sheet's Wages Payable instead of pretending the business has no
+  // liabilities. Market-valuation-derived KPIs ("valuation", "health")
+  // otherwise remain deliberately separate from book value, per item 50.
+  const liabilities = bookBalanceSheet.liabilities.total;
+
+  const cashFlowStatement = await getCashFlowStatement(client, business, { from: null }).catch(() => null);
+  const reconciliation = includeReconciliation
+    ? await getBusinessReconciliation(client, business, {
+        balanceSheet: bookBalanceSheet,
+        cashFlow: cashFlowStatement ?? undefined,
+      }).catch(() => null)
+    : null;
 
   const periods = Object.fromEntries(
     ranges.map((range) => {
@@ -1235,6 +1254,8 @@ export async function getBusinessFinanceDashboard(
       { label: "Wages Payable", amount: -bookBalanceSheet.liabilities.wagesPayable },
       { label: "Owner Equity", amount: bookBalanceSheet.equity.total },
     ],
+    cashFlowStatement,
+    reconciliation,
     valuation,
     health,
     assumptions: [

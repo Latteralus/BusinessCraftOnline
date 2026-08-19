@@ -22,6 +22,12 @@ export {
 
 export { computeInventoryAssetValue } from "./finance";
 
+export { getBalanceSheet, getCashFlowStatement, getIncomeStatement } from "./statements";
+export type { BalanceSheet, CashFlowStatement, IncomeStatement, StatementPeriod } from "./statements";
+
+export { getAllBusinessesReconciliation, getBusinessReconciliation } from "./reconciliation";
+export type { AllBusinessesReconciliationSummary, BusinessReconciliationReport } from "./reconciliation";
+
 export {
   getBusinessOperationalMode,
   isProductionBusinessType,

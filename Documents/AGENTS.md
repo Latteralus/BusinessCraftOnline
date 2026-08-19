@@ -64,6 +64,20 @@ again, re-run both before trusting it; TS majors are the most likely to surface 
   these to `authenticated`; call only from server code via the service-role client.
 
 ## Open threads (update or remove as they resolve)
+- **2026-08-19 — AccountingFixPlan is fully complete (Phases A–H) but nothing
+  is pushed to hosted.** Migrations 096–110 (double-entry journal, payroll,
+  inventory cost-basis, manufacturing/extraction, storefront/market/contracts/B2B,
+  shipping/upgrades, financial statements, reconciliation + backfill,
+  production-retool atomicity) only exist locally. Notably, migration 110
+  fixes a real, previously-live bug: production line retooling
+  (`retoolExtractionSlot`) has apparently never worked on hosted at all — it
+  debits the retool cost then fails on the `extraction_slots` status update
+  because that table's CHECK constraint was never widened to allow
+  `'retooling'`. Run `npx supabase db push` (and redeploy `tick-manufacturing`/
+  `tick-extraction`/`tick-wages` — check each phase's own notes in
+  `Documents/Plans/AccountingFixPlan` for exactly which functions each
+  migration needs) before assuming any of this is live. See `changelog.md`
+  (2026-08-19, "AccountingFixPlan Phase H").
 - **2026-08-19 — Migration 097 (baseline schema grants) not yet pushed to
   hosted.** A from-scratch local `supabase db reset` left `anon`/
   `authenticated`/`service_role` with zero base table privileges (every

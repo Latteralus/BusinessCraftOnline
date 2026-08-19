@@ -264,6 +264,90 @@ function LineChart(props: {
   );
 }
 
+function CheckRow(props: { label: string; ok: boolean; detail: string }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "auto 1fr auto",
+        gap: 12,
+        alignItems: "center",
+        paddingBottom: 8,
+        borderBottom: "1px solid rgba(148, 163, 184, 0.08)",
+      }}
+    >
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 20,
+          height: 20,
+          borderRadius: 999,
+          fontSize: 12,
+          fontWeight: 700,
+          color: props.ok ? "#86efac" : "#fca5a5",
+          border: `1px solid ${props.ok ? "rgba(52, 211, 153, 0.35)" : "rgba(248, 113, 113, 0.35)"}`,
+          background: props.ok ? "rgba(5, 150, 105, 0.12)" : "rgba(220, 38, 38, 0.12)",
+        }}
+      >
+        {props.ok ? "✓" : "!"}
+      </span>
+      <span style={{ color: "var(--text-secondary)" }}>{props.label}</span>
+      <span style={{ color: "#e2e8f0", fontSize: 12, fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{props.detail}</span>
+    </div>
+  );
+}
+
+function ReconciliationPanel({ reconciliation }: { reconciliation: NonNullable<BusinessFinanceDashboard["reconciliation"]> }) {
+  return (
+    <div
+      style={{
+        background: "linear-gradient(180deg, rgba(9, 14, 25, 0.98), rgba(5, 10, 19, 0.98))",
+        border: `1px solid ${reconciliation.ok ? "rgba(148, 163, 184, 0.16)" : "rgba(248, 113, 113, 0.35)"}`,
+        borderRadius: 16,
+        padding: 18,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase", color: "#cbd5e1" }}>Reconciliation</div>
+        <div style={{ color: reconciliation.ok ? "#86efac" : "#fca5a5", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          {reconciliation.ok ? "All checks pass" : "Needs attention"}
+        </div>
+      </div>
+      <div style={{ display: "grid", gap: 8 }}>
+        <CheckRow
+          label="Cash ledger matches stored balance"
+          ok={reconciliation.cash.ok}
+          detail={reconciliation.cash.ok ? formatCurrency(reconciliation.cash.storedBalance) : `off by ${formatCurrency(Math.abs(reconciliation.cash.discrepancy))}`}
+        />
+        <CheckRow
+          label="Journal entries individually balanced"
+          ok={reconciliation.journal.ok}
+          detail={`${reconciliation.journal.entryCount} entries`}
+        />
+        <CheckRow
+          label="Assets = Liabilities + Equity"
+          ok={reconciliation.balanceSheet.balanced}
+          detail={formatCurrency(reconciliation.balanceSheet.totalAssets)}
+        />
+        <CheckRow
+          label="Beginning cash + net cash flow = ending cash"
+          ok={reconciliation.cashFlow.reconciles}
+          detail={formatCurrency(reconciliation.cashFlow.endingCash)}
+        />
+      </div>
+      {reconciliation.notes.length > 0 ? (
+        <div style={{ marginTop: 12, display: "grid", gap: 6, color: "var(--text-muted)", fontSize: 12 }}>
+          {reconciliation.notes.map((note) => (
+            <div key={note}>{note}</div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function BusinessFinanceDashboardPanel({ financeDashboard }: Props) {
   const snapshot = financeDashboard?.periods["24h"];
   const changeFromPrevious = financeDashboard
@@ -486,6 +570,22 @@ export default function BusinessFinanceDashboardPanel({ financeDashboard }: Prop
             ))}
           </div>
         </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 18 }}>
+        {financeDashboard.cashFlowStatement ? (
+          <StatementTable
+            title="Cash Flow Statement (all-time)"
+            rows={[
+              { label: "Beginning Cash", amount: financeDashboard.cashFlowStatement.beginningCash },
+              { label: "Operating Activities", amount: financeDashboard.cashFlowStatement.operating },
+              { label: "Investing Activities", amount: financeDashboard.cashFlowStatement.investing },
+              { label: "Financing Activities", amount: financeDashboard.cashFlowStatement.financing },
+              { label: "Ending Cash", amount: financeDashboard.cashFlowStatement.endingCash },
+            ]}
+          />
+        ) : null}
+        {financeDashboard.reconciliation ? <ReconciliationPanel reconciliation={financeDashboard.reconciliation} /> : null}
       </div>
 
       <div

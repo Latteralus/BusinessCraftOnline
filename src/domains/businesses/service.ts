@@ -523,7 +523,7 @@ export async function getBusinessFinanceSummary(
   const business = await getBusinessById(client, playerId, businessId);
   if (!business) throw new Error("Business not found.");
 
-  const dashboard = await buildBusinessFinanceDashboard(client, playerId, business, "24h");
+  const dashboard = await buildBusinessFinanceDashboard(client, playerId, business, "24h", { includeReconciliation: false });
   const period = dashboard.periods["24h"];
 
   return {
