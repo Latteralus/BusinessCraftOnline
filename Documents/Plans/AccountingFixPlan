@@ -1191,8 +1191,20 @@ alternative for retooling -- it's operating_expense by design (a retool is
 not a durable asset), so no CHART_OF_ACCOUNTS/business_journal_lines CHECK
 widening was needed this phase.
 
-Not yet pushed to the hosted project -- migrations 109 and 110 need
-`npx supabase db push` before hosted gets the reconciliation RPC, either
-backfill, or working (accounted-for, atomic) production line retooling; only
-local has it so far. No edge function changes this phase, so no
-`functions deploy` needed.
+**Pushed and deployed to the hosted project (2026-08-19, same day):** `npx
+supabase db push` applied every AccountingFixPlan migration (096-110,
+confirmed via `npx supabase migration list` -- local and remote now match
+through 20260819140000). `tick-wages`, `tick-extraction`, and
+`tick-manufacturing` (the three edge functions this whole plan ever touched,
+confirmed via `git diff --stat <pre-Phase-A commit> HEAD -- supabase/functions`
+-- Phases B and D respectively) were redeployed; `tick_run_logs` shows all
+three running `status: "ok"` post-deploy. Post-push verification against the
+live hosted database: `extraction_slots_status_check` now allows
+`'retooling'` (the money-loss retool bug is actually fixed live, not just
+locally); the two backfill functions found **zero** rows to fix on hosted
+data specifically (0 quantity>0/total_cost-null inventory rows, 0
+uncapitalized historical upgrade projects) -- hosted's real data didn't
+happen to have hit either gap, unlike the synthetic legacy-shaped rows this
+phase's own tests exercised the backfill logic against. The reconciliation
+RPC, both backfill functions, and both retool RPCs are confirmed present in
+`pg_proc` on the hosted project.
