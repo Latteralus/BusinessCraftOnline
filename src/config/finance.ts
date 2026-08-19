@@ -174,6 +174,62 @@ export const CHART_OF_ACCOUNTS = {
 
 export type AccountCode = keyof typeof CHART_OF_ACCOUNTS;
 
+// -----------------------------------------------------------------------------
+// AccountingFixPlan Phase G: straight-line depreciation useful life.
+//
+// Item 46/47 call for "straight-line depreciation using a simple configurable
+// useful life" -- deliberately one global default rather than a per-upgrade
+// field on business-upgrades.ts's ~100 entries (that catalog has no such
+// field, and adding one is a bigger change than this plan calls for). Used by
+// src/domains/businesses/statements.ts to compute accumulated_depreciation
+// and each period's depreciation_expense from the fixed_assets financial
+// events' cost + acquisition date -- no periodic depreciation tick/journal
+// posting exists; it's computed analytically at report time instead.
+// -----------------------------------------------------------------------------
+
+export const FIXED_ASSET_USEFUL_LIFE_MONTHS = 60;
+
+// -----------------------------------------------------------------------------
+// AccountingFixPlan Phase G (item 49): cash-flow classification. Maps every
+// business_accounts ledger category to the cash-flow statement section its
+// cash movement belongs in, per the plan's own worked examples ("customer
+// receipts = Operating... durable capital upgrade purchases = Investing...
+// owner contributions/withdrawals = Financing"). This is deliberately
+// separate from BUSINESS_LEDGER_CATEGORY_CLASSIFICATION above (which buckets
+// categories for the legacy accrual-style P&L dashboard) -- a dollar can be
+// an Operating cash outflow (shipping_fee) while not being an accrual
+// operating expense at all (B2B inbound freight is capitalized into
+// inventory, per item 45), so the two classifications intentionally diverge
+// for that category. Typed as `satisfies Record<LedgerCategory, ...>` for the
+// same reason as BUSINESS_LEDGER_CATEGORY_CLASSIFICATION: a new category
+// string anywhere in the codebase that isn't added here fails typecheck.
+// -----------------------------------------------------------------------------
+
+export type CashFlowSectionKey = "operating" | "investing" | "financing";
+
+export const CASH_FLOW_CLASSIFICATION = {
+  opening_capital: "financing",
+  startup_purchase: "operating",
+  npc_sale: "operating",
+  market_sale: "operating",
+  contract_payout: "operating",
+  contract_acceptance: "operating",
+  market_fee: "operating",
+  wage_payment: "operating",
+  employee_hire: "operating",
+  employee_wage_settlement: "operating",
+  storefront_ads: "operating",
+  upgrade_purchase: "investing",
+  market_purchase: "operating",
+  buy_order_escrow: "operating",
+  buy_order_release: "operating",
+  owner_transfer_in: "financing",
+  owner_transfer_out: "financing",
+  business_transfer_in: "operating",
+  business_transfer_out: "operating",
+  shipping_fee: "operating",
+} as const satisfies Record<LedgerCategory, CashFlowSectionKey>;
+
 export const ACCOUNT_CODES = Object.keys(CHART_OF_ACCOUNTS) as AccountCode[];
 
 const CREDIT_NORMAL_TYPES: ReadonlySet<AccountType> = new Set(["liability", "equity", "revenue", "contra_asset"]);

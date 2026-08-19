@@ -372,7 +372,7 @@ export default function BusinessOverviewDashboard(props: Props) {
             { label: "Business Type", value: formatBusinessType(props.business.type) },
             { label: "Operating Mode", value: operationalMode.charAt(0).toUpperCase() + operationalMode.slice(1) },
             { label: "Finance Signal", value: finance ? `${formatCurrency(finance.kpis.operatingProfit)} operating profit` : "No recent data" },
-            { label: "Inventory Asset", value: props.financeDashboard ? formatCurrency(props.financeDashboard.balanceSheet.find((row) => row.label === "Inventory")?.amount ?? 0) : "$0.00" },
+            { label: "Inventory Asset", value: props.financeDashboard ? formatCurrency(props.financeDashboard.balanceSheet.find((row) => row.label === "Inventory (at cost)")?.amount ?? 0) : "$0.00" },
           ]}
         />
       </div>

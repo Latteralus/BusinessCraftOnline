@@ -67,9 +67,9 @@ Phase A: tests + chart of accounts + journal — COMPLETE (2026-08-19)
 Phase B: payroll/liabilities — COMPLETE (2026-08-19)
 Phase C: inventory cost-basis helper — COMPLETE (2026-08-19)
 Phase D: manufacturing/extraction — COMPLETE (2026-08-19)
-Phase E: storefront/market/contracts/B2B
-Phase F: shipping/upgrades/loans/owner equity
-Phase G: financial statements
+Phase E: storefront/market/contracts/B2B — COMPLETE (2026-08-19)
+Phase F: shipping/upgrades/loans/owner equity — COMPLETE (2026-08-19)
+Phase G: financial statements — COMPLETE (2026-08-19)
 Phase H: migration/backfill + reconciliation + UI
 
 After each phase, stop and report:
@@ -474,3 +474,485 @@ Not yet pushed to the hosted project — migration 105 needs `npx supabase db
 push`, and `npx supabase functions deploy tick-extraction` +
 `npx supabase functions deploy tick-manufacturing`, before hosted
 production accounting actually changes; only local has it so far.
+
+--- Phase E notes (2026-08-19) ---
+
+Audited every path item 43 names before changing anything, per the plan's
+own rule. Storefront sales (settle_store_inventory_sale(s)_atomic), open-
+market sales (execute_market_purchase), NPC sales
+(settle_market_listing_npc_sale_atomic), and buy-order fulfillment
+(_settle_buy_order_fill, called by place_market_buy_order's own sweep,
+sweep_buy_orders_for_new_listing, and fulfill_market_buy_order) were all
+already single atomic RPCs writing revenue/COGS/fee financial events
+correctly -- confirmed by reading each function body in migration 099, not
+just trusting the Phase C notes. None of those were touched, per the plan's
+explicit instruction not to rewrite what's already correct. The two real
+gaps were B2B transfers and contract fulfillment, both flagged as deferred
+to this phase by Phase A/C/D's own notes.
+
+Migration 106 (`contract_and_b2b_transfer_atomicity.sql`). Two fixes:
+
+1. Item 44 (B2B): `execute_inventory_transfer`'s source-side relief was
+   already atomic (Phase C), but for a business-to-business transfer the
+   destination's weighted-average cost-basis write and every
+   business_financial_events row for the trade were a separate, non-atomic
+   TS step afterward in `transferItems()`
+   (src/domains/inventory/service.ts) -- flagged explicitly in migration
+   087's and 099's own header comments as deferred to this phase. Moved
+   entirely into the RPC for the B2B case: destination inventory addition
+   now uses `compute_inventory_cost_addition` under the same lock already
+   held for the quantity update (acquisition cost = what the buyer actually
+   paid, `p_unit_price`), and revenue/COGS/inventory financial events are
+   inserted in the same transaction as the cash movement and the source
+   relief. `transferItems()`'s ~90-line post-RPC block (financial events +
+   a second, separately-locked read-recompute-write of the destination's
+   cost basis) was deleted outright -- leaving it in place after this
+   change would have double-written the financial events the RPC now
+   creates itself. Personal<->business transfers are deliberately untouched
+   (no acquisition-price concept exists for those; item 44 is specifically
+   B2B) -- their destination business_inventory rows still get no cost
+   basis at all, exactly matching pre-existing behavior, not a new gap.
+   Cross-city (shipping) B2B transfers recognize seller revenue/COGS at
+   dispatch (unchanged timing -- cash already moved at dispatch before this
+   phase too) but deliberately do NOT get a destination "inventory
+   acquired" event yet, since the goods are still in `shipping_queue`;
+   giving the buyer's inventory the correct landed cost (freight-in
+   capitalized per item 45) happens at arrival, which is Phase F's job, not
+   this phase's.
+2. Item 43 (contracts): new RPC `fulfill_contract_atomic` replaces two
+   independent non-atomic implementations that had drifted apart:
+   `fulfillContract()` (src/domains/contracts/service.ts) was a sequential,
+   unlocked, four-plus-round-trip TS orchestration (read contract, read
+   inventory, relieve cost, credit cash, write 3 financial events, update
+   contract status -- each its own network round trip with no shared
+   transaction), and tick-manufacturing's contract auto-fulfillment
+   (`consumeInventoryForContract`) was worse: it reduced
+   `business_inventory.quantity` in an unlocked loop and, unlike every
+   other consumption path in this codebase, never touched `total_cost` at
+   all -- leaving a stale, overstated cost basis on any partially-consumed
+   row -- and wrote a bare `business_accounts` credit with zero financial
+   events. Both call sites now call the same `fulfill_contract_atomic`,
+   which relieves inventory (`compute_inventory_cost_relief`), credits
+   cash, writes revenue/COGS/inventory financial events, and marks the
+   contract fulfilled in one transaction. `consumeInventoryForContract` was
+   deleted from tick-manufacturing/index.ts entirely.
+
+`fulfill_contract_atomic` deliberately follows the `service_role`-only,
+explicit-`p_player_id` pattern from `charge_employee_wage_atomic`/
+`settle_employee_wages_atomic` (098), not `accept_contract_atomic`'s
+`auth.uid()`-checking pattern, even though both live in the same contracts
+domain: `fulfillContract()` is invoked through the generic `QueryClient`
+abstraction (sometimes RLS-scoped from a real request, sometimes -- in
+tests -- already a service-role client) and never itself relied on
+`auth.uid()`, matching how `addBusinessAccountEntry` already calls
+`append_business_account_entry` with its own freshly-minted service-role
+client rather than trusting the caller's client. Using the `auth.uid()`
+pattern here would have broken `contract-fulfillment.test.ts`, which
+legitimately calls `fulfillContract` with a plain service-role client (no
+JWT, so `auth.uid()` is null).
+
+On an insufficient-inventory shortfall, `fulfill_contract_atomic` does NOT
+raise -- it commits a `status = 'in_progress'` update and returns
+`{ok: false, reason: 'insufficient_inventory'}` via a normal `RETURN`,
+matching the pre-existing behavior where a failed attempt still persists the
+`in_progress` transition. This only works because nothing else has mutated
+by that point in the function; every other early-exit in the function (bad
+contract, wrong status, business mismatch) uses `RAISE EXCEPTION` instead,
+since those should not leave any side effect. `fulfillContract()` and
+tick-manufacturing both keep their pre-existing pre-checks (status,
+already-delivered) as cheap early exits that preserve exact error-message
+text -- the RPC re-validates all of it under row locks regardless, same
+"pre-check is an optimization, RPC is the authority" pattern used for
+manufacturing/extraction in Phase D.
+
+Tests: rewrote `b2b-transfer.test.ts`'s header comment to describe the new
+atomic state (was describing the Phase A non-atomic baseline as current);
+added an assertion to the existing "can't afford" test proving the seller's
+inventory is byte-for-byte untouched on rejection; added a new describe
+block for cross-city B2B proving revenue/COGS recognize at dispatch while
+the buyer gets no inventory event until arrival. Added a new describe block
+to `contract-fulfillment.test.ts` proving the insufficient-inventory path
+writes nothing (`status` -> `in_progress` only; cash, inventory,
+`business_financial_events` all unchanged). No changes were needed to the
+existing happy-path B2B/contract tests -- both already asserted the correct
+end state, which this phase's fix doesn't change, only how atomically it's
+reached.
+
+Verified with a clean `npx supabase db reset` (migration 106 applied with no
+errors), `npm run typecheck`, `npm run typecheck:edge`, and
+`npm run test:finance` (39 passed, 2 expected-fail -- up from 37/2, +2 new
+tests, 0 regressions, same 2 `it.fails` remaining for Phase F).
+
+Unresolved / left for later phases: journal-entry posting
+(`post_business_journal_entry`) was deliberately NOT added to either new
+code path. Per Phase A's own notes, journal wiring has only ever been done
+for payroll (Phase B) -- every other revenue-generating RPC in this
+codebase (storefront, market, buy orders, and now B2B/contracts) still
+posts only `business_accounts` + `business_financial_events`, not journal
+lines. Adding it to just B2B/contracts here would leave the journal more
+inconsistently wired than before, not less; full journal coverage reads as
+Phase G's job ("rebuild the Income Statement from journal accounts"), done
+once, consistently, across every revenue path at once. tick-shipping's
+handling of B2B shipment arrival (landed cost, freight-in capitalization)
+is unchanged and remains explicitly Phase F's scope (item 45).
+
+Not yet pushed to the hosted project -- migration 106 needs
+`npx supabase db push`, and `npx supabase functions deploy tick-manufacturing`
+(tick-extraction is unaffected by this phase), before hosted contract/B2B
+accounting actually changes; only local has it so far.
+
+--- Phase F notes (2026-08-19) ---
+
+Two of this phase's four named areas (items 51/52) needed no code changes at
+all -- audited both before writing anything, per the plan's own rule not to
+invent fixes for problems that don't exist:
+
+- Item 52 (loans): confirmed loans are personal-only by design. banking's own
+  DOMAIN.md already says so ("Banking owns all personal money movement and
+  personal loan lifecycle logic"), and reading create_loan_for_player /
+  pay_loan_from_checking / the `loans` table confirms it -- everything is
+  keyed by player_id, nothing references a business_id anywhere. There is no
+  business-level borrowing to build a loan_payable balance sheet line for.
+  Per the plan's own fallback instruction ("If loans are personal-only... do
+  not fabricate business debt"), this phase documents that rather than
+  inventing one. loan_payable stays defined in CHART_OF_ACCOUNTS
+  (src/config/finance.ts) unused, same as before -- future business-borrowing
+  work would wire it up, not this phase.
+- Item 51 (owner equity): already fully correct as of Phase A.
+  transfer_between_personal_and_business posts owner_transfer_in (credit) /
+  owner_transfer_out (debit), classified owner_equity/owner_draw in
+  BUSINESS_LEDGER_CATEGORY_CLASSIFICATION, with zero revenue/COGS/expense
+  events -- test/finance/owner-funding.test.ts already asserted the plan's
+  own worked example ($100,000 deposit -> $100,000 cash, $100,000 equity, $0
+  revenue) end to end, and it was already passing (not an `it.fails`).
+  Nothing to fix; re-ran it to confirm before moving on.
+
+The two real gaps, both closed by migration 107
+(`shipping_upgrade_capex_accounting.sql`):
+
+1. Item 46 (upgrades/capex). purchaseUpgrade() (src/domains/businesses/
+   service.ts) used to call createUpgradeProject (its own insert into
+   business_upgrade_projects, in upgrades/projects.ts) and then
+   addBusinessAccountEntry (a separate network round trip) with no shared
+   transaction -- exactly the plan's own complaint ("project creation + cash
+   payment + accounting must happen atomically"). It also never wrote any
+   business_financial_events row at all: a $412,000 open-pit mine conversion
+   and a one-off consumable were accounted for identically. New RPC
+   purchase_business_upgrade_atomic (service_role-only, explicit
+   p_player_id, same calling convention as fulfill_contract_atomic/
+   charge_employee_wage_atomic) does the project insert, the
+   business_accounts debit, and a new `fixed_assets` business_financial_events
+   row in one transaction. Checked whether this game's upgrade catalog
+   (src/config/business-upgrades.ts, ~100 entries) has any "consumable/
+   temporary" upgrades the plan says may stay opex -- it doesn't: every
+   upgrade is a permanent, leveled, install-time-gated business improvement
+   (business_upgrades rows never expire or get consumed), so every purchase
+   capitalizes, no carve-out needed.
+
+   createUpgradeProject is deleted outright (dead code once purchaseUpgrade
+   stopped calling it) -- its own "no active project" pre-check is replaced
+   by the pre-existing unique partial index idx_business_upgrade_projects_
+   one_active (migration 048: unique on business_id where project_status in
+   ('queued','installing')), which was already the real atomicity guard even
+   before this phase; the RPC just catches unique_violation and re-raises the
+   same friendly message the old TS pre-check used to produce.
+   applyCompletedUpgradeProjects (idempotent, non-economic -- just promotes
+   finished installs to business_upgrades) stays a separate TS call before
+   the RPC, same relative position in the sequence as before, since it isn't
+   part of the economic event itself.
+
+   business_financial_events.account_code's CHECK constraint (migration 046,
+   still not derived from a shared source of truth -- same situation flagged
+   in migration 098's own comment) needed widening again for 'fixed_assets',
+   same mechanical step as Phase B's payroll_expense/wages_payable addition.
+
+2. Item 45 (shipping/freight). execute_due_shipping_deliveries (migration
+   047, unchanged since) delivered B2B cross-city inventory at
+   declared_unit_price only. The freight itself was already charged
+   correctly at dispatch (a business_accounts `shipping_fee` debit against
+   the destination business, migration 106) -- that cash-ledger entry is
+   untouched by this phase, it's still the right cash-flow classification
+   (item 49's own worked examples put both "inventory purchases" and
+   "shipping" under Operating cash flow, not Investing, even though the
+   dollars land on an asset, not an expense). What was missing was that the
+   freight dollar amount never followed the goods onto the balance sheet: at
+   delivery, landed unit cost was purchase price only, so a $50 purchase +
+   $12.37 freight became a $50 inventory asset with $12.37 quietly
+   unaccounted for anywhere. Fixed so landed cost = purchase price +
+   attributable inbound freight (shipping_queue.cost, already 1:1 with the
+   delivery batch since each row is one shipment), gated on
+   declared_unit_price is not null (the existing signal for "this was a B2B
+   transfer" -- personal-involved transfers have never tracked a cost basis
+   at all, and item 45's freight-capitalization language is specifically
+   about goods "acquired by another business").
+
+   Computed the landed total as an exact dollar sum
+   (round(quantity*declared_unit_price,2) + shipping_queue.cost) rather than
+   deriving it from a rounded per-unit cost multiplied back out -- deliberately
+   did NOT route this through Phase C's compute_inventory_cost_addition
+   helper for the "existing inventory at destination" branch, even though
+   that's the established one-canonical-implementation pattern, because that
+   helper's contract multiplies added_quantity * added_unit_cost to get
+   total_cost, and a rounded unit cost times quantity can land a cent or two
+   off a lump-sum freight amount that doesn't evenly divide by quantity --
+   exactly the failure mode item 56 warns about ("avoid repeatedly rounding
+   weighted-average unit costs in ways that cause quantity x unit_cost to
+   diverge materially from authoritative total_cost"). Inlined the same
+   existing-total-cost-reconstruction logic the function already had instead
+   (total_cost is authoritative; unit_cost is derived from it for display,
+   never the reverse).
+
+   The financial event this function already wrote at delivery
+   (account_code='inventory', per-shipment, reference_type=
+   'inventory_transfer') now carries the landed amount instead of
+   purchase-price-only; no new financial event or account_code was needed
+   for the freight itself since it's capitalized, not expensed -- there is no
+   separate "freight-in" line on the balance sheet, it's just part of
+   inventory's total_cost, per the plan's own accounting treatment.
+
+Tests: flipped both remaining `it.fails` tests (shipping.test.ts,
+upgrade-purchase.test.ts -- the last 2 of Phase A's original 4) to real
+`it()`s and rewrote their now-stale "current pre-Phase-F behavior" framing.
+shipping.test.ts's delivery test now asserts total_cost, unit_cost, and the
+landed-cost financial event amount all reflect purchase price + freight.
+upgrade-purchase.test.ts gained an assertion that the atomic RPC's
+project_status comes back "installing", plus a new test proving a second
+purchase attempt while a project is active is rejected with the expected
+message (exercises the unique_violation catch, not just the happy path).
+owner-funding.test.ts and any loan tests were re-run unchanged (item 51/52
+needed no code changes, so no test changes either) to confirm they still
+pass.
+
+Verified with a clean `npx supabase db reset` (migration 107 applied with no
+errors), `npm run typecheck`, `npm run typecheck:edge`, and
+`npm run test:finance` (all tests passing, 0 `it.fails` remaining --
+AccountingFixPlan's finance suite has no more known-bug placeholders left
+for any future phase to "flip"). Accounting invariants (debits=credits N/A
+for both changes here since neither posts to the double-entry journal, see
+below; inventory total_cost exactness; cash ledger unchanged by the
+shipping fix) hold in every new/modified test.
+
+Unresolved / left for later phases: neither purchase_business_upgrade_atomic
+nor the shipping delivery fix posts to business_journal_entries/
+business_journal_lines -- journal wiring is still payroll-only (Phase B),
+same situation Phase E's notes already flagged for storefront/market/B2B/
+contracts. Doing it once, consistently, across every posting path (including
+this phase's two) is Phase G's job ("rebuild the Income Statement from
+journal accounts"), not something to trickle in path-by-path. Relatedly,
+src/domains/businesses/finance.ts's legacy ledger-derived P&L dashboard still
+classifies the `shipping_fee` business_accounts category as operating_expense
+(BUSINESS_LEDGER_CATEGORY_CLASSIFICATION, unchanged this phase) -- for a B2B
+delivery that freight is now correctly capitalized into inventory on the real
+balance sheet (business_inventory.total_cost, which is what the plan's own
+invariants check), but the *legacy* per-period dashboard KPI would still also
+count that same dollar as an operating expense until Phase G rebuilds the
+income statement from journal/account balances instead of raw ledger
+categories -- exactly the same category of interim inconsistency Phase B's
+own notes flagged and deliberately left alone for payroll's sibling
+categories, not a regression introduced here. Fixed-asset depreciation
+(depreciation_expense, accumulated_depreciation -- both already defined in
+CHART_OF_ACCOUNTS but unused) was intentionally not implemented: the plan
+says straight-line depreciation is merely "acceptable," not required, "for
+now," and computing/reporting it belongs with Phase G's Income Statement and
+Phase H's Balance Sheet rebuild, not scattered into the purchase event
+itself; business_upgrade_projects. quoted_cost + the new fixed_assets
+financial event's created_at already give a future depreciation
+implementation everything it needs (capitalized cost, acquisition date) to
+compute this without another migration.
+
+Not yet pushed to the hosted project -- migration 107 needs `npx supabase db
+push` before hosted upgrade purchases or B2B shipping deliveries get either
+fix; only local has it so far. No edge function changes this phase (shipping
+delivery runs via the existing tick-shipping-deliveries function calling
+execute_due_shipping_deliveries, whose signature is unchanged), so no
+`functions deploy` needed specifically for Phase F.
+
+--- Phase G notes (2026-08-19) ---
+
+Two deliverables, matching the plan's own item breakdown (47 Balance Sheet,
+48 Income Statement, 49 Cash Flow Statement) plus the journal-wiring debt
+Phase E/F's own notes explicitly deferred here ("full journal coverage reads
+as Phase G's job... done once, consistently, across every posting path").
+
+1. Migration 108 (`financial_statement_journal_wiring.sql`). Wired
+   `post_business_journal_entry` (schema-only since Phase A, payroll-only
+   since Phase B) into every remaining atomic RPC that fully owns both legs
+   of its own cash movement in one transaction: `settle_store_inventory_
+   sale_atomic` / `settle_store_inventory_sales_atomic` (batch),
+   `settle_market_listing_npc_sale_atomic`, `execute_market_purchase` (a
+   buyer-side entry always, plus a seller-side entry when the listing is
+   business-sourced), `execute_inventory_transfer` (B2B same-city: both
+   sides; B2B cross-city: source side only, at dispatch), `fulfill_
+   contract_atomic`, and `purchase_business_upgrade_atomic`. Every function
+   kept its exact signature (`create or replace`, no grant changes needed).
+   Journal line arrays omit any debit/credit pair whose amount is exactly 0
+   (a real case: a $0-cost-basis item, e.g. mined output with no consumed
+   inputs) since `business_journal_lines`' own CHECK constraint requires a
+   line to have a strictly positive debit or credit, never both zero --
+   `fulfill_contract_atomic` and `purchase_business_upgrade_atomic` also
+   guard against posting no journal entry at all when the whole transaction
+   nets to $0 (e.g. a free contract/upgrade).
+
+   Deliberately NOT wired, documented in migration 108's own header comment
+   rather than silently skipped:
+   - Buy-order fills (`_settle_buy_order_fill` and its three callers). The
+     buyer's cash is fully debited at *order placement* time
+     (`buy_order_escrow`, sized at the worst-case `quantity * max_unit_price`);
+     a later fill at the listing's real (lower-or-equal) price moves
+     inventory and pays the seller but never re-touches the buyer's cash in
+     this codebase's existing design, and no "escrow release" entry exists
+     for the price difference outside full-order cancellation. A balanced
+     buyer-side journal entry here would require inventing a new escrow/
+     prepaid-asset chart-of-accounts line -- a real buy-order economics
+     redesign, out of "build the statements" scope. Flagged as a future gap.
+   - `execute_due_shipping_deliveries`' landed-cost capitalization at
+     delivery. The freight cash already left the destination business at
+     *dispatch* (in `execute_inventory_transfer`), with no offsetting asset
+     recognized then -- this game has no "goods in transit" balance-sheet
+     line (a pre-existing gap, not introduced by this phase or Phase F). At
+     delivery there's no new cash movement, only a reclassification into
+     `business_inventory.total_cost`; a balanced entry would need that
+     missing account. Every in-transit B2B shipment is therefore a real,
+     temporary Balance Sheet imbalance for the destination business until it
+     lands -- `getBalanceSheet`'s `balanced` flag reports this truthfully
+     (item 53's own rule: never silently hide a discrepancy) rather than
+     papering over it. Confirmed in a dedicated `b2b-transfer.test.ts`
+     assertion that the destination gets zero journal lines while the goods
+     are still in `shipping_queue`.
+
+2. `src/domains/businesses/statements.ts` (new module) -- the authoritative
+   Balance Sheet / Income Statement / Cash Flow Statement, per items 47-49.
+   Deliberately sources revenue/COGS/payroll/fixed-assets from
+   `business_financial_events` (grouped by `account_code`, the same Chart of
+   Accounts vocabulary migration 108's journal lines use) rather than
+   literally requiring `business_journal_lines` coverage for every account:
+   every revenue-generating path in this codebase already writes correct,
+   complete `business_financial_events` rows as of Phases B-F (confirmed by
+   each phase's own audit), while the literal double-entry journal
+   deliberately has the buy-order gap documented above. Using
+   financial_events as the statements' source means every path is
+   represented; the journal remains available as an independent
+   reconciliation source for the paths that do post to it (that
+   cross-check is Phase H's reconciliation-RPC job, item 53, not
+   re-implemented here).
+   - Balance Sheet: Cash via `get_business_account_balance`; Inventory =
+     `SUM(business_inventory.total_cost)` (never market price, per item
+     47/50's explicit rule); Fixed Assets net of straight-line depreciation
+     (see below); Wages Payable = `SUM(employees.unpaid_wage_due)` (the
+     running liability balance Phase B already maintains -- simpler and
+     equally authoritative than re-deriving it from the journal, which is
+     payroll-only anyway); Owner Capital / Draw from `business_accounts`
+     categories (`opening_capital`+`owner_transfer_in` / `owner_transfer_out`);
+     Retained Earnings = cumulative net income to date (calls
+     `getIncomeStatement` with `from: null`). Returns a `balanced` boolean
+     (`Assets == Liabilities + Equity` within a cent) rather than asserting
+     it internally -- a real, reportable check per item 55, not a
+     guaranteed invariant (see the in-transit-shipment gap above).
+   - Income Statement: Revenue/COGS/Payroll Expense/Operating Expense summed
+     from `business_financial_events` by `account_code` for the requested
+     period; Depreciation Expense computed analytically (not journal-posted)
+     as the delta in accumulated depreciation between period start and end.
+     Operating Income = Gross Profit - all operating expenses; Net Income =
+     Operating Income (no other income/expense modeled).
+   - Cash Flow Statement: every `business_accounts` row in the period,
+     classified Operating/Investing/Financing via a new
+     `CASH_FLOW_CLASSIFICATION` map (`src/config/finance.ts`), signed by its
+     own `entry_type`. Requires `beginningCash + netCashFlow == endingCash`
+     (returned as a `reconciles` boolean) by construction -- all three
+     figures derive from the same rows. `CASH_FLOW_CLASSIFICATION` is
+     deliberately separate from the pre-existing
+     `BUSINESS_LEDGER_CATEGORY_CLASSIFICATION` (used by finance.ts's legacy
+     accrual-style dashboard): `shipping_fee` is an Operating cash outflow
+     per item 49's own worked example even though it's capitalized into
+     inventory, not expensed, on the accrual Income Statement (item 45) --
+     the two classifications intentionally diverge for that one category.
+   - Straight-line depreciation: new `FIXED_ASSET_USEFUL_LIFE_MONTHS = 60`
+     config constant (`src/config/finance.ts`) -- one global default per
+     item 46's "simple configurable useful life," not a per-upgrade field
+     (business-upgrades.ts's ~100 entries have no such field, and adding one
+     is a bigger change than this plan calls for). `computeAccumulatedDepreciation`
+     treats a month as exactly 30 days (a documented simplification, not
+     calendar-accurate) and is computed analytically at report time from
+     each `fixed_assets` financial event's amount + `effective_at` -- there
+     is no periodic depreciation tick or journal posting; Phase F's own
+     notes already flagged this as deliberately deferred to Phase G.
+
+   Fixed the item-47/50 violation this phase's own audit found in the
+   pre-existing `getBusinessFinanceDashboard` (`src/domains/businesses/
+   finance.ts`): its top-level `balanceSheet` field was literally using
+   `computeInventoryAssetValue` (average open-market asking price / NPC
+   fallback -- the *market valuation* feature) as the accounting Balance
+   Sheet's Inventory line, and hardcoding Liabilities to 0 -- directly
+   contradicting the plan's own rule ("Do not use current market prices to
+   calculate accounting inventory value"). Replaced with a call to the new
+   `getBalanceSheet`, so the returned `balanceSheet` array is now real book
+   value (Cash / Inventory at cost / Fixed Assets net of depreciation /
+   Wages Payable / Owner Equity). Left every *other* field in that 1200+
+   line file untouched -- `valuation` (the separate market-value feature,
+   correctly labeled and already separate per item 50), the per-period KPI/
+   series/health/storefront-evidence machinery, and the legacy
+   `BUSINESS_LEDGER_CATEGORY_CLASSIFICATION`-based per-period income
+   statement/cash flow arrays. Item 59 ("Update the Finance UI last... once
+   the backend reconciles") explicitly assigns rewiring the dashboard onto
+   the new authoritative statements to Phase H; this phase only fixed the
+   one field that was a direct, named plan violation, not a broader
+   rewrite. Renaming that field's row labels (`"Inventory"` ->
+   `"Inventory (at cost)"`) broke three pre-existing `.find(row => row.label
+   === "Inventory")` lookups (`BusinessOverviewDashboard.tsx`,
+   `business-details-data.ts` x2, `businesses/service.ts`) that silently
+   fell back to $0 -- caught and fixed by grepping for the label string
+   after the rename, not by a type error (the field is a plain
+   `{label, amount}[]`).
+
+Tests: new `test/finance/statements.test.ts` drives the plan's own item-54
+worked example end to end on one real business ($10,000 owner contribution ->
+$2,100 inventory purchase -> a $1,400/$840-COGS storefront sale -> a $9,300
+payroll accrual the business can't afford -> a further $9,300 owner
+contribution and settlement), asserting `getBalanceSheet`/`getIncomeStatement`/
+`getCashFlowStatement` after *every* step, not just at the end -- including
+that Assets = Liabilities + Equity holds even mid-scenario while $9,300 sits
+in Wages Payable, and that settling the liability doesn't double-recognize
+the payroll expense (net income is unchanged by settlement). A second
+`describe` block unit-tests `computeAccumulatedDepreciation` directly
+(0/1/10/"way past useful life" months elapsed, plus a $0-cost row). Also
+added journal-balance assertions (via a new `expectJournalBalanced` helper in
+`test/finance/helpers.ts`) to the existing happy-path tests for every RPC
+migration 108 touched: `storefront-sale`, `market-sale`, `inventory-purchase`,
+`b2b-transfer` (both same-city and cross-city, the latter also asserting the
+destination gets *zero* journal lines while in transit), `contract-fulfillment`
+(both the happy path and the insufficient-inventory path, asserting zero
+journal lines there too), and `upgrade-purchase`.
+
+Verified with a clean `npx supabase db reset` (migration 108 applied with no
+errors), `npm run typecheck`, `npm run typecheck:edge`, `npm run build`, and
+`npm run test:finance` (48 passed -- up from 40, +8 new tests, 0 regressions
+in any earlier phase's tests). Accounting invariants (journal debits=credits
+per entry, Assets=Liabilities+Equity, beginning+net cash flow=ending cash)
+hold in every new test; the one documented exception (in-transit B2B
+shipments) is itself asserted/exercised, not swept under the rug.
+
+Unresolved / left for later phases: the two documented journal gaps above
+(buy-order fills, delivery-time landed-cost capitalization) are real, named
+limitations, not silently missing coverage -- Phase H's reconciliation RPCs
+(item 53) should account for them rather than treating every discrepancy as
+a bug (e.g. "journal debits vs credits" reconciliation should scope around
+buy-order fills' known non-coverage; "Assets vs Liabilities + Equity" should
+tolerate in-transit shipments as a known, explainable gap, not silently
+repair it). `getBusinessFinanceDashboard`'s per-period `incomeStatement`/
+`cashFlow` arrays (used by the existing UI) still use the legacy
+`BUSINESS_LEDGER_CATEGORY_CLASSIFICATION`-based heuristics, not the new
+`statements.ts` functions -- Phase H's own job per item 59, since rewiring
+those touches the sparkline/series/health/storefront-evidence machinery this
+phase deliberately left alone. Depreciation is not journal-posted anywhere
+(computed analytically at report time only); if a future phase wants
+`accumulated_depreciation`/`depreciation_expense` to appear in
+`business_journal_lines` too (e.g. for period-close reporting), that needs a
+new periodic posting mechanism this phase didn't build, since none of the
+plan's items require it and there's no existing "month close" tick to hang
+it on.
+
+Not yet pushed to the hosted project -- migration 108 needs `npx supabase db
+push` before hosted gets any of this phase's journal coverage; only local has
+it so far. No edge function changes this phase (nothing in
+supabase/functions/* calls any of the seven rewired RPCs' signatures
+differently), so no `functions deploy` needed specifically for Phase G.

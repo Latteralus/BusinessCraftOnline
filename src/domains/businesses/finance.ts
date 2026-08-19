@@ -10,6 +10,7 @@ import { addHoursToNowIso, nowIso } from "@/lib/core/time";
 import type { QueryClient } from "@/lib/db/query-client";
 import { formatCurrency } from "@/lib/formatters";
 import { supportsStorefront } from "./capabilities";
+import { getBalanceSheet } from "./statements";
 import type { Business, BusinessAccountEntry } from "./types";
 
 type FinancialEventAccountCode =
@@ -971,7 +972,20 @@ export async function getBusinessFinanceDashboard(
     client,
     (inventoryRes.data as InventorySnapshotRow[]) ?? []
   );
+  // Market-valuation-derived KPI throughout this file's per-period snapshots
+  // ("Owner Equity", "valuation", "health") -- deliberately untouched by
+  // AccountingFixPlan Phase G, which only fixes the *accounting* balance
+  // sheet below (`bookBalanceSheet`/the returned `balanceSheet` field). Per
+  // item 50, book value and market value are kept as two separate,
+  // separately-labeled things; this dashboard's other KPIs are Phase H's
+  // job to rewire onto the real statements, not Phase G's.
   const liabilities = 0;
+
+  // AccountingFixPlan Phase G (item 47): the real accounting Balance Sheet --
+  // Cash + Inventory at carrying cost (SUM business_inventory.total_cost,
+  // never market price) + Fixed Assets net of depreciation, less real
+  // liabilities (Wages Payable). See src/domains/businesses/statements.ts.
+  const bookBalanceSheet = await getBalanceSheet(client, business);
 
   const periods = Object.fromEntries(
     ranges.map((range) => {
@@ -1215,19 +1229,26 @@ export async function getBusinessFinanceDashboard(
     currentPeriod,
     periods,
     balanceSheet: [
-      { label: "Cash", amount: cashBalance },
-      { label: "Inventory", amount: inventoryAssetValue },
-      { label: "Liabilities", amount: -liabilities },
-      { label: "Owner Equity", amount: round2(cashBalance + inventoryAssetValue - liabilities) },
+      { label: "Cash", amount: bookBalanceSheet.assets.cash },
+      { label: "Inventory (at cost)", amount: bookBalanceSheet.assets.inventory },
+      { label: "Fixed Assets (net of depreciation)", amount: bookBalanceSheet.assets.fixedAssetsNet },
+      { label: "Wages Payable", amount: -bookBalanceSheet.liabilities.wagesPayable },
+      { label: "Owner Equity", amount: bookBalanceSheet.equity.total },
     ],
     valuation,
     health,
     assumptions: [
-      "Inventory is valued at the average active open-market asking price for each item.",
+      // Applies only to `valuation`/the per-period `inventoryAssetValue` KPI
+      // (business valuation estimate) -- the `balanceSheet` field above is
+      // accounting book value (business_inventory.total_cost), not market
+      // price, per AccountingFixPlan item 47/50.
+      "Business valuation estimates inventory at the average active open-market asking price for each item; the accounting Balance Sheet above uses cost basis instead.",
       npcFallbackRows > 0
-        ? `Some inventory value uses the NPC buying-price midpoint as a fallback where nothing is currently listed on the market (${npcFallbackRows} row${npcFallbackRows === 1 ? "" : "s"}).`
-        : "All inventory value is based on live open-market pricing.",
-      "Business liabilities are currently modeled as zero until business debt instruments are introduced.",
+        ? `Some valuation inventory value uses the NPC buying-price midpoint as a fallback where nothing is currently listed on the market (${npcFallbackRows} row${npcFallbackRows === 1 ? "" : "s"}).`
+        : "All valuation inventory value is based on live open-market pricing.",
+      bookBalanceSheet.balanced
+        ? "The accounting Balance Sheet balances (Assets = Liabilities + Equity)."
+        : "The accounting Balance Sheet does not currently balance -- likely explained by inventory in transit on an active B2B shipment (see statements.ts).",
     ],
   };
 }

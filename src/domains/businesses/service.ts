@@ -10,7 +10,7 @@ import { type FinancePeriod } from "@/config/finance";
 import { appendPersonalTransaction } from "@/domains/banking";
 import { canPurchaseBusiness } from "@/domains/cities-travel";
 import {
-  createUpgradeProject,
+  applyCompletedUpgradeProjects,
   getBusinessUpgradeProjectState,
   getUpgradePreviewForBusiness,
 } from "@/domains/upgrades";
@@ -475,28 +475,43 @@ export async function purchaseUpgrade(
     );
   }
 
-  const project = await createUpgradeProject(client, {
-    businessId,
-    upgradeKey,
-    targetLevel: nextLevel,
-    quotedCost: upgradeCost,
-  });
+  // Completing any prior project that finished installing is a prerequisite
+  // check (an "active project" would otherwise block this purchase), not an
+  // economic event -- runs before the atomic RPC rather than inside it.
+  await applyCompletedUpgradeProjects(client, businessId);
 
-  await addBusinessAccountEntry(client, playerId, businessId, {
-    amount: upgradeCost,
-    entryType: "debit",
-    category: "upgrade_purchase",
-    description: `Upgrade project funded: ${upgradeKey} Lv.${nextLevel}`,
-    referenceId: project.id,
-  });
+  // Project creation + cash debit + fixed-assets capitalization happen in one
+  // transaction (AccountingFixPlan item 46: "project creation + cash payment
+  // + accounting must happen atomically"). purchase_business_upgrade_atomic
+  // is service_role-only (players could otherwise fabricate free upgrades via
+  // PostgREST), so this calls it with a fresh service-role client rather than
+  // the caller's client, matching addBusinessAccountEntry's own pattern.
+  const { data, error } = await createSupabaseServiceRoleClient().rpc(
+    "purchase_business_upgrade_atomic",
+    {
+      p_player_id: playerId,
+      p_business_id: businessId,
+      p_upgrade_key: upgradeKey,
+      p_target_level: nextLevel,
+      p_quoted_cost: upgradeCost,
+      p_downtime_policy: definition.downtimePolicy,
+      p_install_time_minutes: definition.installTimeMinutes,
+    }
+  );
 
-  const resultingBalance = await getBusinessBalanceById(client, businessId);
+  if (error) throw error;
+
+  const result = data as {
+    project: BusinessUpgradeProject;
+    debitedAmount: number;
+    resultingBalance: number;
+  };
 
   return {
     businessId,
-    project: normalizeUpgradeProject(project),
-    debitedAmount: round2(upgradeCost),
-    resultingBalance,
+    project: normalizeUpgradeProject(result.project),
+    debitedAmount: round2(toNumber(result.debitedAmount)),
+    resultingBalance: toNumber(result.resultingBalance),
   };
 }
 
@@ -513,7 +528,7 @@ export async function getBusinessFinanceSummary(
 
   return {
     balance: period.kpis.cash,
-    totalValueOnMarket: dashboard.balanceSheet.find((row) => row.label === "Inventory")?.amount ?? 0,
+    totalValueOnMarket: dashboard.balanceSheet.find((row) => row.label === "Inventory (at cost)")?.amount ?? 0,
     itemsSold24h: 0,
     revenue24h: period.kpis.revenue,
   };

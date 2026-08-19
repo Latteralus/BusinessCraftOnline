@@ -128,7 +128,7 @@ export async function loadBusinessDetailsEntry(
     financeDashboard,
     ownedBusinesses,
     upgradeDefinitions,
-    inventoryAssetValue: financeDashboard?.balanceSheet.find((row) => row.label === "Inventory")?.amount ?? 0,
+    inventoryAssetValue: financeDashboard?.balanceSheet.find((row) => row.label === "Inventory (at cost)")?.amount ?? 0,
   };
 }
 
@@ -247,6 +247,6 @@ export async function loadBusinessDetailsSection(
     upgrades,
     employees: employeesRes.data ?? [],
     financeDashboard,
-    inventoryAssetValue: financeDashboard?.balanceSheet.find((row) => row.label === "Inventory")?.amount ?? 0,
+    inventoryAssetValue: financeDashboard?.balanceSheet.find((row) => row.label === "Inventory (at cost)")?.amount ?? 0,
   };
 }

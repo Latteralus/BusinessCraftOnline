@@ -2,10 +2,12 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   createTestBusiness,
   createTestPlayer,
+  expectJournalBalanced,
   getBusinessCashBalance,
   getBusinessInventoryRows,
   getCityIds,
   getFinancialEvents,
+  getJournalLines,
   getLedgerEntries,
   serviceRoleClient,
   type TestClient,
@@ -91,5 +93,15 @@ describe("open-market sale: NPC purchase via settle_market_listing_npc_sale_atom
 
     const inventoryRows = await getBusinessInventoryRows(client, businessId, "red_wine");
     expect(inventoryRows).toHaveLength(0);
+
+    // AccountingFixPlan Phase G: settle_market_listing_npc_sale_atomic now
+    // posts a balanced journal entry for the business-sourced listing.
+    const journal = await getJournalLines(client, businessId);
+    expectJournalBalanced(journal);
+    expect(journal.find((l) => l.account_code === "cash" && l.debit === 160)).toBeDefined();
+    expect(journal.find((l) => l.account_code === "revenue" && l.credit === 160)).toBeDefined();
+    expect(journal.find((l) => l.account_code === "cogs" && l.debit === 100)).toBeDefined();
+    expect(journal.find((l) => l.account_code === "inventory" && l.credit === 100)).toBeDefined();
+    expect(journal.find((l) => l.account_code === "market_fees" && l.debit === 4.8)).toBeDefined();
   });
 });

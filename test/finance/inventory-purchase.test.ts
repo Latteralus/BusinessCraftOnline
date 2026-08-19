@@ -3,11 +3,13 @@ import { ensurePersonalAccounts } from "@/domains/banking/service";
 import {
   createTestBusiness,
   createTestPlayer,
+  expectJournalBalanced,
   fundBusinessFromOwner,
   getBusinessCashBalance,
   getBusinessInventoryRows,
   getCityIds,
   getFinancialEvents,
+  getJournalLines,
   getLedgerEntries,
   playerClient,
   serviceRoleClient,
@@ -123,6 +125,21 @@ describe("inventory purchase: business buys from another business's market listi
 
     const buyerEvents = await getFinancialEvents(client, buyerBusinessId);
     expect(buyerEvents.find((e) => e.account_code === "inventory")?.amount).toBe(800);
+
+    // AccountingFixPlan Phase G: execute_market_purchase now posts a
+    // balanced journal entry for each side (buyer and business seller).
+    const buyerJournal = await getJournalLines(client, buyerBusinessId);
+    expectJournalBalanced(buyerJournal);
+    expect(buyerJournal.find((l) => l.account_code === "inventory" && l.debit === 800)).toBeDefined();
+    expect(buyerJournal.find((l) => l.account_code === "cash" && l.credit === 800)).toBeDefined();
+
+    const sellerJournal = await getJournalLines(client, sellerBusinessId);
+    expectJournalBalanced(sellerJournal);
+    expect(sellerJournal.find((l) => l.account_code === "cash" && l.debit === 800)).toBeDefined();
+    expect(sellerJournal.find((l) => l.account_code === "revenue" && l.credit === 800)).toBeDefined();
+    expect(sellerJournal.find((l) => l.account_code === "cogs" && l.debit === 600)).toBeDefined();
+    expect(sellerJournal.find((l) => l.account_code === "inventory" && l.credit === 600)).toBeDefined();
+    expect(sellerJournal.find((l) => l.account_code === "market_fees" && l.debit === 24)).toBeDefined();
   });
 
   it("rejects buying your own listing", async () => {

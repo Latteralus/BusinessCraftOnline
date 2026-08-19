@@ -9,22 +9,24 @@ import {
   getBusinessCashBalance,
   getBusinessInventoryRows,
   getCityIds,
+  getFinancialEvents,
   getLedgerEntries,
   playerClient,
   serviceRoleClient,
   type TestClient,
 } from "./helpers";
 
-// AccountingFixPlan item 45: "For inventory acquired by another business,
-// freight-in should normally increase the buyer's inventory cost:
+// AccountingFixPlan item 45 (Phase F): "For inventory acquired by another
+// business, freight-in should normally increase the buyer's inventory cost:
 // Inventory acquisition cost = purchase price + attributable inbound
-// freight." As of this Phase A baseline, execute_due_shipping_deliveries
-// (migration 047) sets the delivered inventory's cost basis to
-// declared_unit_price only -- the shipping fee is charged separately as a
-// business_accounts `shipping_fee` debit (operating expense) on the
-// destination business and never folds into the inventory's total_cost.
-// That's the exact Phase F gap: freight is currently expensed, not
-// capitalized.
+// freight." execute_due_shipping_deliveries (migration 107) now capitalizes
+// the shipping_queue row's freight cost into the delivered inventory's
+// total_cost for B2B deliveries (declared_unit_price is only ever set for
+// business-to-business transfers). The cash side is unchanged: the
+// destination business still pays the purchase price and the shipping fee
+// as two separate business_accounts debits at dispatch time (asserted
+// below) -- only where that freight dollar amount ends up on the balance
+// sheet changed.
 describe("shipping: cross-city B2B transfer + delivery (execute_inventory_transfer + execute_due_shipping_deliveries)", () => {
   let client: TestClient;
   let ownerPlayerId: string;
@@ -101,7 +103,7 @@ describe("shipping: cross-city B2B transfer + delivery (execute_inventory_transf
     expect(Number((queueRow as any).declared_unit_price)).toBe(5);
   });
 
-  it("delivery: inventory arrives at the declared purchase price, WITHOUT the freight cost folded in (Phase F gap)", async () => {
+  it("delivery: inventory arrives at landed cost (purchase price + attributable inbound freight capitalized)", async () => {
     // Force the shipment to be due now instead of waiting out its real ETA.
     // arrives_at has a `>= dispatched_at` check constraint, so back-date it
     // to just after dispatch rather than to "now - 1s" (dispatched_at could
@@ -118,14 +120,13 @@ describe("shipping: cross-city B2B transfer + delivery (execute_inventory_transf
     const destRows = await getBusinessInventoryRows(client, destinationBusinessId, "iron_ore");
     expect(destRows).toHaveLength(1);
     expect(Number(destRows[0].quantity)).toBe(10);
-    // Current (pre-Phase-F) behavior: cost basis is purchase price only.
-    expect(Number(destRows[0].total_cost)).toBe(50);
-  });
-
-  // AccountingFixPlan item 45's target: total landed cost should be
-  // purchase price + attributable inbound freight = $50 + shippingCost.
-  it.fails("capitalizes inbound freight into the delivered inventory's cost basis", async () => {
-    const destRows = await getBusinessInventoryRows(client, destinationBusinessId, "iron_ore");
+    // Item 45's target: total landed cost = purchase price + attributable
+    // inbound freight = $50 + shippingCost, not purchase price alone.
     expect(Number(destRows[0].total_cost)).toBe(50 + shippingCost);
+    expect(Number(destRows[0].unit_cost)).toBe(Math.round(((50 + shippingCost) / 10) * 100) / 100);
+
+    const events = await getFinancialEvents(client, destinationBusinessId);
+    const acquisitionEvent = events.find((e) => e.account_code === "inventory" && e.reference_type === "inventory_transfer");
+    expect(acquisitionEvent).toMatchObject({ amount: 50 + shippingCost });
   });
 });

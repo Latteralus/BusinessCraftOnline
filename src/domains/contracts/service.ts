@@ -1,11 +1,5 @@
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
-import {
-  consumeInventoryRowsCost,
-  getAvailableInventoryQuantity,
-  insertBusinessFinancialEvents,
-  loadBusinessInventoryRowsForItem,
-} from "@/domains/businesses/financial-events";
-import { addBusinessAccountEntry } from "@/domains/businesses";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase-service-role";
 import type { QueryClient } from "@/lib/db/query-client";
 import { toNumber } from "@/lib/core/number";
 import type {
@@ -182,87 +176,25 @@ export async function fulfillContract(
     throw new Error("Contract is already fully delivered.");
   }
 
-  // Fetch once and reuse for both the availability check and the actual
-  // consumption below, instead of hasEnoughBusinessInventory and
-  // consumeBusinessInventoryCost each independently re-selecting the same
-  // rows. Resolves audit finding L1 (Documents/SBAudit.md).
-  const inventoryRows = await loadBusinessInventoryRowsForItem(
-    client,
-    playerId,
-    contract.business_id,
-    contract.item_key
-  );
+  // fulfill_contract_atomic (migration 106) relieves the exact
+  // weighted-average inventory cost, credits the payout, and writes
+  // revenue/COGS/inventory financial events all in one transaction --
+  // restricted to service_role like every other economic RPC that moves
+  // business cash, so call it with a service-role client rather than the
+  // caller's client (same reasoning as addBusinessAccountEntry in
+  // src/domains/businesses/service.ts). The checks above are a cheap
+  // early-exit that preserve this function's existing error messages; the
+  // RPC re-validates everything under row locks regardless.
+  const { data, error } = await createSupabaseServiceRoleClient().rpc("fulfill_contract_atomic", {
+    p_player_id: playerId,
+    p_contract_id: contract.id,
+  });
+  if (error) throw error;
 
-  if (getAvailableInventoryQuantity(inventoryRows) < remaining) {
-    const { error: inProgressError } = await client
-      .from("contracts")
-      .update({ status: "in_progress", updated_at: new Date().toISOString() })
-      .eq("id", contract.id);
-    if (inProgressError) throw inProgressError;
+  const result = data as { ok: boolean; reason?: string; contract?: Contract } | null;
+  if (!result?.ok) {
     throw new Error("Not enough inventory to fulfill this contract.");
   }
 
-  const inventoryCost = await consumeInventoryRowsCost(client, inventoryRows, remaining);
-
-  const payout = Number((remaining * contract.unit_price).toFixed(2));
-
-  await addBusinessAccountEntry(client, playerId, contract.business_id, {
-    amount: payout,
-    entryType: "credit",
-    category: "contract_payout",
-    referenceId: contract.id,
-    description: `Contract payout: ${remaining}x ${contract.item_key}`,
-  });
-
-  await insertBusinessFinancialEvents(client, playerId, [
-    {
-      business_id: contract.business_id,
-      account_code: "revenue",
-      amount: payout,
-      quantity: remaining,
-      item_key: contract.item_key,
-      reference_type: "contract",
-      reference_id: contract.id,
-      description: `Contract revenue: ${remaining}x ${contract.item_key}`,
-      metadata: { estimatedCost: inventoryCost.estimated },
-    },
-    {
-      business_id: contract.business_id,
-      account_code: "cogs",
-      amount: inventoryCost.totalCost,
-      quantity: inventoryCost.quantityConsumed,
-      item_key: contract.item_key,
-      reference_type: "contract",
-      reference_id: contract.id,
-      description: `Contract COGS: ${remaining}x ${contract.item_key}`,
-      metadata: { estimatedCost: inventoryCost.estimated },
-    },
-    {
-      business_id: contract.business_id,
-      account_code: "inventory",
-      amount: inventoryCost.totalCost,
-      quantity: inventoryCost.quantityConsumed,
-      item_key: contract.item_key,
-      reference_type: "contract",
-      reference_id: contract.id,
-      description: `Inventory relieved for contract: ${remaining}x ${contract.item_key}`,
-      metadata: { direction: "out", estimatedCost: inventoryCost.estimated },
-    },
-  ]);
-
-  const now = new Date().toISOString();
-  const { data, error } = await client
-    .from("contracts")
-    .update({
-      delivered_quantity: contract.required_quantity,
-      status: "fulfilled",
-      completed_at: now,
-      updated_at: now,
-    })
-    .eq("id", contract.id)
-    .select("*")
-    .single();
-
-  if (error) throw error;
-  return normalizeContract(data as Contract);
+  return normalizeContract(result.contract as Contract);
 }

@@ -2,10 +2,12 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   createTestBusiness,
   createTestPlayer,
+  expectJournalBalanced,
   getBusinessCashBalance,
   getBusinessInventoryRows,
   getCityIds,
   getFinancialEvents,
+  getJournalLines,
   getLedgerEntries,
   serviceRoleClient,
   type TestClient,
@@ -88,6 +90,17 @@ describe("storefront sale: NPC purchase via settle_store_inventory_sales_atomic"
 
     const { data: shelfAfter } = await client.from("store_shelf_items").select("id").eq("id", shelfItemId);
     expect(shelfAfter).toHaveLength(0);
+
+    // AccountingFixPlan Phase G: settle_store_inventory_sales_atomic now also
+    // posts a balanced journal entry (cash/revenue/cogs/inventory/market_fees).
+    const journal = await getJournalLines(client, businessId);
+    expectJournalBalanced(journal);
+    expect(journal.find((l) => l.account_code === "cash" && l.debit === 400)).toBeDefined();
+    expect(journal.find((l) => l.account_code === "revenue" && l.credit === 400)).toBeDefined();
+    expect(journal.find((l) => l.account_code === "cogs" && l.debit === 160)).toBeDefined();
+    expect(journal.find((l) => l.account_code === "inventory" && l.credit === 160)).toBeDefined();
+    expect(journal.find((l) => l.account_code === "market_fees" && l.debit === 20)).toBeDefined();
+    expect(journal.find((l) => l.account_code === "cash" && l.credit === 20)).toBeDefined();
   });
 
   it("clamps a sale to available backing inventory instead of aborting the whole batch (ok:false)", async () => {

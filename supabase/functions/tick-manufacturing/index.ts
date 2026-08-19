@@ -174,65 +174,6 @@ async function syncLegacyManufacturingJobForBusiness(
   if (upsertError) throw upsertError;
 }
 
-async function consumeInventoryForContract(
-  supabase: EdgeSupabaseClient,
-  playerId: string,
-  businessId: string,
-  itemKey: string,
-  requiredQuantity: number
-): Promise<boolean> {
-  const { data: rows } = await supabase
-    .from("business_inventory")
-    .select("id, quantity, reserved_quantity")
-    .eq("owner_player_id", playerId)
-    .eq("business_id", businessId)
-    .eq("item_key", itemKey)
-    .order("quality", { ascending: false });
-
-  const inventoryRows = (rows ?? []) as Array<{
-    id: string;
-    quantity: number | string;
-    reserved_quantity: number | string;
-  }>;
-
-  let availableTotal = 0;
-  for (const row of inventoryRows) {
-    availableTotal += Math.max(0, toNumber(row.quantity) - toNumber(row.reserved_quantity));
-  }
-
-  if (availableTotal < requiredQuantity) return false;
-
-  let remaining = requiredQuantity;
-  for (const row of inventoryRows) {
-    if (remaining <= 0) break;
-
-    const quantity = toNumber(row.quantity);
-    const reserved = toNumber(row.reserved_quantity);
-    const available = Math.max(0, quantity - reserved);
-    if (available <= 0) continue;
-
-    const used = Math.min(available, remaining);
-    const nextQty = quantity - used;
-
-    if (nextQty <= 0) {
-      await supabase.from("business_inventory").delete().eq("id", row.id);
-    } else {
-      await supabase
-        .from("business_inventory")
-        .update({
-          quantity: nextQty,
-          reserved_quantity: Math.min(reserved, nextQty),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", row.id);
-    }
-
-    remaining -= used;
-  }
-
-  return true;
-}
-
 Deno.serve(async (request) => {
   const requestStart = await startTickRequest(request, "tick-manufacturing");
   if ("response" in requestStart) return requestStart.response;
@@ -572,45 +513,23 @@ Deno.serve(async (request) => {
       continue;
     }
 
-    const consumed = await consumeInventoryForContract(
-      supabase,
-      contract.owner_player_id,
-      contract.business_id,
-      contract.item_key,
-      requiredQty
-    );
+    // fulfill_contract_atomic (migration 106) relieves the exact
+    // weighted-average inventory cost, credits the payout, writes
+    // revenue/COGS/inventory financial events, and marks the contract
+    // fulfilled -- all in one transaction. Same RPC the player-initiated
+    // fulfillContract() path uses, so auto-fulfillment and manual
+    // fulfillment can no longer produce different accounting.
+    const { data: fulfillResult, error: fulfillError } = await supabase.rpc("fulfill_contract_atomic", {
+      p_player_id: contract.owner_player_id,
+      p_contract_id: contract.id,
+    });
+    if (fulfillError) throw fulfillError;
 
-    if (!consumed) {
-      const { error: inProgressError } = await supabase
-        .from("contracts")
-        .update({ status: "in_progress", updated_at: nowIso })
-        .eq("id", contract.id);
-      if (inProgressError) throw inProgressError;
+    if (!(fulfillResult as { ok?: boolean } | null)?.ok) {
+      // fulfill_contract_atomic already committed the in_progress status
+      // transition when inventory was short -- nothing else to do this tick.
       continue;
     }
-
-    const payout = Number((requiredQty * toNumber(contract.unit_price)).toFixed(2));
-
-    const { error: payoutError } = await supabase.from("business_accounts").insert({
-      business_id: contract.business_id,
-      amount: payout,
-      entry_type: "credit",
-      category: "contract_payout",
-      reference_id: contract.id,
-      description: `Contract payout: ${requiredQty}x ${contract.item_key}`,
-    });
-    if (payoutError) throw payoutError;
-
-    const { error: fulfillError } = await supabase
-      .from("contracts")
-      .update({
-        delivered_quantity: toNumber(contract.required_quantity),
-        status: "fulfilled",
-        completed_at: nowIso,
-        updated_at: nowIso,
-      })
-      .eq("id", contract.id);
-    if (fulfillError) throw fulfillError;
 
     contractsFulfilled += 1;
     }

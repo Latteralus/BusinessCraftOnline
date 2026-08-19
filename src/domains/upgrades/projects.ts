@@ -1,8 +1,6 @@
-import { getBusinessUpgradeDefinition } from "@/config/business-upgrades";
 import { nowIso } from "@/lib/core/time";
 import { toNumber } from "@/lib/core/number";
 import type { QueryClient } from "@/lib/db/query-client";
-import type { BusinessUpgradeKey } from "./types";
 import type { BusinessUpgradeProject } from "@/domains/businesses/types";
 
 function normalizeProject(row: BusinessUpgradeProject): BusinessUpgradeProject {
@@ -97,50 +95,3 @@ export async function applyCompletedUpgradeProjects(
   return projects;
 }
 
-export async function createUpgradeProject(
-  client: QueryClient,
-  input: {
-    businessId: string;
-    upgradeKey: BusinessUpgradeKey;
-    targetLevel: number;
-    quotedCost: number;
-  }
-): Promise<BusinessUpgradeProject> {
-  const definition = getBusinessUpgradeDefinition(input.upgradeKey);
-  if (!definition) {
-    throw new Error(`Upgrade definition '${input.upgradeKey}' not found.`);
-  }
-
-  const currentProjects = await applyCompletedUpgradeProjects(client, input.businessId);
-  const activeProject = currentProjects.find(
-    (project) => project.project_status === "queued" || project.project_status === "installing"
-  );
-
-  if (activeProject) {
-    throw new Error("This business already has an active capital project.");
-  }
-
-  const startedAt = nowIso();
-  const completesAt = new Date(
-    Date.now() + definition.installTimeMinutes * 60 * 1000
-  ).toISOString();
-
-  const { data, error } = await client
-    .from("business_upgrade_projects")
-    .insert({
-      business_id: input.businessId,
-      upgrade_key: input.upgradeKey,
-      target_level: input.targetLevel,
-      project_status: "installing",
-      quoted_cost: input.quotedCost,
-      started_at: startedAt,
-      completes_at: completesAt,
-      applied_at: null,
-      downtime_policy: definition.downtimePolicy,
-    })
-    .select("*")
-    .single();
-
-  if (error) throw error;
-  return normalizeProject(data as BusinessUpgradeProject);
-}

@@ -1,8 +1,4 @@
-import { randomUUID } from "node:crypto";
 import { calculateShippingQuote, getCityById } from "@/domains/cities-travel";
-import { computeWeightedAverageCost } from "@/domains/businesses/financial-events";
-import { insertBusinessFinancialEvents } from "@/domains/businesses/financial-events";
-import type { NewBusinessFinancialEvent } from "@/domains/businesses/financial-events";
 import { toNumber } from "@/lib/core/number";
 import { nowIso } from "@/lib/core/time";
 import type { QueryClient } from "@/lib/db/query-client";
@@ -245,11 +241,6 @@ export async function transferItems(
   }
 
   const shippingPlan = await resolveShippingPlan(client, input);
-  const isBusinessToBusiness =
-    input.sourceType === "business" &&
-    input.destinationType === "business" &&
-    Boolean(input.sourceBusinessId) &&
-    Boolean(input.destinationBusinessId);
 
   const { data, error } = await client.rpc("execute_inventory_transfer", {
     p_source_type: input.sourceType,
@@ -274,117 +265,17 @@ export async function transferItems(
     shippingQueueItem?: ShippingQueueItem | null;
     shippingCost?: number;
     shippingMinutes?: number;
-    referenceId?: string;
-    sourceUnitCost?: number | string | null;
-    sourceRelievedCost?: number | string | null;
   } | null;
 
   if (!result?.transferType) {
     throw new Error("Transfer did not return a valid result.");
   }
 
-  if (
-    isBusinessToBusiness &&
-    input.sourceBusinessId &&
-    input.destinationBusinessId &&
-    input.unitPrice
-  ) {
-    const purchaseUnitCost = input.unitPrice;
-    const transferReferenceId = result.referenceId ?? result.shippingQueueItem?.id ?? randomUUID();
-    const grossTransferAmount = Number((purchaseUnitCost * input.quantity).toFixed(2));
-    // The RPC already computed and applied the source's cost-basis relief
-    // atomically (compute_inventory_cost_relief, migration 099) -- reuse its
-    // returned relieved amount for the COGS/inventory-out financial events
-    // instead of re-deriving it here from a second, separately-locked read.
-    const transferredTotalCost = toNumber(result.sourceRelievedCost);
-
-    const financialEvents: NewBusinessFinancialEvent[] = [
-      {
-        business_id: input.sourceBusinessId,
-        account_code: "revenue",
-        amount: grossTransferAmount,
-        quantity: input.quantity,
-        item_key: input.itemKey,
-        reference_type: "inventory_transfer",
-        reference_id: transferReferenceId,
-        description: `Intercompany transfer revenue: ${input.quantity}x ${input.itemKey}`,
-      },
-      {
-        business_id: input.sourceBusinessId,
-        account_code: "cogs",
-        amount: transferredTotalCost,
-        quantity: input.quantity,
-        item_key: input.itemKey,
-        reference_type: "inventory_transfer",
-        reference_id: transferReferenceId,
-        description: `Intercompany transfer COGS: ${input.quantity}x ${input.itemKey}`,
-      },
-      {
-        business_id: input.sourceBusinessId,
-        account_code: "inventory",
-        amount: transferredTotalCost,
-        quantity: input.quantity,
-        item_key: input.itemKey,
-        reference_type: "inventory_transfer",
-        reference_id: transferReferenceId,
-        description: `Inventory relieved for transfer: ${input.quantity}x ${input.itemKey}`,
-        metadata: { direction: "out" },
-      },
-      {
-        business_id: input.destinationBusinessId,
-        account_code: "inventory",
-        amount: grossTransferAmount,
-        quantity: input.quantity,
-        item_key: input.itemKey,
-        reference_type: "inventory_transfer",
-        reference_id: transferReferenceId,
-        description: `Inventory acquired by transfer: ${input.quantity}x ${input.itemKey}`,
-        metadata: { direction: "in" },
-      },
-    ];
-
-    await insertBusinessFinancialEvents(
-      client,
-      playerId,
-      financialEvents.filter(
-        (row) => result.transferType === "same_city" || row.business_id !== input.destinationBusinessId
-      )
-    );
-
-    if (result.transferType === "same_city") {
-      const { data: destinationRow, error: destinationError } = await client
-        .from("business_inventory")
-        .select("id, quantity, unit_cost, total_cost")
-        .eq("owner_player_id", playerId)
-        .eq("business_id", input.destinationBusinessId)
-        .eq("item_key", input.itemKey)
-        .eq("quality", input.quality)
-        .maybeSingle();
-
-      if (!destinationError && destinationRow && purchaseUnitCost > 0) {
-        const existingQuantity = Math.max(0, toNumber(destinationRow.quantity) - input.quantity);
-        const existingTotalCost = destinationRow.total_cost === undefined || destinationRow.total_cost === null
-          ? existingQuantity * toNumber(destinationRow.unit_cost)
-          : toNumber(destinationRow.total_cost) - input.quantity * purchaseUnitCost;
-        const next = computeWeightedAverageCost({
-          existingQuantity: Math.max(0, existingQuantity),
-          existingTotalCost: Math.max(0, existingTotalCost),
-          addedQuantity: input.quantity,
-          addedUnitCost: purchaseUnitCost,
-        });
-
-        const { error: costUpdateError } = await client
-          .from("business_inventory")
-          .update({
-            unit_cost: next.nextUnitCost,
-            total_cost: next.nextTotalCost,
-            updated_at: nowIso(),
-          })
-          .eq("id", destinationRow.id);
-        if (costUpdateError) throw costUpdateError;
-      }
-    }
-  }
+  // execute_inventory_transfer (migration 106) now does the entire economic
+  // transaction atomically for business-to-business transfers -- source
+  // relief, destination acquisition cost basis, cash movement, and every
+  // revenue/COGS/inventory financial event -- in one transaction. There is
+  // no post-RPC accounting step left to perform here.
 
   return {
     transferType: result.transferType,

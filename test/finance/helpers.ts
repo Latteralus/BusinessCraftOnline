@@ -166,3 +166,19 @@ export async function getJournalLines(
 export function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
+
+/** AccountingFixPlan Phase G: asserts a business's journal lines sum to zero net (debits == credits) both overall and per entry_id -- a stronger check than the DB's own deferred trigger (which only runs at commit inside the RPC's own transaction), useful for asserting the journal a whole test scenario produced is fully balanced end to end. */
+export function expectJournalBalanced(lines: Array<{ debit: number; credit: number; entry_id: string }>): void {
+  const byEntry = new Map<string, { debit: number; credit: number }>();
+  for (const line of lines) {
+    const bucket = byEntry.get(line.entry_id) ?? { debit: 0, credit: 0 };
+    bucket.debit = round2(bucket.debit + line.debit);
+    bucket.credit = round2(bucket.credit + line.credit);
+    byEntry.set(line.entry_id, bucket);
+  }
+  for (const [entryId, totals] of byEntry) {
+    if (totals.debit !== totals.credit) {
+      throw new Error(`Journal entry ${entryId} is unbalanced: debit=${totals.debit} credit=${totals.credit}`);
+    }
+  }
+}
