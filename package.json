@@ -2,7 +2,7 @@
   "name": "lifecraftonline",
   "version": "0.1.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "proprietary",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
