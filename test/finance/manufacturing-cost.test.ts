@@ -108,3 +108,123 @@ describe("manufacturing cost relief (2 iron_ore + 1 coal -> 1 iron_bar)", () => 
     expect(totalInventoryCostAfter).toBe(totalInventoryCostBefore);
   });
 });
+
+// AccountingFixPlan Phase D: tick-manufacturing now delegates the actual
+// input-relief + output-creation step to the atomic RPC
+// run_manufacturing_line_production instead of a plain unlocked
+// SELECT-then-loop-of-.update()/.delete() calls (per the Phase A audit, the
+// least atomic path in the codebase). This exercises that RPC directly,
+// mirroring what the tick calls per manufacturing_lines job.
+describe("run_manufacturing_line_production (AccountingFixPlan Phase D)", () => {
+  let client: TestClient;
+  let playerId: string;
+  let businessId: string;
+  let cityId: string;
+  let lineId: string;
+
+  beforeAll(async () => {
+    client = serviceRoleClient();
+    [cityId] = await getCityIds(client);
+    playerId = await createTestPlayer(client, "mfgrpc");
+    businessId = await createTestBusiness(client, playerId, "metalworking_factory", cityId, "Manufacturing");
+
+    const { data: line, error: lineError } = await client
+      .from("manufacturing_lines")
+      .insert({ business_id: businessId, line_number: 1, status: "active" })
+      .select("id")
+      .single();
+    if (lineError) throw lineError;
+    lineId = (line as { id: string }).id;
+
+    await client.from("business_inventory").insert([
+      {
+        owner_player_id: playerId,
+        business_id: businessId,
+        city_id: cityId,
+        item_key: "iron_ore",
+        quality: 40,
+        quantity: 10,
+        reserved_quantity: 0,
+        unit_cost: 5,
+        total_cost: 50,
+      },
+      {
+        owner_player_id: playerId,
+        business_id: businessId,
+        city_id: cityId,
+        item_key: "coal",
+        quality: 40,
+        quantity: 5,
+        reserved_quantity: 0,
+        unit_cost: 3,
+        total_cost: 15,
+      },
+    ]);
+  });
+
+  it("atomically relieves inputs and creates finished goods with the exact consumed cost", async () => {
+    const { data, error } = await client.rpc("run_manufacturing_line_production", {
+      p_line_id: lineId,
+      p_owner_player_id: playerId,
+      p_business_id: businessId,
+      p_city_id: cityId,
+      p_inputs: [
+        { itemKey: "iron_ore", quantity: 2 },
+        { itemKey: "coal", quantity: 1 },
+      ],
+      p_output_item_key: "iron_bar",
+      p_output_quality: 40,
+      p_output_units: 1,
+      p_next_input_progress: { iron_ore: 0, coal: 0 },
+      p_next_output_progress: 0.5,
+    });
+    expect(error).toBeNull();
+    expect((data as any).consumedCost).toBe(13);
+    expect((data as any).outputUnitCost).toBe(13);
+
+    const ironOreRows = await getBusinessInventoryRows(client, businessId, "iron_ore");
+    expect(Number(ironOreRows[0].quantity)).toBe(8);
+    expect(Number(ironOreRows[0].total_cost)).toBe(40);
+    const coalRows = await getBusinessInventoryRows(client, businessId, "coal");
+    expect(Number(coalRows[0].quantity)).toBe(4);
+    expect(Number(coalRows[0].total_cost)).toBe(12);
+    const ironBarRows = await getBusinessInventoryRows(client, businessId, "iron_bar");
+    expect(ironBarRows).toHaveLength(1);
+    expect(Number(ironBarRows[0].total_cost)).toBe(13);
+
+    const { data: lineAfter } = await client
+      .from("manufacturing_lines")
+      .select("input_progress, output_progress, worker_assigned, pending_production_cost")
+      .eq("id", lineId)
+      .single();
+    expect((lineAfter as any).worker_assigned).toBe(true);
+    expect(Number((lineAfter as any).output_progress)).toBe(0.5);
+    expect(Number((lineAfter as any).pending_production_cost)).toBe(0);
+  });
+
+  it("rolls back every already-relieved input when one input is short (all-or-nothing)", async () => {
+    const { error } = await client.rpc("run_manufacturing_line_production", {
+      p_line_id: lineId,
+      p_owner_player_id: playerId,
+      p_business_id: businessId,
+      p_city_id: cityId,
+      p_inputs: [
+        { itemKey: "iron_ore", quantity: 2 },
+        { itemKey: "coal", quantity: 999 },
+      ],
+      p_output_item_key: "iron_bar",
+      p_output_quality: 40,
+      p_output_units: 1,
+      p_next_input_progress: { iron_ore: 0, coal: 0 },
+      p_next_output_progress: 0,
+    });
+    expect(error).not.toBeNull();
+    expect(error!.message).toContain("insufficient_input:coal");
+
+    // iron_ore must be untouched even though it was relieved first, inside
+    // the same call, before the coal shortfall was discovered.
+    const ironOreRows = await getBusinessInventoryRows(client, businessId, "iron_ore");
+    expect(Number(ironOreRows[0].quantity)).toBe(8);
+    expect(Number(ironOreRows[0].total_cost)).toBe(40);
+  });
+});

@@ -66,7 +66,7 @@ Complete 1 Group at a time (mark as complete after work is done):
 Phase A: tests + chart of accounts + journal — COMPLETE (2026-08-19)
 Phase B: payroll/liabilities — COMPLETE (2026-08-19)
 Phase C: inventory cost-basis helper — COMPLETE (2026-08-19)
-Phase D: manufacturing/extraction
+Phase D: manufacturing/extraction — COMPLETE (2026-08-19)
 Phase E: storefront/market/contracts/B2B
 Phase F: shipping/upgrades/loans/owner equity
 Phase G: financial statements
@@ -340,3 +340,137 @@ Not yet pushed to the hosted project — migration 099 needs `npx supabase db
 push` before hosted gets either the refactor or the total_cost-NULL bug fix;
 only local has it so far. No edge function changes this phase, so no
 `functions deploy` needed for Phase C specifically.
+
+--- Phase D notes (2026-08-19) ---
+
+Migration 105 (`manufacturing_extraction_cost_accounting.sql`). Two bugs,
+both the same synthetic-cost pattern in different places, plus an
+atomicity gap flagged as an open decision at the end of Phase A:
+
+1. Item 42 (extraction): tick-extraction unconditionally passed
+   `p_unit_cost = NPC_PRICE_CEILINGS[item] * 0.55` to
+   `add_business_inventory_quantity` for every produced unit, regardless of
+   whether anything was actually consumed. Per shared/economy.ts, only farms
+   consume a tracked input at all (water, `FARM_WATER_ITEM_KEY`) — mines,
+   logging camps, oil wells, and water companies consume nothing. Fixed so
+   output cost basis is derived only from real consumption: $0 for
+   non-farm extraction, and the actual weighted-average cost of water
+   relieved for farms.
+2. Item 41 (manufacturing): the input-cost math itself
+   (`totalInputCost / outputQty`) was already correct when a row had a
+   tracked cost, but `resolveRowUnitCost`'s fallback for a row with no
+   tracked cost at all fell back to the *same* `NPC_PRICE_CEILINGS * 0.55`
+   formula. This would have silently reappeared the moment extraction started
+   producing legitimately-$0-cost raw materials that manufacturing later
+   consumes — fixed by deleting the fallback (and the function) entirely;
+   the new atomic RPC's SQL-side cost relief uses `fallback_unit_cost = 0`
+   instead, consistent with every other inventory-relieving RPC since Phase C.
+
+A closely-related bug found while wiring this up, not originally called out
+in the plan text but necessary for item 42 to actually hold once inventory
+moves downstream: `getRowUnitCost` in
+`src/domains/businesses/financial-events.ts` (used by
+`consumeBusinessInventoryCost`/`consumeInventoryRowsCost`, e.g. by
+`fulfillContract()`) checked `explicitTotalCost > 0` / `explicitUnitCost > 0`
+before trusting a row's real cost, falling back to
+`INVENTORY_BASELINE_UNIT_COSTS` (also NPC-price-derived) for any row with an
+*explicit* cost of exactly $0 — indistinguishable in that check from a row
+with no cost tracked at all. A mined item with a correct $0 basis would have
+had its COGS silently reinflated to a price-derived guess the moment a
+player fulfilled a contract with it. Fixed to match the SQL-side
+`compute_inventory_cost_relief` helper's own null-vs-zero handling: only
+fall back when cost is truly untracked (`null`), never merely because it's
+zero.
+
+Atomicity: per the Phase A audit, tick-manufacturing/tick-extraction were
+the least atomic paths in the codebase (a non-locking availability read,
+followed later by a separate loop of unlocked per-row `.update()`/`.delete()`
+calls — a real TOCTOU window no other economic path in this codebase has).
+Two new `service_role`-only RPCs close this, following the same pattern as
+`charge_employee_wage_atomic` (098) and the `settle_*_atomic` family:
+`run_extraction_slot_production` and `run_manufacturing_line_production`.
+Each does input relief (via the Phase C shared
+`compute_inventory_cost_relief` helper, under `SELECT ... FOR UPDATE`) and
+output creation (via the existing `add_business_inventory_quantity`, called
+as a nested function so its weighted-average addition logic isn't
+duplicated) in one transaction. A shortfall raises
+`insufficient_input:<item_key>` instead of returning a false/failure value,
+specifically so every input already relieved earlier in that same call
+(other recipe ingredients, e.g.) rolls back too — a plain early return would
+have let already-executed UPDATE/DELETE statements commit. TS catches that
+specific message and treats it exactly like the pre-existing "not enough
+inputs" skip (no console.error, no job/slot treated as failed) rather than
+letting it fall into the generic per-job/per-slot try/catch that logs real
+failures.
+
+Both extraction and manufacturing decouple "input consumed this tick" from
+"output produced this tick" (independent floor()/remainder progress
+accumulators per 053) — a tick can relieve input cost without yet producing
+a unit. Added `pending_production_cost` (numeric(14,2)) to both
+`extraction_slots` and `manufacturing_lines` as a small WIP/suspense
+account: relieved input cost accumulates there across ticks and is fully
+absorbed into the next produced batch's cost basis, then reset to 0, so
+cost is never lost or double-counted when consumption and production don't
+line up 1:1 in a single tick.
+
+tick-manufacturing keeps its existing non-locking pre-check loop
+(`canProduce`/`inventoryConsumptionPlan`) as a cheap early-exit — it still
+decides whether to even attempt the RPC, and still supplies the
+quality-weighted-average calculation (`resolveManufacturingQuality`), which
+stays a TS/gameplay concern, not an accounting one. What changed is that the
+pre-check no longer performs or trusts the actual mutation — the RPC
+re-validates atomically under row locks regardless, so the pre-check
+answering "yes" is now just an optimization, not the authority. Its
+`unitCost` field/`resolveRowUnitCost` call was deleted since the RPC computes
+cost from each row's own total_cost/unit_cost internally.
+
+tick-manufacturing's contract auto-fulfillment path (writes a plain
+`business_accounts` credit with zero financial events, inconsistent with
+`fulfillContract()` in `src/domains/contracts/service.ts`, which writes all
+three) was flagged in the Phase A notes but is explicitly Phase E's scope
+("storefront/market/contracts/B2B") — deliberately not touched here to keep
+this phase's diff to production cost accounting only.
+
+Tests: rewrote `test/finance/extraction-cost.test.ts` (previously one real
+test plus one `it.fails` placeholder) into 3 real tests driving
+`run_extraction_slot_production` directly — mine with no consumption ($0
+cost basis), farm consuming water (exact weighted-average cost transfer,
+with the total-inventory-value-conserved invariant asserted), and an
+insufficient-water case asserting the water row is completely untouched
+(proving the rollback, not just the error message). Added 2 new tests to
+`test/finance/manufacturing-cost.test.ts` driving
+`run_manufacturing_line_production` directly — the same 2 iron_ore + 1 coal
+-> 1 iron_bar scenario as the existing primitive-level test but through the
+atomic RPC end-to-end, plus an all-or-nothing rollback test (one input
+sufficient, the other short — asserts the first input's relief is fully
+rolled back, not just that the call errored). `upgrade-purchase.test.ts` and
+`shipping.test.ts` remain `it.fails`, unchanged, both explicitly Phase F.
+
+Verified with a clean `npx supabase db reset` (migration 105 applied with no
+errors), `npm run typecheck`, `npm run typecheck:edge`, and
+`npm run test:finance` (37 passed, 2 expected-fail — up from 33/3, net +2
+tests converted from placeholder to real plus 2 new atomic-RPC tests, 1
+`it.fails` resolved by this phase as expected, 0 regressions in Phase
+A/B/C's existing tests). Accounting invariants (debits=credits N/A here
+since production is a pure inventory reclassification with no P&L event;
+inventory total_cost conservation across relief+addition) hold in every new
+test.
+
+Unresolved / left for later phases: the Finance UI, Balance Sheet, Income
+Statement, and Cash Flow Statement don't yet reflect anything from this
+phase specifically (Phase D produces no P&L event by design — raw material
+cost simply moves to finished-goods cost, recognized as COGS only when
+later sold, which Phase C/E's sale paths already handle) — nothing new is
+owed to those reports from this phase. tick-manufacturing's contract
+auto-fulfillment financial-events gap (noted above) carries forward
+unchanged into Phase E. Extraction/manufacturing still have no financial
+event of their own for production itself — intentional, since production is
+not a revenue/expense event under this absorption-costing model, only a
+balance-sheet reclassification; flag this in Phase H's final audit if that
+assumption turns out to be wrong once the full P&L/Balance Sheet are
+rebuilt.
+
+Not yet pushed to the hosted project — migration 105 needs `npx supabase db
+push`, and `npx supabase functions deploy tick-extraction` +
+`npx supabase functions deploy tick-manufacturing`, before hosted
+production accounting actually changes; only local has it so far.

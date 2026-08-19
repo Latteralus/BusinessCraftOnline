@@ -33,10 +33,15 @@ function getRowUnitCost(row: InventoryRow): { unitCost: number; totalCost: numbe
   const explicitTotalCost = row.total_cost === undefined || row.total_cost === null ? null : toNumber(row.total_cost);
   const explicitUnitCost = row.unit_cost === undefined || row.unit_cost === null ? null : toNumber(row.unit_cost);
 
-  if (explicitTotalCost !== null && explicitTotalCost > 0 && quantity > 0) {
+  // A row can have a genuine, explicit cost basis of exactly $0 (e.g. mined
+  // ore with no tracked consumable input -- AccountingFixPlan item 42). Only
+  // fall back to a price-derived guess when cost is truly untracked (null),
+  // never merely because it happens to be zero -- matches the SQL-side
+  // compute_inventory_cost_relief helper's own null-vs-zero handling.
+  if (explicitTotalCost !== null && quantity > 0) {
     return { unitCost: round2(explicitTotalCost / quantity), totalCost: explicitTotalCost, estimated: false };
   }
-  if (explicitUnitCost !== null && explicitUnitCost > 0) {
+  if (explicitUnitCost !== null) {
     return { unitCost: explicitUnitCost, totalCost: round2(quantity * explicitUnitCost), estimated: false };
   }
   const fallback = INVENTORY_BASELINE_UNIT_COSTS[row.item_key] ?? DEFAULT_INVENTORY_UNIT_COST;

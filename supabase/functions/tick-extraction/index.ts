@@ -19,7 +19,6 @@ import {
   EXTRACTION_XP_PER_LEVEL,
   EXTRACTION_XP_PER_TICK,
 } from "../_shared/extraction-config.ts";
-import { NPC_PRICE_CEILINGS } from "../../../shared/economy.ts";
 
 type ExtractionSlotRow = {
   id: string;
@@ -201,59 +200,6 @@ async function failSlot(
     .update({ status, updated_at: new Date().toISOString() })
     .eq("id", slotId);
   if (error) throw error;
-}
-
-async function consumeFarmInputs(
-  supabase: EdgeSupabaseClient,
-  slot: ExtractionSlotRow,
-  businessId: string,
-  ownerPlayerId: string,
-  waterUseMultiplier: number
-): Promise<{ consumed: boolean; nextProgress: number }> {
-  const totalProgress = slot.input_progress + Math.max(0, waterUseMultiplier);
-  const waterRequired = Math.floor(totalProgress);
-  const nextProgress = totalProgress - waterRequired;
-  if (waterRequired <= 0) {
-    return { consumed: true, nextProgress };
-  }
-
-  const { data: water } = await supabase
-    .from("business_inventory")
-    .select("id, quantity, reserved_quantity")
-    .eq("business_id", businessId)
-    .eq("owner_player_id", ownerPlayerId)
-    .eq("item_key", "water")
-    .order("quality", { ascending: false })
-    .order("updated_at", { ascending: true });
-
-  const parsedWater = parseInventoryRows(water);
-  let remaining = waterRequired;
-
-  for (const row of parsedWater) {
-    if (remaining <= 0) break;
-    const available = row.quantity - row.reserved_quantity;
-    if (available <= 0) continue;
-
-    const used = Math.min(available, remaining);
-    const nextWater = row.quantity - used;
-    if (nextWater <= 0) {
-      const { error } = await supabase.from("business_inventory").delete().eq("id", row.id);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase
-        .from("business_inventory")
-        .update({ quantity: nextWater, updated_at: new Date().toISOString() })
-        .eq("id", row.id);
-      if (error) throw error;
-    }
-    remaining -= used;
-  }
-
-  if (remaining > 0) {
-    return { consumed: false, nextProgress: totalProgress };
-  }
-
-  return { consumed: true, nextProgress };
 }
 
 async function hasAvailableBusinessTool(
@@ -468,20 +414,15 @@ Deno.serve(async (request) => {
 
     const effects = upgradeEffectsByBusiness.get(typedBusiness.id)!;
 
-    let nextInputProgress = slot.input_progress;
-    if (typedBusiness.type === "farm") {
-      const farmInputState = await consumeFarmInputs(
-        supabase,
-        slot,
-        typedBusiness.id,
-        typedBusiness.player_id,
-        effects.farmWaterUseMultiplier
-      );
-      if (!farmInputState.consumed) {
-        continue;
-      }
-      nextInputProgress = farmInputState.nextProgress;
-    }
+    // Only farms consume a tracked input (water) per shared/economy.ts --
+    // mines/logging camps/oil wells/water companies have no consumable, so
+    // their output's cost basis is exactly 0, never derived from what NPCs
+    // might pay for it (AccountingFixPlan item 42).
+    const waterUseMultiplier = typedBusiness.type === "farm" ? Math.max(0, effects.farmWaterUseMultiplier) : 0;
+    const totalInputProgress = slot.input_progress + waterUseMultiplier;
+    const waterRequired = typedBusiness.type === "farm" ? Math.floor(totalInputProgress) : 0;
+    const nextInputProgress = typedBusiness.type === "farm" ? totalInputProgress - waterRequired : slot.input_progress;
+
     const { units, remainingProgress } = resolveProducedUnits(
       slot.output_progress,
       outputMultiplier * effects.extractionOutputMultiplier
@@ -493,19 +434,31 @@ Deno.serve(async (request) => {
     // entire tick for every other business too.
     const quality = Math.max(1, Math.min(100, Math.round(effects.extractionQualityBonus)));
 
-    if (units > 0) {
-      const ceilingPrice = (NPC_PRICE_CEILINGS as Record<string, number>)[outputItem] ?? 0;
-      const baselineUnitCost = ceilingPrice > 0 ? Number((ceilingPrice * 0.55).toFixed(2)) : null;
-      const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
+    // Atomically relieves water cost (if any) and creates the produced batch
+    // with a cost basis derived only from what was actually consumed --
+    // never NPC_PRICE_CEILINGS. Raises insufficient_input:water instead of
+    // partially consuming when there isn't enough water for the tick yet;
+    // that's a normal "retry next tick" outcome, not a real failure.
+    try {
+      const { error: productionError } = await supabase.rpc("run_extraction_slot_production", {
+        p_slot_id: slot.id,
         p_owner_player_id: typedBusiness.player_id,
         p_business_id: typedBusiness.id,
         p_city_id: typedBusiness.city_id,
-        p_item_key: outputItem,
-        p_quality: quality,
-        p_quantity: units,
-        p_unit_cost: baselineUnitCost,
+        p_water_required: waterRequired,
+        p_next_input_progress: nextInputProgress,
+        p_output_item_key: outputItem,
+        p_output_quality: quality,
+        p_output_units: units,
+        p_next_output_progress: remainingProgress,
       });
-      if (addInventoryError) throw addInventoryError;
+      if (productionError) throw productionError;
+    } catch (productionError) {
+      const message = productionError instanceof Error ? productionError.message : String(productionError);
+      if (message.includes("insufficient_input:")) {
+        continue;
+      }
+      throw productionError;
     }
 
     const skillKey =
@@ -536,16 +489,9 @@ Deno.serve(async (request) => {
       if (skillUpdateError) throw skillUpdateError;
     }
 
-    const { error: slotUpdateError } = await supabase
-      .from("extraction_slots")
-      .update({
-        input_progress: nextInputProgress,
-        output_progress: remainingProgress,
-        last_extracted_at: units > 0 ? new Date().toISOString() : slot.last_extracted_at ?? null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", slot.id);
-    if (slotUpdateError) throw slotUpdateError;
+    // input_progress/output_progress/last_extracted_at were already
+    // persisted atomically by run_extraction_slot_production above, together
+    // with the inventory relief/creation they're derived from.
 
     processed += 1;
     producedTotal += units;

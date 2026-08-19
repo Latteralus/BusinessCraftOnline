@@ -11,7 +11,6 @@ import {
   getManufacturingRecipeByKey,
 } from "../_shared/manufacturing-config.ts";
 import { getResolvedBusinessUpgradeEffectsForBusinesses } from "../_shared/business-upgrades.ts";
-import { NPC_PRICE_CEILINGS } from "../../../shared/economy.ts";
 import {
   CONTRACT_FULFILLABLE_STATUSES,
   CONTRACT_LIVE_STATUSES,
@@ -34,7 +33,7 @@ async function getInventoryRows(
 ) {
   const { data } = await supabase
     .from("business_inventory")
-    .select("id, quantity, reserved_quantity, quality, unit_cost, total_cost")
+    .select("id, quantity, reserved_quantity, quality")
     .eq("business_id", businessId)
     .eq("owner_player_id", playerId)
     .eq("item_key", itemKey)
@@ -45,23 +44,7 @@ async function getInventoryRows(
     quantity: number | string;
     reserved_quantity: number | string;
     quality: number | string;
-    unit_cost: number | string | null;
-    total_cost: number | string | null;
   }>;
-}
-
-function resolveRowUnitCost(
-  row: { quantity: number | string; unit_cost: number | string | null; total_cost: number | string | null },
-  itemKey: string
-): number {
-  const qty = toNumber(row.quantity);
-  const totalCost = row.total_cost === null || row.total_cost === undefined ? null : toNumber(row.total_cost);
-  const unitCost = row.unit_cost === null || row.unit_cost === undefined ? null : toNumber(row.unit_cost);
-
-  if (totalCost !== null && totalCost > 0 && qty > 0) return totalCost / qty;
-  if (unitCost !== null && unitCost > 0) return unitCost;
-  // Baseline: 55% of NPC price ceiling, same as INVENTORY_BASELINE_UNIT_COSTS in src/config/finance.ts
-  return ((NPC_PRICE_CEILINGS as Record<string, number>)[itemKey] ?? 0) * 0.55;
 }
 
 function normalizeProgressMap(value: unknown): Record<string, number> {
@@ -383,7 +366,7 @@ Deno.serve(async (request) => {
     let canProduce = true;
     const inventoryConsumptionPlan = new Map<
       string,
-      { id: string; quantity: number; reserved_quantity: number; used: number; quality: number; unitCost: number }
+      { id: string; quantity: number; reserved_quantity: number; used: number; quality: number }
     >();
     const referenceInputQualities: number[] = [];
 
@@ -419,7 +402,6 @@ Deno.serve(async (request) => {
             reserved_quantity: reservedQuantity,
             used,
             quality: toNumber(row.quality),
-            unitCost: resolveRowUnitCost(row, input.itemKey),
           });
         }
         remainingRequired -= used;
@@ -438,26 +420,6 @@ Deno.serve(async (request) => {
         .eq("id", job.id);
       if (workerFlagError) throw workerFlagError;
       continue;
-    }
-
-    for (const row of inventoryConsumptionPlan.values()) {
-      const nextQty = row.quantity - row.used;
-
-      if (nextQty <= 0) {
-        const { error: deleteError } = await supabase.from("business_inventory").delete().eq("id", row.id);
-        if (deleteError) throw deleteError;
-      } else {
-        const nextReserved = Math.min(row.reserved_quantity, nextQty);
-        const { error: updateError } = await supabase
-          .from("business_inventory")
-          .update({
-            quantity: nextQty,
-            reserved_quantity: nextReserved,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", row.id);
-        if (updateError) throw updateError;
-      }
     }
 
     const outputState = resolveDeterministicQuantity(
@@ -487,24 +449,45 @@ Deno.serve(async (request) => {
       effects.manufacturingQualityBonus
     );
 
-    if (outputQty > 0) {
-      // Compute absorption cost: total cost of inputs consumed divided by units produced.
-      let totalInputCost = 0;
-      for (const row of inventoryConsumptionPlan.values()) {
-        totalInputCost += row.used * row.unitCost;
-      }
-      const outputUnitCost = totalInputCost > 0 ? Number((totalInputCost / outputQty).toFixed(2)) : null;
+    const nextInputProgress = Object.fromEntries(
+      recipeInputs.map((input) => [input.itemKey, input.remainingProgress])
+    );
 
-      const { error: addInventoryError } = await supabase.rpc("add_business_inventory_quantity", {
+    // Atomically relieves each consumed input's exact weighted-average cost
+    // (never a fallback derived from NPC_PRICE_CEILINGS) and creates the
+    // finished good with a cost basis equal to exactly what was consumed --
+    // no input cost is left behind or duplicated (AccountingFixPlan item 41).
+    // Raises insufficient_input:<item_key> instead of partially consuming if
+    // a concurrent write shrank availability since the pre-check above; that
+    // race backstop is treated the same as the pre-check's own !canProduce
+    // outcome below.
+    try {
+      const { error: productionError } = await supabase.rpc("run_manufacturing_line_production", {
+        p_line_id: job.id,
         p_owner_player_id: business.player_id,
         p_business_id: business.id,
         p_city_id: business.city_id,
-        p_item_key: recipe.outputItemKey,
-        p_quality: quality,
-        p_quantity: outputQty,
-        p_unit_cost: outputUnitCost,
+        p_inputs: recipeInputs
+          .filter((input) => input.quantity > 0)
+          .map((input) => ({ itemKey: input.itemKey, quantity: input.quantity })),
+        p_output_item_key: recipe.outputItemKey,
+        p_output_quality: quality,
+        p_output_units: outputQty,
+        p_next_input_progress: nextInputProgress,
+        p_next_output_progress: outputState.remainingProgress,
       });
-      if (addInventoryError) throw addInventoryError;
+      if (productionError) throw productionError;
+    } catch (productionError) {
+      const message = productionError instanceof Error ? productionError.message : String(productionError);
+      if (message.includes("insufficient_input:")) {
+        const { error: workerFlagError } = await supabase
+          .from("manufacturing_lines")
+          .update({ worker_assigned: true, updated_at: new Date().toISOString() })
+          .eq("id", job.id);
+        if (workerFlagError) throw workerFlagError;
+        continue;
+      }
+      throw productionError;
     }
 
     if (skill) {
@@ -524,21 +507,10 @@ Deno.serve(async (request) => {
       if (skillUpdateError) throw skillUpdateError;
     }
 
-    const nextInputProgress = Object.fromEntries(
-      recipeInputs.map((input) => [input.itemKey, input.remainingProgress])
-    );
-
-    const { error: jobUpdateError } = await supabase
-      .from("manufacturing_lines")
-      .update({
-        worker_assigned: true,
-        output_progress: outputState.remainingProgress,
-        input_progress: nextInputProgress,
-        last_tick_at: outputQty > 0 ? new Date().toISOString() : job.last_tick_at,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", job.id);
-    if (jobUpdateError) throw jobUpdateError;
+    // worker_assigned/output_progress/input_progress/last_tick_at were
+    // already persisted atomically by run_manufacturing_line_production
+    // above, together with the inventory relief/creation they're derived
+    // from.
 
     processed += 1;
     producedTotal += outputQty;
