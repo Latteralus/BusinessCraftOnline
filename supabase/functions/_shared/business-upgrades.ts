@@ -6,6 +6,7 @@ import {
   resolveReductionMultiplier,
   round4,
 } from "../../../shared/upgrades/runtime.ts";
+import { BUSINESS_UPGRADE_DEFINITIONS } from "../../../src/config/business-upgrades.ts";
 
 type UpgradeDowntimePolicy = "none" | "partial" | "full";
 
@@ -54,36 +55,46 @@ function resolveEffectsFromLevels(
 
   const workerCapacityLevel = Math.max(0, levels.worker_capacity ?? 0);
   effects.workerCapacitySlots = workerCapacityLevel;
+
+  const extractionDef =
+    levels.extraction_efficiency != null
+      ? BUSINESS_UPGRADE_DEFINITIONS.extraction_efficiency
+      : BUSINESS_UPGRADE_DEFINITIONS.crop_yield;
   effects.extractionOutputMultiplier = resolveMultiplier(
-    1.12,
-    1.05,
+    extractionDef.baseEffect,
     Math.max(0, levels.extraction_efficiency ?? levels.crop_yield ?? 0)
   );
-  effects.extractionQualityBonus = Math.max(0, 4 * (levels.ore_quality ?? 0));
+  effects.extractionQualityBonus = Math.max(
+    0,
+    BUSINESS_UPGRADE_DEFINITIONS.ore_quality.baseEffect * (levels.ore_quality ?? 0)
+  );
   effects.farmWaterUseMultiplier = round4(
     effects.farmWaterUseMultiplier *
-      resolveReductionMultiplier(0.92, 1.08, Math.max(0, levels.water_efficiency ?? 0))
+      resolveReductionMultiplier(
+        BUSINESS_UPGRADE_DEFINITIONS.water_efficiency.baseEffect,
+        Math.max(0, levels.water_efficiency ?? 0),
+        BUSINESS_UPGRADE_DEFINITIONS.water_efficiency.maxLevel ?? 6
+      )
   );
   effects.toolDurabilityMultiplier = resolveMultiplier(
-    1.15,
-    1.04,
+    BUSINESS_UPGRADE_DEFINITIONS.tool_durability.baseEffect,
     Math.max(0, levels.tool_durability ?? 0)
   );
   effects.manufacturingOutputMultiplier = resolveMultiplier(
-    1.5,
-    1.5,
+    BUSINESS_UPGRADE_DEFINITIONS.production_efficiency.baseEffect,
     Math.max(0, levels.production_efficiency ?? 0)
   );
-  effects.manufacturingQualityBonus = Math.max(0, 5 * (levels.equipment_quality ?? 0));
+  effects.manufacturingQualityBonus = Math.max(
+    0,
+    BUSINESS_UPGRADE_DEFINITIONS.equipment_quality.baseEffect * (levels.equipment_quality ?? 0)
+  );
   effects.storefrontTrafficMultiplier = resolveMultiplier(
-    1.05,
-    1.03,
+    BUSINESS_UPGRADE_DEFINITIONS.storefront_appeal.baseEffect,
     Math.max(0, levels.storefront_appeal ?? 0)
   );
   effects.storefrontListingCapacityBonus = Math.max(0, levels.listing_capacity ?? 0);
   effects.storefrontConversionMultiplier = resolveMultiplier(
-    1.03,
-    1.02,
+    BUSINESS_UPGRADE_DEFINITIONS.customer_service.baseEffect,
     Math.max(0, levels.customer_service ?? 0)
   );
   effects.storefrontPriceToleranceMultiplier = round4(

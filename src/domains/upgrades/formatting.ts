@@ -1,7 +1,7 @@
 import type { UpgradeDefinition } from "./types";
 
-function formatPercent(value: number): string {
-  return `${Math.round(value)}%`;
+function formatUnit(value: number): string {
+  return Number(Math.max(0, value).toFixed(2)).toString();
 }
 
 export function formatUpgradeEffectValue(definition: UpgradeDefinition, effectValue: number): string {
@@ -13,11 +13,11 @@ export function formatUpgradeEffectValue(definition: UpgradeDefinition, effectVa
     }
     case "quality_points":
       return `+${Math.max(0, Math.round(effectValue))} quality`;
-    case "percent_down":
-      return `-${formatPercent((1 - effectValue) * 100)}`;
-    case "percent_up":
+    case "unit_down":
+      return `-${formatUnit(1 - effectValue)}`;
+    case "unit_up":
     default:
-      return `+${formatPercent((effectValue - 1) * 100)}`;
+      return `+${formatUnit(effectValue - 1)}`;
   }
 }
 

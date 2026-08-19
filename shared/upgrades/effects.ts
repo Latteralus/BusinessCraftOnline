@@ -204,16 +204,16 @@ export function resolveUpgradeEffectValue(
     case "flat_quality":
       return definition.baseEffect * normalizedLevel;
     case "reduction_multiplier": {
-      const baseReduction = Math.max(0, 1 - definition.baseEffect);
-      const reduction = baseReduction * Math.pow(definition.gainMultiplier, normalizedLevel - 1);
-      return round4(Math.max(0.1, 1 - reduction));
+      const cappedLevel =
+        definition.maxLevel !== null ? Math.min(normalizedLevel, definition.maxLevel) : normalizedLevel;
+      return round4(Math.max(0.1, 1 - definition.baseEffect * cappedLevel));
     }
     case "price_tolerance":
     case "traffic_multiplier":
     case "conversion_multiplier":
     case "multiplier":
     default:
-      return round4(definition.baseEffect * Math.pow(definition.gainMultiplier, normalizedLevel - 1));
+      return round4(1 + definition.baseEffect * normalizedLevel);
   }
 }
 

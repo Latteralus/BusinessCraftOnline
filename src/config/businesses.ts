@@ -1,12 +1,12 @@
 import {
   STORE_BUSINESS_TYPES as SHARED_STORE_BUSINESS_TYPES,
   isStoreBusinessType as sharedIsStoreBusinessType,
-} from "../../shared/businesses/store";
+} from "../../shared/businesses/store.ts";
 import {
   BUSINESS_UPGRADE_KEYS,
   getBusinessUpgradeKeysForBusinessType,
   type BusinessUpgradeKey,
-} from "./business-upgrades";
+} from "./business-upgrades.ts";
 
 export const BUSINESS_TYPES = [
   "mine",

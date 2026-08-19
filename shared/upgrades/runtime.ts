@@ -34,16 +34,15 @@ export function round4(value: number): number {
   return Number(value.toFixed(4));
 }
 
-export function resolveMultiplier(baseEffect: number, gainMultiplier: number, level: number): number {
+export function resolveMultiplier(baseEffect: number, level: number): number {
   if (level <= 0) return 1;
-  return round4(baseEffect * Math.pow(gainMultiplier, level - 1));
+  return round4(1 + baseEffect * level);
 }
 
-export function resolveReductionMultiplier(baseEffect: number, gainMultiplier: number, level: number): number {
+export function resolveReductionMultiplier(baseEffect: number, level: number, maxLevel: number): number {
   if (level <= 0) return 1;
-  const baseReduction = Math.max(0, 1 - baseEffect);
-  const reduction = baseReduction * Math.pow(gainMultiplier, level - 1);
-  return round4(Math.max(0.1, 1 - reduction));
+  const cappedLevel = Math.min(level, maxLevel);
+  return round4(Math.max(0.1, 1 - baseEffect * cappedLevel));
 }
 
 export function getDowntimeMultiplier(policy: "none" | "partial" | "full" | null): number {
