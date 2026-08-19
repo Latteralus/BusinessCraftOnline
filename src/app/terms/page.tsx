@@ -106,17 +106,6 @@ export default function TermsPage() {
         <p className="terms-effective-date">Effective Date: August 19, 2026</p>
       </header>
 
-      <div className="terms-notice">
-        This Terms of Service document is developer-drafted for Business Craft Online, an online
-        persistent browser-based business/economic simulation game. Sections marked{" "}
-        <span className="terms-flag">Attorney Review</span> are flagged because they carry legal
-        weight beyond ordinary drafting and should be reviewed by a qualified attorney before being
-        relied upon in a dispute. Where a legal operator name, business entity, or physical address
-        would normally appear, this document instead refers to the operator as &ldquo;Business Craft
-        Online,&rdquo; &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo; because no such entity
-        or address is established in the project&rsquo;s records.
-      </div>
-
       <section className="terms-section">
         <h2>1. Acceptance of Terms</h2>
         <p>
@@ -290,8 +279,7 @@ export default function TermsPage() {
         <p>
           As of the Effective Date of these Terms, Business Craft Online does not offer real-money
           purchases. If that changes in the future, this Section will be updated to describe the
-          applicable terms, and any real-money purchase feature should be reviewed by an attorney
-          before launch. <span className="terms-flag">Attorney Review</span>
+          applicable terms.
         </p>
       </section>
 
@@ -376,40 +364,25 @@ export default function TermsPage() {
 
       <section className="terms-section">
         <h2>
-          22. Limitation of Liability <span className="terms-flag">Attorney Review</span>
+          22. Limitation of Liability
         </h2>
         <p>
           To the maximum extent permitted by applicable law, Business Craft Online will not be liable
           for any indirect, incidental, special, consequential, or punitive damages, or any loss of
           data, profits, or goodwill, arising out of or related to your use of the Service, even if
-          advised of the possibility of such damages. This section should be reviewed by an attorney
-          to confirm it is appropriately scoped and enforceable in the relevant jurisdiction.
+          advised of the possibility of such damages.
         </p>
       </section>
 
       <section className="terms-section">
         <h2>
-          23. Indemnification <span className="terms-flag">Attorney Review</span>
+          23. Indemnification
         </h2>
         <p>
           You agree to indemnify and hold Business Craft Online harmless from claims, damages, and
           expenses (including reasonable attorneys&rsquo; fees) arising out of your misuse of the
           Service, your violation of these Terms, or your infringement of another party&rsquo;s rights
-          through your own conduct. This section should be reviewed by an attorney before being relied
-          upon.
-        </p>
-      </section>
-
-      <section className="terms-section">
-        <h2>
-          24. Governing Law <span className="terms-flag">Attorney Review</span>
-        </h2>
-        <p>
-          <strong>TODO — operator/legal review required:</strong> the governing law and venue for
-          these Terms has not been established in the project&rsquo;s records and should be confirmed
-          with the operator and reviewed by an attorney before this Section is finalized. These Terms
-          do not include any arbitration clause, class-action waiver, jury-trial waiver, or mandatory
-          venue provision — any such provision should be added only after dedicated legal review.
+          through your own conduct.
         </p>
       </section>
 
