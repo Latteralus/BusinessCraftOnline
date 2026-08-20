@@ -98,6 +98,7 @@ export const SERVER_ONLY_SECURITY_DEFINER_FUNCTIONS = [
   "post_business_journal_entry",
   "prevent_player_role_self_escalation",
   "release_tick_lock",
+  "run_government_daily_update",
   "send_system_mail",
   "set_market_transaction_business_names",
   "settle_market_listing_npc_sale_atomic",

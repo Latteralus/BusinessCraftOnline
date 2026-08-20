@@ -1,10 +1,14 @@
 import type { QueryClient } from "@/lib/db/query-client";
 import type {
   City,
+  CityEconomicState,
+  CityEvent,
   CityResourceModifier,
   CityRoute,
   StartTravelInput,
   TravelLog,
+  WorldEconomicState,
+  WorldEvent,
 } from "./types";
 import { calculateTravelQuote } from "./topology";
 
@@ -101,6 +105,81 @@ export async function getRouteBetweenCities(
 ): Promise<CityRoute | null> {
   const routes = await getCityRoutes(client, fromCityId);
   return routes.find((route) => route.to_city_id === toCityId) ?? null;
+}
+
+// Dynamic economic state (CityPlan Phase 2) changes at most once per 24h,
+// via run_government_daily_update -- a short warm-instance cache trades a
+// small worst-case staleness window (well under the daily update cadence)
+// for avoiding a DB round trip on every read, same rationale as the static
+// reference-data caches above.
+const ECONOMIC_STATE_CACHE_TTL_MS = 60 * 1000;
+let worldEconomicStateCache: { expiresAt: number; state: WorldEconomicState } | null = null;
+let cityEconomicStateCache: { expiresAt: number; rows: CityEconomicState[] } | null = null;
+
+export async function getWorldEconomicState(
+  client: QueryClient
+): Promise<WorldEconomicState> {
+  if (worldEconomicStateCache && worldEconomicStateCache.expiresAt > Date.now()) {
+    return worldEconomicStateCache.state;
+  }
+
+  const { data, error } = await client
+    .from("world_economic_state")
+    .select("*")
+    .eq("id", 1)
+    .single();
+
+  if (error) throw error;
+  const state = data as WorldEconomicState;
+  worldEconomicStateCache = { expiresAt: Date.now() + ECONOMIC_STATE_CACHE_TTL_MS, state };
+  return state;
+}
+
+export async function getCityEconomicState(
+  client: QueryClient,
+  cityId?: string
+): Promise<CityEconomicState[]> {
+  if (!cityEconomicStateCache || cityEconomicStateCache.expiresAt <= Date.now()) {
+    const { data, error } = await client.from("city_economic_state").select("*");
+
+    if (error) throw error;
+    cityEconomicStateCache = {
+      expiresAt: Date.now() + ECONOMIC_STATE_CACHE_TTL_MS,
+      rows: (data as CityEconomicState[]) ?? [],
+    };
+  }
+
+  const rows = cityEconomicStateCache.rows;
+  return cityId ? rows.filter((row) => row.city_id === cityId) : rows;
+}
+
+// Active events are not cached: they change exactly when the daily job (or,
+// in principle, a future admin path) flips is_active, and there's no
+// higher-frequency write path to protect against yet -- the state tables
+// above are cached because they're read far more often relative to how
+// rarely they change, which doesn't apply here until this has real callers.
+export async function getActiveWorldEvents(client: QueryClient): Promise<WorldEvent[]> {
+  const { data, error } = await client
+    .from("world_events")
+    .select("*")
+    .eq("is_active", true)
+    .order("starts_at", { ascending: true });
+
+  if (error) throw error;
+  return (data as WorldEvent[]) ?? [];
+}
+
+export async function getActiveCityEvents(
+  client: QueryClient,
+  cityId?: string
+): Promise<CityEvent[]> {
+  let query = client.from("city_events").select("*").eq("is_active", true);
+  if (cityId) query = query.eq("city_id", cityId);
+
+  const { data, error } = await query.order("starts_at", { ascending: true });
+
+  if (error) throw error;
+  return (data as CityEvent[]) ?? [];
 }
 
 export async function getActiveTravel(

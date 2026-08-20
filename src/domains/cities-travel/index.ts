@@ -2,12 +2,16 @@ export {
   canPurchaseBusiness,
   cancelTravel,
   completeTravel,
+  getActiveCityEvents,
   getActiveTravel,
+  getActiveWorldEvents,
   getCities,
   getCityById,
+  getCityEconomicState,
   getCityResourceModifiers,
   getCityRoutes,
   getRouteBetweenCities,
+  getWorldEconomicState,
   startTravel,
 } from "./service";
 
@@ -26,6 +30,8 @@ export type {
   CitiesResponse,
   CityResourceModifiersResponse,
   CityRoutesResponse,
+  EconomicEventsResponse,
+  EconomicStateResponse,
   StartTravelResponse,
   TravelState,
   TravelStateResponse,
@@ -33,8 +39,11 @@ export type {
 
 export type {
   City,
+  CityEconomicState,
+  CityEvent,
   CityResourceModifier,
   CityRoute,
+  EconomicEventType,
   ShippingQueueItem,
   StartTravelInput,
   StartTravelRequest,
@@ -42,4 +51,6 @@ export type {
   TravelQuote,
   TravelStatus,
   TravelTier,
+  WorldEconomicState,
+  WorldEvent,
 } from "./types";

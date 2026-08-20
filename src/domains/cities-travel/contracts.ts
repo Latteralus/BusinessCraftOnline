@@ -1,4 +1,14 @@
-import type { City, CityResourceModifier, CityRoute, TravelLog, TravelQuote } from "./types";
+import type {
+  City,
+  CityEconomicState,
+  CityEvent,
+  CityResourceModifier,
+  CityRoute,
+  TravelLog,
+  TravelQuote,
+  WorldEconomicState,
+  WorldEvent,
+} from "./types";
 
 export type CitiesPayload = {
   cities: City[];
@@ -15,6 +25,18 @@ export type CityResourceModifiersResponse = {
 
 export type CityRoutesResponse = {
   routes: CityRoute[];
+  error?: string;
+};
+
+export type EconomicStateResponse = {
+  world: WorldEconomicState;
+  cities: CityEconomicState[];
+  error?: string;
+};
+
+export type EconomicEventsResponse = {
+  worldEvents: WorldEvent[];
+  cityEvents: CityEvent[];
   error?: string;
 };
 

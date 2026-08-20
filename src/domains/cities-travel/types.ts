@@ -39,6 +39,64 @@ export type CityRoute = {
   created_at: string;
 };
 
+export type WorldEconomicState = {
+  id: number;
+  labor_index: number;
+  consumer_demand_index: number;
+  municipal_consumption_index: number;
+  transport_cost_index: number;
+  inflation_index: number;
+  economic_day: number;
+  last_government_update_at: string | null;
+  updated_at: string;
+};
+
+export type CityEconomicState = {
+  city_id: string;
+  population: number;
+  population_growth_index: number;
+  labor_supply_index: number;
+  labor_demand_index: number;
+  consumer_demand_index: number;
+  municipal_consumption_index: number;
+  economic_activity_index: number;
+  economic_day: number;
+  last_government_update_at: string | null;
+  updated_at: string;
+};
+
+export type EconomicEventType =
+  | "population_boom"
+  | "labor_shortage"
+  | "recession"
+  | "construction_surge"
+  | "drought"
+  | "energy_shock"
+  | "migration_inflow";
+
+export type WorldEvent = {
+  id: string;
+  event_type: EconomicEventType;
+  display_name: string;
+  modifiers: Record<string, number>;
+  starts_at: string;
+  ends_at: string;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type CityEvent = {
+  id: string;
+  city_id: string;
+  event_type: EconomicEventType;
+  display_name: string;
+  modifiers: Record<string, number>;
+  starts_at: string;
+  ends_at: string;
+  is_active: boolean;
+  created_at: string;
+};
+
 export type TravelStatus = "traveling" | "arrived" | "cancelled";
 
 export type TravelLog = {
