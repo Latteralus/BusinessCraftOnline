@@ -83,6 +83,7 @@ export const AUTHENTICATED_ALLOWED_FUNCTIONS = [
  * regression test must fail.
  */
 export const SERVER_ONLY_SECURITY_DEFINER_FUNCTIONS = [
+  "_materialize_city_stockpile_ids",
   "_settle_buy_order_fill",
   "acquire_tick_lock",
   "add_business_inventory_quantity",
@@ -95,6 +96,8 @@ export const SERVER_ONLY_SECURITY_DEFINER_FUNCTIONS = [
   "execute_due_shipping_deliveries",
   "execute_due_travel_arrivals",
   "invoke_edge_function",
+  "materialize_all_active_city_stockpiles",
+  "materialize_city_stockpiles_due",
   "post_business_journal_entry",
   "prevent_player_role_self_escalation",
   "release_tick_lock",

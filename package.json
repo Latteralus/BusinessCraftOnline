@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "npm run typecheck",
     "typecheck": "tsc --noEmit",
-    "typecheck:edge": "deno check --config supabase/functions/deno.json supabase/functions/tick-extraction/index.ts supabase/functions/tick-shipping/index.ts supabase/functions/tick-travel/index.ts supabase/functions/tick-manufacturing/index.ts supabase/functions/tick-wages/index.ts supabase/functions/tick-npc-purchases/index.ts supabase/functions/tick-npc-market-purchases/index.ts supabase/functions/tick-government-daily/index.ts",
+    "typecheck:edge": "deno check --config supabase/functions/deno.json supabase/functions/tick-extraction/index.ts supabase/functions/tick-shipping/index.ts supabase/functions/tick-travel/index.ts supabase/functions/tick-manufacturing/index.ts supabase/functions/tick-wages/index.ts supabase/functions/tick-npc-purchases/index.ts supabase/functions/tick-npc-market-purchases/index.ts supabase/functions/tick-government-daily/index.ts supabase/functions/tick-city-stockpiles/index.ts",
     "test:finance": "vitest run test/finance",
     "test:db-security": "vitest run test/db"
   },

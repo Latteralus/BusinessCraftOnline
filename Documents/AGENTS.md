@@ -64,22 +64,30 @@ again, re-run both before trusting it; TS majors are the most likely to surface 
   these to `authenticated`; call only from server code via the service-role client.
 
 ## Open threads (update or remove as they resolve)
-- **2026-08-19 — CityPlan Phases 1-2 (migrations 111-113) not yet pushed/verified live.**
-  Phase 1's `city_resource_modifiers`/`city_routes`/extended `cities` columns
-  and Phase 2's `world_economic_state`/`city_economic_state`/`world_events`/
-  `city_events` + `run_government_daily_update()` RPC were all written and
-  typechecked but **not** exercised against a real Postgres instance (Docker
-  Desktop wasn't running in either session, so `supabase db reset` couldn't
-  run). Phase 2 is the higher-risk one to leave unverified -- it adds a
-  `CREATE AGGREGATE` and a nontrivial `plpgsql` function with a `FOR UPDATE`
-  idempotency lock and two set-based `UPDATE`s, reviewed by hand but never
-  executed. Before trusting either phase, run a clean local
-  `supabase db reset`, manually call `select run_government_daily_update();`
-  twice in a row (second call should return `"skipped": true`), then
+- **2026-08-19 — CityPlan Phases 1-3 (migrations 111-116) not yet pushed/verified live.**
+  Three sessions in a row have now shipped schema/plpgsql for this plan
+  without ever running it against a real Postgres instance (Docker Desktop
+  wasn't running in any of them). Phase 1: `city_resource_modifiers`/
+  `city_routes`/extended `cities` columns. Phase 2: `world_economic_state`/
+  `city_economic_state`/`world_events`/`city_events` + a `CREATE AGGREGATE`
+  and `run_government_daily_update()` (`FOR UPDATE` idempotency lock, two
+  set-based `UPDATE`s). Phase 3: `city_stockpiles` (seeded 90 rows) +
+  `_materialize_city_stockpile_ids`/`materialize_city_stockpiles_due`/
+  `materialize_all_active_city_stockpiles`, and migration 115 redefines
+  `run_government_daily_update()` again to call into Phase 3's sweep --
+  meaning a Phase 2 bug could now also mask or compound with a Phase 3 bug
+  in the same function. All reviewed by hand, none executed. **Before
+  trusting any of this**, run a clean local `supabase db reset`, then in
+  order: manually call `select run_government_daily_update();` twice in a
+  row (second call should return `"skipped": true`, and the payload should
+  include `stockpilesMaterialized`), call
+  `select materialize_city_stockpiles_due();` and confirm it returns
+  `processed: 0` on a freshly-seeded table (nothing should be due yet -- if
+  it's nonzero, the seed's `next_reorder_at` math is wrong), then
   `npx supabase db push` + `npx supabase functions deploy tick-extraction
-  tick-government-daily`, then confirm `tick_run_logs` shows both
-  `tick-extraction` and `tick-government-daily` running `status: "ok"`. See
-  `changelog.md` (2026-08-19, "CityPlan Phase 1" and "CityPlan Phase 2").
+  tick-government-daily tick-city-stockpiles`, then confirm `tick_run_logs`
+  shows all three running `status: "ok"`. See `changelog.md` (2026-08-19,
+  "CityPlan Phase 1", "CityPlan Phase 2", "CityPlan Phase 3").
 - **2026-08-17 — H7 batched NPC-sale settlement RPC unexercised against real
   data.** `settle_store_inventory_sales_atomic` (migration 092) and the
   tick-npc-purchases rewrite that calls it are deployed and running clean,
