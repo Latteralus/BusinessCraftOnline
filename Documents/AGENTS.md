@@ -64,6 +64,15 @@ again, re-run both before trusting it; TS majors are the most likely to surface 
   these to `authenticated`; call only from server code via the service-role client.
 
 ## Open threads (update or remove as they resolve)
+- **2026-08-20 — CityPlan Phase 5 (route-based abstract freight) shipped locally, no migration.**
+  Player travel and shipping quotes now read `city_routes`/`world_economic_state`
+  instead of the old region-tier system in `topology.ts` (deleted). Pure
+  application code (`src/domains/cities-travel/{topology,service}.ts`, new
+  `src/config/logistics.ts`) -- no new migration, so nothing new to `db push`,
+  but it's part of the same not-yet-deployed body of work as the Phase 1-4
+  migrations below. `npm run typecheck`, `typecheck:edge`, `build`,
+  `test:finance` (63 passed), `test:db-security` (12 passed) all clean. See
+  `changelog.md` (2026-08-20, "CityPlan Phase 5").
 - **2026-08-19 — CityPlan Phases 1-4 (migrations 111-119) verified locally, still not pushed to hosted.**
   Verification concern is resolved, push is not. This session finally ran
   Docker Desktop and did a clean local `npx supabase db reset` for the first

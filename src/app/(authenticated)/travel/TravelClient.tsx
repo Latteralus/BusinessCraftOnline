@@ -303,7 +303,7 @@ export default function TravelClient({ cities, travelState: initialTravelState }
           {quote ? (
             <div style={{ fontSize: 14, color: "#cbd5e1" }}>
               <p style={{ margin: "4px 0" }}>
-                <strong><TooltipLabel label="Tier" content="Distance band used to determine travel time and cost between the two cities." /></strong> {quote.tier}
+                <strong><TooltipLabel label="Distance" content="Road distance between the two cities, used to determine travel time and cost." /></strong> {quote.distanceMiles} mi
               </p>
               <p style={{ margin: "4px 0" }}>
                 <strong><TooltipLabel label="Duration" content="How long the trip will take in real time once travel starts." /></strong> {quote.minutes} minutes

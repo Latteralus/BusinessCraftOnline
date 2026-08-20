@@ -129,16 +129,17 @@ export type ShippingQueueItem = {
   created_at: string;
 };
 
-export type TravelTier =
-  | "same_region"
-  | "adjacent_region"
-  | "cross_country"
-  | "far_cross_country";
-
 export type TravelQuote = {
-  tier: TravelTier;
   minutes: number;
   cost: number;
+  distanceMiles: number;
+};
+
+export type ShippingQuote = {
+  minutes: number;
+  totalCost: number;
+  costPerUnit: number;
+  distanceMiles: number;
 };
 
 export type StartTravelInput = {

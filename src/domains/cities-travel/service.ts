@@ -5,12 +5,14 @@ import type {
   CityEvent,
   CityResourceModifier,
   CityRoute,
+  ShippingQuote,
   StartTravelInput,
   TravelLog,
+  TravelQuote,
   WorldEconomicState,
   WorldEvent,
 } from "./types";
-import { calculateTravelQuote } from "./topology";
+import { calculateRouteShippingQuote, calculateRouteTravelQuote } from "./topology";
 
 // cities has no RLS (see supabase/migrations/003_cities.sql) and its 10 rows
 // change only via a migration -- the same result is correct for every user,
@@ -105,6 +107,45 @@ export async function getRouteBetweenCities(
 ): Promise<CityRoute | null> {
   const routes = await getCityRoutes(client, fromCityId);
   return routes.find((route) => route.to_city_id === toCityId) ?? null;
+}
+
+// CityPlan Phase 5: player travel and abstract shipping both read timing and
+// cost off the same city_routes row instead of the old region-tier system,
+// so they (and later trucking) stay consistent with each other.
+async function resolveRouteAndWorldState(client: QueryClient, from: City, to: City) {
+  if (from.id === to.id) {
+    throw new Error("Origin and destination cannot be the same city.");
+  }
+
+  const [route, world] = await Promise.all([
+    getRouteBetweenCities(client, from.id, to.id),
+    getWorldEconomicState(client),
+  ]);
+
+  if (!route) {
+    throw new Error("No route exists between these cities.");
+  }
+
+  return { route, world };
+}
+
+export async function calculateTravelQuote(
+  client: QueryClient,
+  from: City,
+  to: City
+): Promise<TravelQuote> {
+  const { route, world } = await resolveRouteAndWorldState(client, from, to);
+  return calculateRouteTravelQuote(route, world.transport_cost_index);
+}
+
+export async function calculateShippingQuote(
+  client: QueryClient,
+  from: City,
+  to: City,
+  quantity: number
+): Promise<ShippingQuote> {
+  const { route, world } = await resolveRouteAndWorldState(client, from, to);
+  return calculateRouteShippingQuote(route, quantity, world.transport_cost_index);
 }
 
 // Dynamic economic state (CityPlan Phase 2) changes at most once per 24h,

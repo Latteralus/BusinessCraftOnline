@@ -1,81 +1,62 @@
-import type { CityRegion } from "@/config/cities";
-import type { City, TravelQuote, TravelTier } from "./types";
+import {
+  DEFAULT_CHARGEABLE_WEIGHT_LB_PER_UNIT,
+  DEFAULT_FREIGHT_RATE_PER_LB_MILE,
+  LOGISTICS_TIME_SCALE,
+  MINIMUM_SHIPMENT_CHARGE,
+  TRAVEL_COST_PER_MILE,
+  TRAVEL_MINIMUM_FARE,
+} from "@/config/logistics";
+import type { CityRoute, ShippingQuote, TravelQuote } from "./types";
 
-type TravelTierDetails = {
-  minutes: number;
-  cost: number;
-  shippingCostPerUnit: number;
-};
-
-const TRAVEL_TIER_DETAILS: Record<TravelTier, TravelTierDetails> = {
-  same_region: { minutes: 30, cost: 50, shippingCostPerUnit: 0.05 },
-  adjacent_region: { minutes: 90, cost: 120, shippingCostPerUnit: 0.12 },
-  cross_country: { minutes: 240, cost: 280, shippingCostPerUnit: 0.25 },
-  far_cross_country: { minutes: 360, cost: 420, shippingCostPerUnit: 0.35 },
-};
-
-const ADJACENT_REGIONS: Record<CityRegion, CityRegion[]> = {
-  Northeast: ["Midwest", "Southeast"],
-  West: ["Southwest", "Mountain"],
-  Midwest: ["Northeast", "South", "Mountain"],
-  South: ["Midwest", "Southeast", "Southwest"],
-  Southwest: ["West", "South", "Mountain"],
-  Mountain: ["West", "Midwest", "Southwest"],
-  Southeast: ["Northeast", "South"],
-};
-
-const FAR_CROSS_COUNTRY_PAIRS = new Set([
-  "southeast:mountain",
-  "mountain:southeast",
-]);
-
-function getRouteKey(fromRegion: CityRegion, toRegion: CityRegion) {
-  return `${fromRegion.toLowerCase()}:${toRegion.toLowerCase()}`;
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
-export function classifyTravelTier(from: City, to: City): TravelTier {
-  if (from.id === to.id) {
-    throw new Error("Origin and destination cannot be the same city.");
-  }
-
-  if (from.region === to.region) {
-    return "same_region";
-  }
-
-  if (FAR_CROSS_COUNTRY_PAIRS.has(getRouteKey(from.region, to.region))) {
-    return "far_cross_country";
-  }
-
-  if (ADJACENT_REGIONS[from.region].includes(to.region)) {
-    return "adjacent_region";
-  }
-
-  return "cross_country";
+// CityPlan Phase 5: shipmentTravelMinutes = route.baselineDriveMinutes *
+// LOGISTICS_TIME_SCALE, shared by player travel and abstract shipping (and
+// later trucking) so all three carriers agree on how long a route takes.
+export function calculateRouteTravelMinutes(route: CityRoute): number {
+  return Math.round(route.baseline_drive_minutes * LOGISTICS_TIME_SCALE);
 }
 
-export function getTravelTierDetails(tier: TravelTier): TravelTierDetails {
-  return TRAVEL_TIER_DETAILS[tier];
-}
-
-export function calculateTravelQuote(from: City, to: City): TravelQuote {
-  const tier = classifyTravelTier(from, to);
-  const details = getTravelTierDetails(tier);
+export function calculateRouteTravelQuote(
+  route: CityRoute,
+  transportCostIndex: number
+): TravelQuote {
+  const minutes = calculateRouteTravelMinutes(route);
+  const baseCost =
+    Math.max(TRAVEL_MINIMUM_FARE, route.road_distance_miles * TRAVEL_COST_PER_MILE) +
+    route.toll_cost;
 
   return {
-    tier,
-    minutes: details.minutes,
-    cost: details.cost,
+    minutes,
+    cost: round2(baseCost * transportCostIndex),
+    distanceMiles: route.road_distance_miles,
   };
 }
 
-export function calculateShippingQuote(from: City, to: City, quantity: number) {
-  const tier = classifyTravelTier(from, to);
-  const details = getTravelTierDetails(tier);
+// freightCost = max(minimumShipmentCharge, distanceMiles * chargeableWeightLb
+// * baseRatePerLbMile) * world.transportCostIndex, per the plan. No item
+// carries a real unit_weight_lb yet (reach goal), so
+// DEFAULT_CHARGEABLE_WEIGHT_LB_PER_UNIT stands in for it -- "start simple,
+// use item weights later" per the plan's own wording.
+export function calculateRouteShippingQuote(
+  route: CityRoute,
+  quantity: number,
+  transportCostIndex: number
+): ShippingQuote {
+  const minutes = calculateRouteTravelMinutes(route);
+  const chargeableWeightLb = quantity * DEFAULT_CHARGEABLE_WEIGHT_LB_PER_UNIT;
+  const ratePerLbMile = route.base_freight_cost_per_lb_mile ?? DEFAULT_FREIGHT_RATE_PER_LB_MILE;
+  const baseCost =
+    Math.max(MINIMUM_SHIPMENT_CHARGE, route.road_distance_miles * chargeableWeightLb * ratePerLbMile) +
+    route.toll_cost;
+  const totalCost = round2(baseCost * transportCostIndex);
 
   return {
-    tier,
-    minutes: details.minutes,
-    costPerUnit: details.shippingCostPerUnit,
-    totalCost: Number((quantity * details.shippingCostPerUnit).toFixed(2)),
+    minutes,
+    totalCost,
+    costPerUnit: quantity > 0 ? round2(totalCost / quantity) : 0,
+    distanceMiles: route.road_distance_miles,
   };
 }

@@ -33,7 +33,7 @@ export async function POST(request: Request) {
       }
 
       try {
-        const quote = calculateTravelQuote(fromCity, toCity);
+        const quote = await calculateTravelQuote(supabase, fromCity, toCity);
         return NextResponse.json({ quote });
       } catch (error) {
         return fail(error, "Invalid travel route.");

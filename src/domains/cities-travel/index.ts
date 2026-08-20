@@ -1,4 +1,6 @@
 export {
+  calculateShippingQuote,
+  calculateTravelQuote,
   canPurchaseBusiness,
   cancelTravel,
   completeTravel,
@@ -16,10 +18,9 @@ export {
 } from "./service";
 
 export {
-  calculateShippingQuote,
-  calculateTravelQuote,
-  classifyTravelTier,
-  getTravelTierDetails,
+  calculateRouteShippingQuote,
+  calculateRouteTravelMinutes,
+  calculateRouteTravelQuote,
 } from "./topology";
 
 export { completeTravelSchema, startTravelSchema } from "./validations";
@@ -45,12 +46,12 @@ export type {
   CityRoute,
   EconomicEventType,
   ShippingQueueItem,
+  ShippingQuote,
   StartTravelInput,
   StartTravelRequest,
   TravelLog,
   TravelQuote,
   TravelStatus,
-  TravelTier,
   WorldEconomicState,
   WorldEvent,
 } from "./types";

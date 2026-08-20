@@ -58,7 +58,7 @@ export async function getTravelQuoteAction(toCityId: string): Promise<ActionResu
   }
 
   try {
-    const quote = calculateTravelQuote(fromCity, toCity);
+    const quote = await calculateTravelQuote(supabase, fromCity, toCity);
     return { ok: true, data: quote };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Invalid travel route." };
@@ -99,7 +99,7 @@ export async function startTravelAction(toCityId: string): Promise<ActionResult>
 
   let quote;
   try {
-    quote = calculateTravelQuote(fromCity, toCity);
+    quote = await calculateTravelQuote(supabase, fromCity, toCity);
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Invalid travel route." };
   }

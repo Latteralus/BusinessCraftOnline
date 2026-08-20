@@ -222,7 +222,7 @@ async function resolveShippingPlan(client: QueryClient, input: TransferItemsInpu
     throw new Error("Source or destination city does not exist.");
   }
 
-  const quote = calculateShippingQuote(sourceCity, destinationCity, input.quantity);
+  const quote = await calculateShippingQuote(client, sourceCity, destinationCity, input.quantity);
 
   return {
     transferType: "shipping" as const,

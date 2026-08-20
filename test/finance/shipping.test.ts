@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { calculateShippingQuote } from "@/domains/cities-travel/topology";
+import { calculateShippingQuote } from "@/domains/cities-travel";
 import { ensurePersonalAccounts } from "@/domains/banking/service";
 import { transferItems } from "@/domains/inventory/service";
 import {
@@ -62,7 +62,7 @@ describe("shipping: cross-city B2B transfer + delivery (execute_inventory_transf
 
     const { data: sourceCity } = await client.from("cities").select("*").eq("id", sourceCityId).single();
     const { data: destCity } = await client.from("cities").select("*").eq("id", destinationCityId).single();
-    const quote = calculateShippingQuote(sourceCity as any, destCity as any, 10);
+    const quote = await calculateShippingQuote(client, sourceCity as any, destCity as any, 10);
     shippingCost = quote.totalCost;
   });
 
@@ -122,11 +122,16 @@ describe("shipping: cross-city B2B transfer + delivery (execute_inventory_transf
     expect(Number(destRows[0].quantity)).toBe(10);
     // Item 45's target: total landed cost = purchase price + attributable
     // inbound freight = $50 + shippingCost, not purchase price alone.
-    expect(Number(destRows[0].total_cost)).toBe(50 + shippingCost);
-    expect(Number(destRows[0].unit_cost)).toBe(Math.round(((50 + shippingCost) / 10) * 100) / 100);
+    // Rounded to the cent before comparing -- shippingCost is now a
+    // route-distance-derived value (CityPlan Phase 5), not a clean multiple
+    // of a per-unit rate, so raw JS float addition can differ from Postgres's
+    // exact numeric arithmetic by less than a cent.
+    const expectedTotalCost = Math.round((50 + shippingCost) * 100) / 100;
+    expect(Number(destRows[0].total_cost)).toBe(expectedTotalCost);
+    expect(Number(destRows[0].unit_cost)).toBe(Math.round((expectedTotalCost / 10) * 100) / 100);
 
     const events = await getFinancialEvents(client, destinationBusinessId);
     const acquisitionEvent = events.find((e) => e.account_code === "inventory" && e.reference_type === "inventory_transfer");
-    expect(acquisitionEvent).toMatchObject({ amount: 50 + shippingCost });
+    expect(acquisitionEvent).toMatchObject({ amount: expectedTotalCost });
   });
 });

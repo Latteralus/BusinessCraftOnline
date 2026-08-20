@@ -92,6 +92,8 @@ service file.
   have moved qualifying inventory into a business located in the contract's
   destination city (e.g. via the existing `execute_inventory_transfer`
   shipping path) before `deliverGovernmentContract()` will accept it;
-  otherwise it returns `{ok: false, reason: 'wrong_city'}`. Route-based
-  freight (CityPlan Phase 5) and player-owned trucking (the reach goal) are
-  not built yet.
+  otherwise it returns `{ok: false, reason: 'wrong_city'}`. That shipping
+  path is now route-based (CityPlan Phase 5 -- see `cities-travel`'s
+  `DOMAIN.md`), so moving contract goods into the destination city takes
+  real route distance/time instead of the old region-tier estimate.
+  Player-owned trucking (the reach goal) is not built yet.

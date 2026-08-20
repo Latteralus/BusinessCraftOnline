@@ -124,7 +124,7 @@ export async function POST(request: Request) {
 
   let quote;
   try {
-    quote = calculateTravelQuote(fromCity, toCity);
+    quote = await calculateTravelQuote(supabase, fromCity, toCity);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Invalid travel route." },
