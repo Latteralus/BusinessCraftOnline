@@ -65,6 +65,18 @@ export const NPC_BASKET_SIZE_DISTRIBUTION = [
   { min: 11, max: 20, weight: 0.07 },
 ] as const;
 
+// Open-market only (tick-npc-market-purchases): how many units of a single
+// chosen listing an NPC buys per successful purchase attempt. Does not apply
+// to the storefront channel, which sizes per-attempt quantity off actual
+// listing capacity via getStorefrontMaxUnitsPerPurchaseAttempt.
+export const NPC_OPEN_MARKET_PURCHASE_QUANTITY_DISTRIBUTION = [
+  { qty: 1, weight: 0.50 },
+  { qty: 2, weight: 0.25 },
+  { qty: 3, weight: 0.15 },
+  { qty: 4, weight: 0.10 },
+  { qty: 5, weight: 0.05 },
+] as const;
+
 export const NPC_PRICE_SENSITIVITY_MIN = 0.7;
 export const NPC_PRICE_SENSITIVITY_MAX = 1.0;
 export const NPC_QUALITY_PREFERENCE_MIN = 0.0;

@@ -20,12 +20,12 @@ import {
 import {
   STOREFRONT_DEFAULT_ITEM_INTEREST_WEIGHT,
   STOREFRONT_ITEM_INTEREST_WEIGHT_BY_ITEM,
-  getStorefrontMaxUnitsPerPurchaseAttempt,
   getStorefrontShelfPurchaseScore,
 } from "../_shared/store-config.ts";
 import {
   NPC_BASKET_SIZE_DISTRIBUTION,
   NPC_OPEN_MARKET_ELIGIBLE_ITEMS,
+  NPC_OPEN_MARKET_PURCHASE_QUANTITY_DISTRIBUTION,
   NPC_OPEN_MARKET_SHOPPERS_PER_SUBTICK_BASE,
   NPC_PRICE_CEILINGS,
   NPC_DEMAND_CURVE,
@@ -387,15 +387,16 @@ Deno.serve(async (request) => {
 
             const available = Math.max(0, toNumber(chosen.quantity));
             const affordable = Math.floor(remainingBudget / chosenPrice);
-            const maxByAttempt = getStorefrontMaxUnitsPerPurchaseAttempt(0);
+            const desiredQty = pickWeighted(
+              NPC_OPEN_MARKET_PURCHASE_QUANTITY_DISTRIBUTION as unknown as Array<
+                (typeof NPC_OPEN_MARKET_PURCHASE_QUANTITY_DISTRIBUTION)[number]
+              >,
+              (entry) => entry.weight,
+              seededRng
+            ).qty;
             const soldQty = Math.max(
               1,
-              Math.min(
-                available,
-                remainingItems,
-                affordable,
-                randomIntWithRng(seededRng, 1, Math.max(1, Math.min(maxByAttempt, remainingItems)))
-              )
+              Math.min(available, remainingItems, affordable, desiredQty)
             );
 
             if (!Number.isFinite(soldQty) || soldQty <= 0 || soldQty > available || soldQty > affordable) {
