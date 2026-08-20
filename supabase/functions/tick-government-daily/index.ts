@@ -25,6 +25,7 @@ type GovernmentDailyResult = {
   citiesProcessed: number;
   eventsStarted: number;
   eventsEnded: number;
+  contractsCreated: number;
 };
 
 function parseGovernmentDailyResult(value: unknown): GovernmentDailyResult {
@@ -36,6 +37,7 @@ function parseGovernmentDailyResult(value: unknown): GovernmentDailyResult {
       citiesProcessed: 0,
       eventsStarted: 0,
       eventsEnded: 0,
+      contractsCreated: 0,
     };
   }
 
@@ -46,6 +48,7 @@ function parseGovernmentDailyResult(value: unknown): GovernmentDailyResult {
     citiesProcessed: Math.max(0, Math.floor(readNumber(value.citiesProcessed) ?? 0)),
     eventsStarted: Math.max(0, Math.floor(readNumber(value.eventsStarted) ?? 0)),
     eventsEnded: Math.max(0, Math.floor(readNumber(value.eventsEnded) ?? 0)),
+    contractsCreated: Math.max(0, Math.floor(readNumber(value.contractsCreated) ?? 0)),
   };
 }
 
@@ -74,6 +77,7 @@ Deno.serve(async (request) => {
       citiesProcessed: result.citiesProcessed,
       eventsStarted: result.eventsStarted,
       eventsEnded: result.eventsEnded,
+      contractsCreated: result.contractsCreated,
     };
 
     await writeTickRunLog(supabase, {

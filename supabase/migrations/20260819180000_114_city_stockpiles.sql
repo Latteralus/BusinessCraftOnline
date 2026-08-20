@@ -107,7 +107,11 @@ select
   now(),
   case
     when s.base_consumption_per_hour > 0
-      then now() + make_interval(hours => ((s.target_quantity - s.reorder_point) / s.base_consumption_per_hour)::double precision)
+      -- make_interval's hours parameter is integer, so it rejects a
+      -- fractional double precision argument outright (SQLSTATE 42883, no
+      -- matching overload) -- multiply a numeric hour count by interval '1
+      -- hour' instead, which Postgres supports natively for any numeric type.
+      then now() + (((s.target_quantity - s.reorder_point) / s.base_consumption_per_hour)) * interval '1 hour'
     else null
   end
 from seed s
@@ -191,7 +195,9 @@ begin
     last_materialized_at = v_now,
     next_reorder_at = case
       when f.new_stock <= f.reorder_point then v_now
-      when f.effective_rate > 0 then v_now + make_interval(hours => ((f.new_stock - f.reorder_point) / f.effective_rate)::double precision)
+      -- See the seed block above for why this is numeric * interval '1 hour'
+      -- rather than make_interval(hours => ...) (integer-only parameter).
+      when f.effective_rate > 0 then v_now + ((f.new_stock - f.reorder_point) / f.effective_rate) * interval '1 hour'
       else null
     end,
     updated_at = v_now

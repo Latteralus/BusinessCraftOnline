@@ -9,7 +9,7 @@ Repository baseline: Latteralus/BusinessCraftOnline main
 
 Revision 1.1: Government simulation reduced to a 24-hour cadence outside automatic stock-threshold replenishment; added shared Federal procurement provider placeholder and due-time stock threshold optimization.
 
-Implementation status (2026-08-19): Phases 1-3 shipped -- see `Documents/changelog.md` (2026-08-19, "CityPlan Phase 1", "CityPlan Phase 2", "CityPlan Phase 3"). Phases 4-7 and the trucking reach goal are still proposed, not built.
+Implementation status (2026-08-19): Phases 1-4 shipped and verified locally -- see `Documents/changelog.md` (2026-08-19, "CityPlan Phase 1" through "CityPlan Phase 4"). Not yet pushed to the hosted project. Phases 5-7 and the trucking reach goal are still proposed, not built.
 
 Executive Summary
 

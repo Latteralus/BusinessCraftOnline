@@ -64,30 +64,26 @@ again, re-run both before trusting it; TS majors are the most likely to surface 
   these to `authenticated`; call only from server code via the service-role client.
 
 ## Open threads (update or remove as they resolve)
-- **2026-08-19 — CityPlan Phases 1-3 (migrations 111-116) not yet pushed/verified live.**
-  Three sessions in a row have now shipped schema/plpgsql for this plan
-  without ever running it against a real Postgres instance (Docker Desktop
-  wasn't running in any of them). Phase 1: `city_resource_modifiers`/
-  `city_routes`/extended `cities` columns. Phase 2: `world_economic_state`/
-  `city_economic_state`/`world_events`/`city_events` + a `CREATE AGGREGATE`
-  and `run_government_daily_update()` (`FOR UPDATE` idempotency lock, two
-  set-based `UPDATE`s). Phase 3: `city_stockpiles` (seeded 90 rows) +
-  `_materialize_city_stockpile_ids`/`materialize_city_stockpiles_due`/
-  `materialize_all_active_city_stockpiles`, and migration 115 redefines
-  `run_government_daily_update()` again to call into Phase 3's sweep --
-  meaning a Phase 2 bug could now also mask or compound with a Phase 3 bug
-  in the same function. All reviewed by hand, none executed. **Before
-  trusting any of this**, run a clean local `supabase db reset`, then in
-  order: manually call `select run_government_daily_update();` twice in a
-  row (second call should return `"skipped": true`, and the payload should
-  include `stockpilesMaterialized`), call
-  `select materialize_city_stockpiles_due();` and confirm it returns
-  `processed: 0` on a freshly-seeded table (nothing should be due yet -- if
-  it's nonzero, the seed's `next_reorder_at` math is wrong), then
-  `npx supabase db push` + `npx supabase functions deploy tick-extraction
-  tick-government-daily tick-city-stockpiles`, then confirm `tick_run_logs`
-  shows all three running `status: "ok"`. See `changelog.md` (2026-08-19,
-  "CityPlan Phase 1", "CityPlan Phase 2", "CityPlan Phase 3").
+- **2026-08-19 — CityPlan Phases 1-4 (migrations 111-119) verified locally, still not pushed to hosted.**
+  Verification concern is resolved, push is not. This session finally ran
+  Docker Desktop and did a clean local `npx supabase db reset` for the first
+  time since Phase 1 -- it failed immediately (migration 114, statement 6)
+  with a real bug: `make_interval(hours => x::double precision)` doesn't
+  exist (`hours` is `integer`-only), so every Phase 3 `next_reorder_at`
+  computation (seed and `_materialize_city_stockpile_ids`) would have thrown
+  had it ever run. Fixed in place (migration 114 was never pushed anywhere)
+  by switching to `x * interval '1 hour'`. After that fix, all 119
+  migrations apply clean, `npm run test:finance` (63 passed, includes a new
+  `test/finance/government-contract-delivery.test.ts`) and
+  `npm run test:db-security` (12 passed) both pass against the local
+  instance, and `run_government_daily_update()` was manually confirmed
+  idempotent (`skipped: true` on a second same-day call). See `changelog.md`
+  (2026-08-19, "CityPlan Phase 4" -- also covers Phases 1-3's original
+  entries below it). **Still open**: nothing in 111-119 is on the hosted
+  project. Before pushing: `npx supabase db push`, then
+  `npx supabase functions deploy tick-extraction tick-government-daily
+  tick-city-stockpiles` (all three changed across these phases), then
+  confirm `tick_run_logs` shows all three running `status: "ok"`.
 - **2026-08-17 — H7 batched NPC-sale settlement RPC unexercised against real
   data.** `settle_store_inventory_sales_atomic` (migration 092) and the
   tick-npc-purchases rewrite that calls it are deployed and running clean,

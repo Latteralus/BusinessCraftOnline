@@ -1,4 +1,7 @@
+import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase-service-role";
 import type { QueryClient } from "@/lib/db/query-client";
+import { toNumber } from "@/lib/core/number";
 import {
   getActiveCityEvents,
   getCities,
@@ -7,7 +10,15 @@ import {
   type CityEvent,
 } from "@/domains/cities-travel";
 import { getStockpileStatus, projectCurrentStock } from "../../../shared/cities/stockpiles";
-import type { CityStockpile, ProjectedCityStockpile } from "./types";
+import type {
+  AwardGovernmentContractInput,
+  CityStockpile,
+  DeliverGovernmentContractInput,
+  GovernmentContract,
+  GovernmentContractListFilter,
+  GovernmentContractProvider,
+  ProjectedCityStockpile,
+} from "./types";
 
 // Raw rows change at most every 5 minutes (tick-city-stockpiles' due sweep)
 // or once/day (the government daily pass) -- a short warm-instance cache
@@ -101,4 +112,163 @@ export async function getProjectedCityStockpiles(
       status: getStockpileStatus(currentStock, stockpile.reorder_point, stockpile.critical_point),
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// CityPlan Phase 4: government_contract_providers / government_contracts.
+// See Documents/Plans/CityPlan.md ("Shared Government Contract Provider
+// Model"). Mutation only via the security-definer RPCs from migration 119 --
+// see DOMAIN.md's "Off Limits" section.
+// ---------------------------------------------------------------------------
+
+// Providers are effectively static (one per active city + one federal
+// placeholder) -- same 5-minute-class warm-instance cache as cities-travel's
+// getCities().
+const PROVIDERS_CACHE_TTL_MS = 5 * 60 * 1000;
+let providersCache: { expiresAt: number; rows: GovernmentContractProvider[] } | null = null;
+
+export async function getGovernmentContractProviders(
+  client: QueryClient,
+  filter: { cityId?: string; providerType?: GovernmentContractProvider["provider_type"] } = {}
+): Promise<GovernmentContractProvider[]> {
+  if (!providersCache || providersCache.expiresAt <= Date.now()) {
+    const { data, error } = await client
+      .from("government_contract_providers")
+      .select("*")
+      .eq("is_active", true);
+
+    if (error) throw error;
+    providersCache = {
+      expiresAt: Date.now() + PROVIDERS_CACHE_TTL_MS,
+      rows: (data as GovernmentContractProvider[]) ?? [],
+    };
+  }
+
+  return providersCache.rows.filter(
+    (row) =>
+      (filter.cityId === undefined || row.city_id === filter.cityId) &&
+      (filter.providerType === undefined || row.provider_type === filter.providerType)
+  );
+}
+
+function normalizeGovernmentContract(row: GovernmentContract): GovernmentContract {
+  return {
+    ...row,
+    quantity_requested: toNumber(row.quantity_requested),
+    quantity_delivered: toNumber(row.quantity_delivered),
+    unit_price: toNumber(row.unit_price),
+    total_value: toNumber(row.total_value),
+  };
+}
+
+// Bounded default, same reasoning as contracts.ts's CONTRACTS_DEFAULT_LIMIT
+// (audit finding M1) -- covers both public "available contracts" browsing
+// (status filter) and general listing.
+const GOVERNMENT_CONTRACTS_DEFAULT_LIMIT = 500;
+
+export async function getGovernmentContracts(
+  client: QueryClient,
+  filter: GovernmentContractListFilter = {}
+): Promise<GovernmentContract[]> {
+  let query = client
+    .from("government_contracts")
+    .select("*")
+    .order("posted_at", { ascending: false })
+    .limit(filter.limit ?? GOVERNMENT_CONTRACTS_DEFAULT_LIMIT);
+
+  if (filter.cityId) query = query.eq("city_id", filter.cityId);
+  if (filter.providerId) query = query.eq("provider_id", filter.providerId);
+  if (filter.status) query = query.eq("status", filter.status);
+  if (filter.businessId) query = query.eq("awarded_business_id", filter.businessId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return ((data as GovernmentContract[]) ?? []).map(normalizeGovernmentContract);
+}
+
+export async function getGovernmentContractById(
+  client: QueryClient,
+  contractId: string
+): Promise<GovernmentContract | null> {
+  const { data, error } = await client
+    .from("government_contracts")
+    .select("*")
+    .eq("id", contractId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  return normalizeGovernmentContract(data as GovernmentContract);
+}
+
+// award_government_contract_atomic (migration 119) is authenticated-granted
+// (like accept_contract_atomic) and checks auth.uid() = p_player_id itself --
+// pure status transition + ownership check, no cash/inventory movement, so
+// it's called with the caller's own session client rather than service-role.
+export async function awardGovernmentContract(
+  client: QueryClient,
+  playerId: string,
+  input: AwardGovernmentContractInput
+): Promise<GovernmentContract> {
+  const { data, error } = await client.rpc("award_government_contract_atomic", {
+    p_player_id: playerId,
+    p_business_id: input.businessId,
+    p_contract_id: input.contractId,
+  });
+
+  if (error) throw error;
+
+  const result = data as { ok: boolean; contract: GovernmentContract } | null;
+  if (!result?.ok) throw new Error("Failed to award contract.");
+
+  return normalizeGovernmentContract(result.contract);
+}
+
+// deliver_government_contract_atomic (migration 119) relieves inventory at
+// >= the contract's minimum_quality, replenishes the destination
+// city_stockpile, credits the payout, and writes financial events all in one
+// transaction -- restricted to service_role like fulfill_contract_atomic
+// (src/domains/contracts/service.ts's fulfillContract), so it's called with
+// the service-role client rather than the caller's client.
+export async function deliverGovernmentContract(
+  client: QueryClient,
+  playerId: string,
+  input: DeliverGovernmentContractInput
+): Promise<{ contract: GovernmentContract; delivered: number; payout: number }> {
+  const contract = await getGovernmentContractById(client, input.contractId);
+  if (!contract) throw new Error("Contract not found.");
+
+  if (!contract.awarded_business_id) {
+    throw new Error("Contract has not been awarded.");
+  }
+
+  await ensureOwnedBusiness(client, playerId, contract.awarded_business_id);
+
+  const { data, error } = await createSupabaseServiceRoleClient().rpc("deliver_government_contract_atomic", {
+    p_player_id: playerId,
+    p_contract_id: input.contractId,
+    p_quantity: input.quantity,
+  });
+  if (error) throw error;
+
+  const result = data as
+    | { ok: true; contract: GovernmentContract; delivered: number; payout: number }
+    | { ok: false; reason: string }
+    | null;
+
+  if (!result?.ok) {
+    const reason = result && "reason" in result ? result.reason : "unknown";
+    if (reason === "wrong_city") {
+      throw new Error("This business is not located in the contract's destination city.");
+    }
+    throw new Error("Not enough qualifying inventory to deliver against this contract.");
+  }
+
+  return {
+    contract: normalizeGovernmentContract(result.contract),
+    delivered: toNumber(result.delivered),
+    payout: toNumber(result.payout),
+  };
 }

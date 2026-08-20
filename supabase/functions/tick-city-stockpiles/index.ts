@@ -1,7 +1,11 @@
-// CityPlan Phase 3: due-reorder materialization sweep for municipal
-// stockpiles. All the math lives in materialize_city_stockpiles_due()
-// (migration 114) -- this function's job is just to invoke it and log the
-// result, same one-RPC-call shape as tick-shipping/tick-government-daily.
+// CityPlan Phase 3/4: due-reorder materialization sweep for municipal
+// stockpiles, plus (Phase 4) automatic replenishment contract creation for
+// whatever is still due after materializing. All the math lives in
+// materialize_and_replenish_city_stockpiles_due() (migration 118), which
+// itself composes materialize_city_stockpiles_due() (migration 114) and
+// create_replenishment_contracts_for_due_stockpiles() (migration 118) -- this
+// function's job is just to invoke it and log the result, same one-RPC-call
+// shape as tick-shipping/tick-government-daily.
 
 import {
   isRecord,
@@ -10,9 +14,17 @@ import {
   writeTickRunLog,
 } from "../_shared/tick-runtime.ts";
 
-function parseProcessedCount(value: unknown): number {
-  if (!isRecord(value)) return 0;
-  return Math.max(0, Math.floor(readNumber(value.processed) ?? 0));
+type StockpileSweepResult = {
+  processed: number;
+  contractsCreated: number;
+};
+
+function parseSweepResult(value: unknown): StockpileSweepResult {
+  if (!isRecord(value)) return { processed: 0, contractsCreated: 0 };
+  return {
+    processed: Math.max(0, Math.floor(readNumber(value.processed) ?? 0)),
+    contractsCreated: Math.max(0, Math.floor(readNumber(value.contractsCreated) ?? 0)),
+  };
 }
 
 Deno.serve(async (request) => {
@@ -24,17 +36,18 @@ Deno.serve(async (request) => {
   const startedAtIso = startedAt.toISOString();
 
   try {
-    const { data, error } = await supabase.rpc("materialize_city_stockpiles_due", { p_limit: 500 });
+    const { data, error } = await supabase.rpc("materialize_and_replenish_city_stockpiles_due", { p_limit: 500 });
 
     if (error) throw error;
 
-    const processed = parseProcessedCount(data);
+    const { processed, contractsCreated } = parseSweepResult(data);
 
     const finishedAtIso = new Date().toISOString();
     const payload = {
       ok: true,
       function: "tick-city-stockpiles",
       processed,
+      contractsCreated,
     };
 
     await writeTickRunLog(supabase, {
