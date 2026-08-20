@@ -55,8 +55,8 @@ a:hover {
   gap: 12px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--border-subtle);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   background: rgba(11, 18, 32, 0.75);
 }
 

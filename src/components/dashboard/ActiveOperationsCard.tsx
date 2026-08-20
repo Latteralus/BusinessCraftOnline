@@ -77,7 +77,7 @@ export function ActiveOperationsCard({ operations }: Props) {
 
             return (
               <Link
-                href={`/businesses/${op.businessId}?tab=operations`}
+                href={`/businesses/${op.businessId}`}
                 prefetch={false}
                 key={op.id}
                 style={{ textDecoration: "none", color: "inherit", display: "block" }}
