@@ -55,6 +55,7 @@ Read this before touching code. It replaces the old `_AI_GUIDE.md`, `AIReadme.md
 
 ## Current SSOTs
 - Extraction base output per tick lives in `shared/production/extraction.ts`. Do not hardcode extraction output rates in UI components or edge functions.
+- City resource abundance (quantity multiplier, never quality) lives in `city_resource_modifiers` and `shared/cities/resources.ts`; consumed by `tick-extraction` via `supabase/functions/_shared/city-resources.ts`. See `Documents/Plans/CityPlan.md` Phase 1.
 - Extraction dashboard/view math lives in `src/domains/production/view.ts`. Prefer reusing helpers like `buildExtractionOperationsView()` and `getExtractionSlotThroughput()` instead of recomputing throughput/degraded-slot logic inside components.
 - Upgrade runtime defaults and multiplier helpers live in `shared/upgrades/runtime.ts`. If app-side and edge-side upgrade math drift, check this file first.
 

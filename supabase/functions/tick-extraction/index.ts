@@ -10,6 +10,11 @@ import {
 import { isWorkerOperational } from "../_shared/employee-status.ts";
 import { getResolvedBusinessUpgradeEffectsForBusinesses } from "../_shared/business-upgrades.ts";
 import {
+  applyCityResourceAbundance,
+  getCityResourceAbundanceMap,
+  resolveCityResourceAbundance,
+} from "../_shared/city-resources.ts";
+import {
   EXTRACTION_BASE_OUTPUT_PER_TICK_BY_BUSINESS,
   EXTRACTION_MISSING_TOOL_OUTPUT_MULTIPLIER_BY_BUSINESS,
   EXTRACTION_OUTPUT_ITEM_BY_BUSINESS,
@@ -296,6 +301,14 @@ Deno.serve(async (request) => {
       [...businessById.values()].map((business) => ({ id: business.id, type: business.type }))
     );
 
+    // CityPlan Phase 1: resource abundance affects extraction *quantity*
+    // only (never quality) -- shared/cities/resources.ts. Batched once per
+    // tick across every city touched, same pattern as upgrade effects above.
+    const cityResourceAbundanceMap = await getCityResourceAbundanceMap(
+      supabase,
+      [...businessById.values()].map((business) => business.city_id)
+    );
+
     for (const slot of parsedSlots) {
      try {
     const typedBusiness = businessById.get(slot.business_id) ?? null;
@@ -423,9 +436,14 @@ Deno.serve(async (request) => {
     const waterRequired = typedBusiness.type === "farm" ? Math.floor(totalInputProgress) : 0;
     const nextInputProgress = typedBusiness.type === "farm" ? totalInputProgress - waterRequired : slot.input_progress;
 
+    const cityResourceAbundance = resolveCityResourceAbundance(
+      cityResourceAbundanceMap,
+      typedBusiness.city_id,
+      outputItem
+    );
     const { units, remainingProgress } = resolveProducedUnits(
       slot.output_progress,
-      outputMultiplier * effects.extractionOutputMultiplier
+      applyCityResourceAbundance(outputMultiplier * effects.extractionOutputMultiplier, cityResourceAbundance)
     );
     // add_business_inventory_quantity requires p_quality between 1 and 100 —
     // extractionQualityBonus defaults to 0 with no quality upgrades, so this

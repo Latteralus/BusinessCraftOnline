@@ -9,6 +9,8 @@ Repository baseline: Latteralus/BusinessCraftOnline main
 
 Revision 1.1: Government simulation reduced to a 24-hour cadence outside automatic stock-threshold replenishment; added shared Federal procurement provider placeholder and due-time stock threshold optimization.
 
+Implementation status (2026-08-19): Phase 1 shipped -- see `Documents/changelog.md` (2026-08-19, "CityPlan Phase 1"). Phases 2-7 and the trucking reach goal are still proposed, not built.
+
 Executive Summary
 
 Add a regional economic simulation layer where cities have static resource/tax characteristics, dynamic population/labor/demand conditions, physical municipal stockpiles, shortage-driven procurement contracts, and route-based inter-city freight. Preserve the current abstract shipping system as the first carrier and design it so player-owned trucking companies can replace the carrier layer later without changing city contracts or inventory semantics.

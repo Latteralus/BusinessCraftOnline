@@ -1,6 +1,8 @@
 import type { QueryClient } from "@/lib/db/query-client";
 import type {
   City,
+  CityResourceModifier,
+  CityRoute,
   StartTravelInput,
   TravelLog,
 } from "./types";
@@ -42,6 +44,63 @@ export async function getCityById(
 
   if (error) throw error;
   return (data as City | null) ?? null;
+}
+
+// Same caching rationale as getCities above: city_resource_modifiers and
+// city_routes are static reference data (change only via migration), so a
+// warm-instance cache is safe across requests/users, not just one request.
+let resourceModifiersCache: { expiresAt: number; rows: CityResourceModifier[] } | null = null;
+let routesCache: { expiresAt: number; rows: CityRoute[] } | null = null;
+
+export async function getCityResourceModifiers(
+  client: QueryClient,
+  cityId?: string
+): Promise<CityResourceModifier[]> {
+  if (!resourceModifiersCache || resourceModifiersCache.expiresAt <= Date.now()) {
+    const { data, error } = await client
+      .from("city_resource_modifiers")
+      .select("*")
+      .order("resource_key", { ascending: true });
+
+    if (error) throw error;
+    resourceModifiersCache = {
+      expiresAt: Date.now() + CITIES_CACHE_TTL_MS,
+      rows: (data as CityResourceModifier[]) ?? [],
+    };
+  }
+
+  const rows = resourceModifiersCache.rows;
+  return cityId ? rows.filter((row) => row.city_id === cityId) : rows;
+}
+
+export async function getCityRoutes(
+  client: QueryClient,
+  fromCityId?: string
+): Promise<CityRoute[]> {
+  if (!routesCache || routesCache.expiresAt <= Date.now()) {
+    const { data, error } = await client
+      .from("city_routes")
+      .select("*")
+      .eq("is_active", true);
+
+    if (error) throw error;
+    routesCache = {
+      expiresAt: Date.now() + CITIES_CACHE_TTL_MS,
+      rows: (data as CityRoute[]) ?? [],
+    };
+  }
+
+  const rows = routesCache.rows;
+  return fromCityId ? rows.filter((row) => row.from_city_id === fromCityId) : rows;
+}
+
+export async function getRouteBetweenCities(
+  client: QueryClient,
+  fromCityId: string,
+  toCityId: string
+): Promise<CityRoute | null> {
+  const routes = await getCityRoutes(client, fromCityId);
+  return routes.find((route) => route.to_city_id === toCityId) ?? null;
 }
 
 export async function getActiveTravel(

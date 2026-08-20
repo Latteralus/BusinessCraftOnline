@@ -7,6 +7,35 @@ export type City = {
   region: CityRegion;
   slug: string;
   available_resources: string[];
+  population_baseline: number | null;
+  business_tax_rate: number | null;
+  property_cost_index: number;
+  utility_cost_index: number;
+  base_labor_index: number;
+  latitude: number | null;
+  longitude: number | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type CityResourceModifier = {
+  id: string;
+  city_id: string;
+  resource_key: string;
+  abundance_multiplier: number;
+  notes: string | null;
+  updated_at: string;
+};
+
+export type CityRoute = {
+  id: string;
+  from_city_id: string;
+  to_city_id: string;
+  road_distance_miles: number;
+  baseline_drive_minutes: number;
+  base_freight_cost_per_lb_mile: number | null;
+  toll_cost: number;
+  is_active: boolean;
   created_at: string;
 };
 

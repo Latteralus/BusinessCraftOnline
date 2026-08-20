@@ -5,6 +5,9 @@ export {
   getActiveTravel,
   getCities,
   getCityById,
+  getCityResourceModifiers,
+  getCityRoutes,
+  getRouteBetweenCities,
   startTravel,
 } from "./service";
 
@@ -21,6 +24,8 @@ export type {
   CancelTravelResponse,
   CitiesPayload,
   CitiesResponse,
+  CityResourceModifiersResponse,
+  CityRoutesResponse,
   StartTravelResponse,
   TravelState,
   TravelStateResponse,
@@ -28,6 +33,8 @@ export type {
 
 export type {
   City,
+  CityResourceModifier,
+  CityRoute,
   ShippingQueueItem,
   StartTravelInput,
   StartTravelRequest,

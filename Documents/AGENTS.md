@@ -64,6 +64,16 @@ again, re-run both before trusting it; TS majors are the most likely to surface 
   these to `authenticated`; call only from server code via the service-role client.
 
 ## Open threads (update or remove as they resolve)
+- **2026-08-19 — CityPlan Phase 1 (migration 111) not yet pushed/verified live.**
+  New `city_resource_modifiers`/`city_routes` tables and extended `cities`
+  columns were written and typechecked but **not** exercised against a real
+  Postgres instance (Docker Desktop wasn't running in that session, so
+  `supabase db reset` couldn't run). Before trusting the seed data, run a
+  clean local `supabase db reset` (this migration has multi-row `VALUES` /
+  `UNION ALL` / `ON CONFLICT` seeding that's easy to get subtly wrong by
+  hand), then `npx supabase db push` + `npx supabase functions deploy
+  tick-extraction`, then confirm `tick_run_logs` still shows `tick-extraction`
+  running `status: "ok"`. See `changelog.md` (2026-08-19, "CityPlan Phase 1").
 - **2026-08-17 — H7 batched NPC-sale settlement RPC unexercised against real
   data.** `settle_store_inventory_sales_atomic` (migration 092) and the
   tick-npc-purchases rewrite that calls it are deployed and running clean,
