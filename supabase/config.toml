@@ -37,3 +37,9 @@ verify_jwt = false
 
 [functions.tick-wages]
 verify_jwt = false
+
+[functions.tick-government-daily]
+verify_jwt = false
+
+[functions.tick-city-stockpiles]
+verify_jwt = false

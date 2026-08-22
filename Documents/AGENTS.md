@@ -77,45 +77,13 @@ again, re-run both before trusting it; TS majors are the most likely to surface 
   Player travel and shipping quotes now read `city_routes`/`world_economic_state`
   instead of the old region-tier system in `topology.ts` (deleted). Pure
   application code (`src/domains/cities-travel/{topology,service}.ts`, new
-  `src/config/logistics.ts`) -- no new migration, so nothing new to `db push`,
-  but it's part of the same not-yet-deployed body of work as the Phase 1-4
-  migrations below. `npm run typecheck`, `typecheck:edge`, `build`,
+  `src/config/logistics.ts`) -- no new migration, so nothing to `db push`; the
+  underlying `city_routes`/`world_economic_state` data it reads is confirmed
+  live as of 2026-08-22 (see Resolved), but this phase's own Next.js code
+  reaches players via the separate Vercel/Next deploy pipeline, not anything
+  touched this session. `npm run typecheck`, `typecheck:edge`, `build`,
   `test:finance` (63 passed), `test:db-security` (12 passed) all clean. See
   `changelog.md` (2026-08-20, "CityPlan Phase 5").
-- **2026-08-19 — CityPlan Phases 1-4 (migrations 111-119) verified locally, still not pushed to hosted.**
-  Verification concern is resolved, push is not. This session finally ran
-  Docker Desktop and did a clean local `npx supabase db reset` for the first
-  time since Phase 1 -- it failed immediately (migration 114, statement 6)
-  with a real bug: `make_interval(hours => x::double precision)` doesn't
-  exist (`hours` is `integer`-only), so every Phase 3 `next_reorder_at`
-  computation (seed and `_materialize_city_stockpile_ids`) would have thrown
-  had it ever run. Fixed in place (migration 114 was never pushed anywhere)
-  by switching to `x * interval '1 hour'`. After that fix, all 119
-  migrations apply clean, `npm run test:finance` (63 passed, includes a new
-  `test/finance/government-contract-delivery.test.ts`) and
-  `npm run test:db-security` (12 passed) both pass against the local
-  instance, and `run_government_daily_update()` was manually confirmed
-  idempotent (`skipped: true` on a second same-day call). See `changelog.md`
-  (2026-08-19, "CityPlan Phase 4" -- also covers Phases 1-3's original
-  entries below it). **Update 2026-08-21/22**: a full-project assessment
-  found and fixed a real bug in migration 119's `deliver_government_contract_atomic`
-  (silent inventory-quantity rounding), a real concurrency race in 114's
-  `_materialize_city_stockpile_ids` (missing row locks), and a non-strict
-  `product_agg` in 112. The *first* attempt at the 119 fix introduced a
-  *different* bug (let `quantity_delivered` exceed `quantity_requested`,
-  violating that table's own CHECK) -- caught only by manually exercising a
-  genuinely fractional `quantity_requested` by hand against a fresh local
-  `db reset`, since the existing delivery test's fixture happens to produce a
-  whole-number `quantity_requested` and never exercised that path. Corrected,
-  re-verified by hand, and turned into a permanent test (new `describe` block
-  in `test/finance/government-contract-delivery.test.ts`) rather than left as
-  a one-off check. `test:finance` is now 64 tests (was 63); both suites pass
-  clean against a fresh local reset with all three fixes in place. See
-  `changelog.md` (2026-08-21/22 entry) for full detail. **Still open**:
-  nothing in 111-119 is on the hosted project. Before pushing:
-  `npx supabase db push`, then `npx supabase functions deploy tick-extraction
-  tick-government-daily tick-city-stockpiles` (all three changed across these
-  phases), then confirm `tick_run_logs` shows all three running `status: "ok"`.
 - **2026-08-17 — H7 batched NPC-sale settlement RPC unexercised against real
   data.** `settle_store_inventory_sales_atomic` (migration 092) and the
   tick-npc-purchases rewrite that calls it are deployed and running clean,
@@ -134,6 +102,29 @@ again, re-run both before trusting it; TS majors are the most likely to surface 
   re-login to be recognized as admin again.
 
 ## Resolved
+- **2026-08-22 — CityPlan Phases 1-5 (migrations 111-120) confirmed live and
+  running on hosted, plus two previously-undeployed edge functions fixed.**
+  Migrations 111-119 turned out to already be live on hosted (contradicting
+  this file's own prior "not yet pushed" notes -- pushed via an unknown
+  channel without the docs being updated; verify live state directly via
+  `migration list`/`functions list`/live function bodies rather than trusting
+  standing notes at face value going forward). New migration
+  [`120`](../supabase/migrations/20260822190000_120_fix_government_contract_rounding_and_stockpile_race.sql)
+  (a proper superseding migration, not an edit to already-applied history)
+  shipped the 2026-08-21/22 fixes for real -- confirmed live via direct
+  function-body queries. Separately discovered `tick-government-daily` and
+  `tick-city-stockpiles` had **never been deployed at all** despite their
+  cron jobs running (silently 404ing) since 111-119 went live, and that
+  `supabase/config.toml` was missing their `verify_jwt = false` entries
+  (would have 401'd even after deploying). Fixed both, deployed all four
+  changed/undeployed functions, and confirmed real execution for the first
+  time ever: `tick-city-stockpiles` now logs `status: "ok"` on its 5-minute
+  cadence, and a manual `run_government_daily_update()` call succeeded
+  (`stockpilesMaterialized: 90`, `citiesProcessed: 10`) with idempotency
+  confirmed on a second call. See `changelog.md` (2026-08-22). **Still open**:
+  `supabase/config.toml` and the new migration file are uncommitted local
+  changes -- need committing (explicitly the user's own git workflow this
+  session, not done here).
 - **2026-08-19 — AccountingFixPlan (Phases A–H, migrations 096–110)
   pushed and deployed.** `npx supabase db push` applied everything (also
   carried migration 097's baseline schema grants along, closing that
