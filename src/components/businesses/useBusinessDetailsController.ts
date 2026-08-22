@@ -7,6 +7,7 @@ import { summarizeManufacturingLines, summarizeProductionSlots, type Manufacturi
 import type { StoreShelfItem } from "@/domains/stores";
 import { fetchBusinessDetailsSection } from "@/lib/client/queries";
 import { useGameStore } from "@/stores/game-store";
+import { SLICE_KEYS, runGuardedSliceFetch } from "@/stores/slice-fetch-guard";
 import {
   createBusinessDetailsEntry,
   resolveBusinessDetailsView,
@@ -91,9 +92,25 @@ export function useBusinessDetailsController(input: BusinessDetailsClientProps) 
   async function refreshFinanceDashboard(
     period: FinancePeriod = view.financeDashboard?.currentPeriod ?? "1h"
   ) {
-    const patch = await fetchBusinessDetailsSection(businessId, "finance", period);
-    const finance = patch.financeDashboard ?? null;
-    patchDetail({ financeDashboard: finance });
+    let finance: BusinessFinanceDashboard | null = null;
+    // A dedicated key, not SLICE_KEYS.businessDetail(businessId) itself: that
+    // key's in-flight-sharing optimization assumes every caller fetches the
+    // same shape, but realtime's full-detail refresh re-fetches whatever
+    // period was current *before* this switch (see realtime-provider.tsx's
+    // refreshBusinessDetail). Sharing its key would make a period switch
+    // that lands while that refresh is in flight silently piggyback on it
+    // and never fetch the newly requested period at all. This still doesn't
+    // fully order against that refresh landing afterward with the stale
+    // period it captured -- a real but narrow residual race, left as-is
+    // rather than restructuring how realtime captures period context.
+    await runGuardedSliceFetch(
+      `${SLICE_KEYS.businessDetail(businessId)}:finance`,
+      () => fetchBusinessDetailsSection(businessId, "finance", period),
+      (patch) => {
+        finance = patch.financeDashboard ?? null;
+        patchDetail({ financeDashboard: finance });
+      }
+    );
     return finance;
   }
 

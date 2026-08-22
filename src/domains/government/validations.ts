@@ -23,6 +23,7 @@ export const deliverGovernmentContractSchema = z.object({
   contractId: z.uuid("Contract id is invalid."),
   quantity: z
     .number({ error: "Quantity must be a number." })
+    .int("Quantity must be a whole number.")
     .positive("Quantity must be greater than 0."),
 });
 

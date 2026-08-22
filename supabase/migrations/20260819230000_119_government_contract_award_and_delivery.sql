@@ -161,9 +161,29 @@ begin
     raise exception 'Contract is already fully delivered.';
   end if;
 
-  v_to_deliver := least(greatest(coalesce(p_quantity, 0), 0), v_remaining);
+  -- business_inventory.quantity is a whole-unit integer column, but
+  -- quantity_requested/quantity_delivered are numeric (auto-generated
+  -- replenishment contracts target fractional per-capita amounts, migration
+  -- 118). Round the deliverable amount down to whole units up front so every
+  -- downstream inventory write below is already an integer. Must cap against
+  -- v_remaining itself, not ceil(v_remaining) -- government_contracts' own
+  -- `quantity_delivered <= quantity_requested` CHECK (migration 117) forbids
+  -- delivering even one unit past the requested amount, confirmed by hand
+  -- against a local reset: capping via ceil() let quantity_delivered (42)
+  -- exceed a 41.7 quantity_requested and the RPC threw the CHECK violation
+  -- outright. floor(least(p_quantity, v_remaining)) can never exceed
+  -- v_remaining, so it can never violate that constraint -- the accepted
+  -- tradeoff is that a sub-whole-unit remainder (e.g. 0.7 units) can never
+  -- be fully closed out by a real delivery, since a fractional physical
+  -- delivery isn't possible either; the contract simply stays 'in_progress'
+  -- with that residual forever. Silently corrupting the inventory count (the
+  -- original bug) is worse than an honest, permanently-open fractional
+  -- remainder, so this is left as a known limitation rather than "solved"
+  -- further -- fixing it for real would mean rounding quantity_requested
+  -- itself at contract-creation time (migration 118), a separate decision.
+  v_to_deliver := floor(least(greatest(coalesce(p_quantity, 0), 0), v_remaining));
   if v_to_deliver <= 0 then
-    raise exception 'Delivery quantity must be greater than 0.';
+    raise exception 'Delivery quantity must be at least 1 whole unit.';
   end if;
 
   select coalesce(sum(greatest(0, quantity - reserved_quantity)), 0)
@@ -213,8 +233,11 @@ begin
     else
       update public.business_inventory
       set
-        quantity = v_row_next_qty,
-        reserved_quantity = least(v_row.reserved_quantity, v_row_next_qty),
+        -- v_row_next_qty is already whole given v_to_deliver/v_used are now
+        -- guaranteed whole above; round explicitly as defense in depth so an
+        -- integer column is never handed a silently-truncated fraction.
+        quantity = round(v_row_next_qty)::integer,
+        reserved_quantity = least(v_row.reserved_quantity, round(v_row_next_qty)::integer),
         total_cost = v_row_next_total_cost,
         updated_at = v_now
       where id = v_row.id;

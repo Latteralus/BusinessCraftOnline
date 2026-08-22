@@ -11,87 +11,72 @@ import {
 import {
   badRequest,
   fail,
-  parseJsonBody,
-  requireAuthedUser,
+  handleAuthedJsonRequest,
+  handleAuthedRequest,
 } from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const auth = await requireAuthedUser();
-  if (!auth.ok) return auth.response;
-  const { supabase, user } = auth;
+  return handleAuthedRequest(async ({ supabase, user }) => {
+    const url = new URL(request.url);
+    const parsed = manufacturingStatusQuerySchema.safeParse({
+      businessId: url.searchParams.get("businessId") ?? "",
+    });
 
-  const url = new URL(request.url);
-  const parsed = manufacturingStatusQuerySchema.safeParse({
-    businessId: url.searchParams.get("businessId") ?? "",
-  });
+    if (!parsed.success) {
+      return badRequest(parsed.error.issues[0]?.message ?? "Invalid manufacturing query.");
+    }
 
-  if (!parsed.success) {
-    return badRequest(parsed.error.issues[0]?.message ?? "Invalid manufacturing query.");
-  }
-
-  try {
     const status = await getManufacturingStatus(supabase, user.id, parsed.data.businessId);
     return NextResponse.json({ status });
-  } catch (error) {
-    return fail(error, "Failed to load manufacturing status.");
-  }
+  }, { errorMessage: "Failed to load manufacturing status." });
 }
 
 export async function PATCH(request: Request) {
-  const auth = await requireAuthedUser();
-  if (!auth.ok) return auth.response;
-  const { supabase, user } = auth;
-
-  const parsed = await parseJsonBody(
+  return handleAuthedJsonRequest(
     request,
     setManufacturingRecipeSchema,
-    "Invalid manufacturing recipe payload."
+    "Invalid manufacturing recipe payload.",
+    async ({ supabase, user }, data) => {
+      const status = await setManufacturingRecipe(supabase, user.id, data);
+      return NextResponse.json({ status });
+    },
+    { errorMessage: "Failed to set manufacturing recipe." }
   );
-  if (!parsed.ok) return parsed.response;
-
-  try {
-    const status = await setManufacturingRecipe(supabase, user.id, parsed.data);
-    return NextResponse.json({ status });
-  } catch (error) {
-    return fail(error, "Failed to set manufacturing recipe.");
-  }
 }
 
 export async function POST(request: Request) {
-  const auth = await requireAuthedUser();
-  if (!auth.ok) return auth.response;
-  const { supabase, user } = auth;
+  return handleAuthedRequest(async ({ supabase, user }) => {
+    const payload = await request.json().catch(() => null);
 
-  const payload = await request.json().catch(() => null);
+    if (payload?.action === "start") {
+      const parsed = startManufacturingSchema.safeParse(payload);
+      if (!parsed.success) {
+        return badRequest(parsed.error.issues[0]?.message ?? "Invalid manufacturing start payload.");
+      }
 
-  if (payload?.action === "start") {
-    const parsed = startManufacturingSchema.safeParse(payload);
-    if (!parsed.success) {
-      return badRequest(parsed.error.issues[0]?.message ?? "Invalid manufacturing start payload.");
+      try {
+        const status = await startManufacturing(supabase, user.id, parsed.data);
+        return NextResponse.json({ status });
+      } catch (error) {
+        return fail(error, "Failed to start manufacturing.");
+      }
     }
 
-    try {
-      const status = await startManufacturing(supabase, user.id, parsed.data);
-      return NextResponse.json({ status });
-    } catch (error) {
-      return fail(error, "Failed to start manufacturing.");
-    }
-  }
+    if (payload?.action === "stop") {
+      const parsed = stopManufacturingSchema.safeParse(payload);
+      if (!parsed.success) {
+        return badRequest(parsed.error.issues[0]?.message ?? "Invalid manufacturing stop payload.");
+      }
 
-  if (payload?.action === "stop") {
-    const parsed = stopManufacturingSchema.safeParse(payload);
-    if (!parsed.success) {
-      return badRequest(parsed.error.issues[0]?.message ?? "Invalid manufacturing stop payload.");
+      try {
+        const status = await stopManufacturing(supabase, user.id, parsed.data);
+        return NextResponse.json({ status });
+      } catch (error) {
+        return fail(error, "Failed to stop manufacturing.");
+      }
     }
 
-    try {
-      const status = await stopManufacturing(supabase, user.id, parsed.data);
-      return NextResponse.json({ status });
-    } catch (error) {
-      return fail(error, "Failed to stop manufacturing.");
-    }
-  }
-
-  return badRequest("Unsupported action.");
+    return badRequest("Unsupported action.");
+  });
 }

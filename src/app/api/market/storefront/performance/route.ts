@@ -1,26 +1,17 @@
 import { getStorefrontPerformanceForBusiness } from "@/domains/market";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { badRequest, handleAuthedRequest } from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return handleAuthedRequest(async ({ supabase, user }) => {
+    const url = new URL(request.url);
+    const businessId = url.searchParams.get("businessId");
+    const windowHours = Number(url.searchParams.get("windowHours") ?? "24");
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+    if (!businessId) {
+      return badRequest("businessId is required.");
+    }
 
-  const url = new URL(request.url);
-  const businessId = url.searchParams.get("businessId");
-  const windowHours = Number(url.searchParams.get("windowHours") ?? "24");
-
-  if (!businessId) {
-    return NextResponse.json({ error: "businessId is required." }, { status: 400 });
-  }
-
-  try {
     const performance = await getStorefrontPerformanceForBusiness(
       supabase,
       user.id,
@@ -28,10 +19,5 @@ export async function GET(request: Request) {
       Number.isFinite(windowHours) && windowHours > 0 ? windowHours : 24
     );
     return NextResponse.json({ performance });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to load storefront performance." },
-      { status: 500 }
-    );
-  }
+  }, { errorMessage: "Failed to load storefront performance.", errorStatus: 500 });
 }

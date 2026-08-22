@@ -16,6 +16,7 @@ import { useMemo, useState } from "react";
 import { useBankingSlice, useGameStore } from "@/stores/game-store";
 import type { BankingSliceData } from "@/stores/game-store";
 import { useAccruingValue } from "@/hooks/use-accruing-value";
+import { useAsyncAction } from "@/hooks/use-async-action";
 import { detailSyncTarget, mergeDetailSyncTargets, syncMutationViews } from "@/stores/mutation-sync";
 import { removeEntityById, restoreEntityById, runOptimisticUpdate } from "@/stores/optimistic";
 
@@ -201,20 +202,15 @@ export default function BankingClient({ initialData }: Props) {
   const [fromAccountId, setFromAccountId] = useState(checking?.id ?? "");
   const [toAccountId, setToAccountId] = useState("");
   const [transferAmount, setTransferAmount] = useState("");
-  const [transferSubmitting, setTransferSubmitting] = useState(false);
   const [personalBusinessDirection, setPersonalBusinessDirection] = useState<"to_business" | "from_business">("to_business");
   const [personalBusinessAccountId, setPersonalBusinessAccountId] = useState(checking?.id ?? "");
   const [personalBusinessId, setPersonalBusinessId] = useState(initialData.businesses[0]?.id ?? "");
   const [personalBusinessAmount, setPersonalBusinessAmount] = useState("");
-  const [personalBusinessSubmitting, setPersonalBusinessSubmitting] = useState(false);
   const [fromOwnedBusinessId, setFromOwnedBusinessId] = useState(initialData.businesses[0]?.id ?? "");
   const [toOwnedBusinessId, setToOwnedBusinessId] = useState(initialData.businesses[1]?.id ?? "");
   const [ownedBusinessAmount, setOwnedBusinessAmount] = useState("");
-  const [ownedBusinessSubmitting, setOwnedBusinessSubmitting] = useState(false);
   const [loanPrincipal, setLoanPrincipal] = useState("");
-  const [loanSubmitting, setLoanSubmitting] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const patchBanking = useGameStore((state) => state.patchBanking);
 
   const checkingAccount = useMemo(
@@ -254,24 +250,15 @@ export default function BankingClient({ initialData }: Props) {
   );
   const recentNetFlow = recentCredits - recentDebits;
   const loanSummary = loanData.summary;
-  // Any one of these forms mutating at once is enough to race the others' resyncs
-  // (see slice-fetch-guard.ts) into visually clobbering each other, so all five
-  // submit buttons share a single lock even though each keeps its own "was I the
-  // one submitting" flag for its button label.
-  const allBusy = transferSubmitting || personalBusinessSubmitting || ownedBusinessSubmitting || loanSubmitting || paymentSubmitting;
 
   function resetMessages() {
     setError(null);
     setSuccess(null);
   }
 
-  async function submitTransfer() {
-    if (allBusy) return;
+  const transfer = useAsyncAction(async () => {
     const amount = Number(transferAmount);
-    setTransferSubmitting(true);
-    resetMessages();
-    try {
-      await runOptimisticUpdate(
+    await runOptimisticUpdate(
         "banking",
         (state) => {
           const previousFromAccount =
@@ -326,23 +313,14 @@ export default function BankingClient({ initialData }: Props) {
             { fallbackError: "Transfer failed." }
           )
       );
-      await syncMutationViews({ banking: true });
-      setTransferAmount("");
-      setSuccess("Personal account transfer completed.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Transfer failed.");
-    } finally {
-      setTransferSubmitting(false);
-    }
-  }
+    await syncMutationViews({ banking: true });
+    setTransferAmount("");
+    setSuccess("Personal account transfer completed.");
+  }, { beforeRun: resetMessages, onError: setError, fallbackError: "Transfer failed." });
 
-  async function submitPersonalBusinessTransfer() {
-    if (allBusy) return;
+  const personalBusinessTransfer = useAsyncAction(async () => {
     const amount = Number(personalBusinessAmount);
-    setPersonalBusinessSubmitting(true);
-    resetMessages();
-    try {
-      await runOptimisticUpdate(
+    await runOptimisticUpdate(
         "banking",
         (state) => {
           const previousPersonalAccount =
@@ -389,31 +367,22 @@ export default function BankingClient({ initialData }: Props) {
             { fallbackError: "Transfer failed." }
           )
       );
-      await syncMutationViews({
-        businesses: true,
-        banking: true,
-        businessDetails: detailSyncTarget(personalBusinessId),
-      });
-      setPersonalBusinessAmount("");
-      setSuccess(
-        personalBusinessDirection === "to_business"
-          ? "Funds moved from personal banking into the business."
-          : "Funds moved from the business back into personal banking."
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Transfer failed.");
-    } finally {
-      setPersonalBusinessSubmitting(false);
-    }
-  }
+    await syncMutationViews({
+      businesses: true,
+      banking: true,
+      businessDetails: detailSyncTarget(personalBusinessId),
+    });
+    setPersonalBusinessAmount("");
+    setSuccess(
+      personalBusinessDirection === "to_business"
+        ? "Funds moved from personal banking into the business."
+        : "Funds moved from the business back into personal banking."
+    );
+  }, { beforeRun: resetMessages, onError: setError, fallbackError: "Transfer failed." });
 
-  async function submitOwnedBusinessTransfer() {
-    if (allBusy) return;
+  const ownedBusinessTransfer = useAsyncAction(async () => {
     const amount = Number(ownedBusinessAmount);
-    setOwnedBusinessSubmitting(true);
-    resetMessages();
-    try {
-      await runOptimisticUpdate(
+    await runOptimisticUpdate(
         "banking",
         (state) => {
           const previousSourceBusiness =
@@ -447,30 +416,21 @@ export default function BankingClient({ initialData }: Props) {
             { fallbackError: "Transfer failed." }
           )
       );
-      await syncMutationViews({
-        businesses: true,
-        banking: true,
-        businessDetails: mergeDetailSyncTargets(
-          detailSyncTarget(fromOwnedBusinessId),
-          detailSyncTarget(toOwnedBusinessId)
-        ),
-      });
-      setOwnedBusinessAmount("");
-      setSuccess("Funds reallocated between owned businesses.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Transfer failed.");
-    } finally {
-      setOwnedBusinessSubmitting(false);
-    }
-  }
+    await syncMutationViews({
+      businesses: true,
+      banking: true,
+      businessDetails: mergeDetailSyncTargets(
+        detailSyncTarget(fromOwnedBusinessId),
+        detailSyncTarget(toOwnedBusinessId)
+      ),
+    });
+    setOwnedBusinessAmount("");
+    setSuccess("Funds reallocated between owned businesses.");
+  }, { beforeRun: resetMessages, onError: setError, fallbackError: "Transfer failed." });
 
-  async function submitLoanApplication() {
-    if (allBusy) return;
+  const loanApplication = useAsyncAction(async () => {
     const principal = Number(loanPrincipal);
-    setLoanSubmitting(true);
-    resetMessages();
-    try {
-      await runOptimisticUpdate(
+    await runOptimisticUpdate(
         "banking",
         (state) => {
           const now = new Date();
@@ -545,24 +505,16 @@ export default function BankingClient({ initialData }: Props) {
           return payload;
         }
       );
-      await syncMutationViews({ banking: true });
-      setLoanPrincipal("");
-      setSuccess("Loan application approved and deposited.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Loan application failed.");
-    } finally {
-      setLoanSubmitting(false);
-    }
-  }
+    await syncMutationViews({ banking: true });
+    setLoanPrincipal("");
+    setSuccess("Loan application approved and deposited.");
+  }, { beforeRun: resetMessages, onError: setError, fallbackError: "Loan application failed." });
 
-  async function submitLoanPayment() {
-    if (!loanData?.summary?.loan.id || allBusy) return;
+  const loanPayment = useAsyncAction(async () => {
+    if (!loanData?.summary?.loan.id) return;
     const loanId = loanData.summary.loan.id;
     const amount = Number(paymentAmount);
-    setPaymentSubmitting(true);
-    resetMessages();
-    try {
-      await runOptimisticUpdate(
+    await runOptimisticUpdate(
         "banking",
         (state) => {
           const activeSummary = state.banking.data.loanData?.summary;
@@ -628,15 +580,17 @@ export default function BankingClient({ initialData }: Props) {
           return payload;
         }
       );
-      await syncMutationViews({ banking: true });
-      setPaymentAmount("");
-      setSuccess("Loan payment submitted from checking.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Loan payment failed.");
-    } finally {
-      setPaymentSubmitting(false);
-    }
-  }
+    await syncMutationViews({ banking: true });
+    setPaymentAmount("");
+    setSuccess("Loan payment submitted from checking.");
+  }, { beforeRun: resetMessages, onError: setError, fallbackError: "Loan payment failed." });
+
+  // Any one of these forms mutating at once is enough to race the others' resyncs
+  // (see slice-fetch-guard.ts) into visually clobbering each other, so all five
+  // submit buttons share a single lock even though each hook keeps its own busy
+  // flag for its button label.
+  const allBusy =
+    transfer.busy || personalBusinessTransfer.busy || ownedBusinessTransfer.busy || loanApplication.busy || loanPayment.busy;
 
   return (
     <div className="anim" style={{ display: "grid", gap: 18 }}>
@@ -796,8 +750,8 @@ export default function BankingClient({ initialData }: Props) {
                 ? `Moving ${formatCurrency(Number(transferAmount) || 0)} from ${BANK_ACCOUNT_LABELS[fromAccount.account_type]} to ${BANK_ACCOUNT_LABELS[toAccount.account_type]}`
                 : "Select both source and destination accounts."}
             </div>
-            <button onClick={submitTransfer} disabled={!fromAccountId || !toAccountId || fromAccountId === toAccountId || Number(transferAmount) <= 0 || allBusy}>
-              {transferSubmitting ? "Transferring..." : "Submit Transfer"}
+            <button onClick={transfer.run} disabled={!fromAccountId || !toAccountId || fromAccountId === toAccountId || Number(transferAmount) <= 0 || allBusy}>
+              {transfer.busy ? "Transferring..." : "Submit Transfer"}
             </button>
           </div>
         </div>
@@ -846,8 +800,8 @@ export default function BankingClient({ initialData }: Props) {
                 ? `${personalBusinessDirection === "to_business" ? "Funding" : "Withdrawing from"} ${selectedBusiness.name} using ${BANK_ACCOUNT_LABELS[personalBusinessAccount.account_type]}.`
                 : "Choose an account and business to continue."}
             </div>
-            <button onClick={submitPersonalBusinessTransfer} disabled={!personalBusinessAccountId || !personalBusinessId || Number(personalBusinessAmount) <= 0 || allBusy}>
-              {personalBusinessSubmitting ? "Transferring..." : "Submit Transfer"}
+            <button onClick={personalBusinessTransfer.run} disabled={!personalBusinessAccountId || !personalBusinessId || Number(personalBusinessAmount) <= 0 || allBusy}>
+              {personalBusinessTransfer.busy ? "Transferring..." : "Submit Transfer"}
             </button>
           </div>
         </div>
@@ -890,10 +844,10 @@ export default function BankingClient({ initialData }: Props) {
                 : "Choose both businesses to set the route."}
             </div>
             <button
-              onClick={submitOwnedBusinessTransfer}
+              onClick={ownedBusinessTransfer.run}
               disabled={!fromOwnedBusinessId || !toOwnedBusinessId || fromOwnedBusinessId === toOwnedBusinessId || Number(ownedBusinessAmount) <= 0 || allBusy}
             >
-              {ownedBusinessSubmitting ? "Transferring..." : "Submit Transfer"}
+              {ownedBusinessTransfer.busy ? "Transferring..." : "Submit Transfer"}
             </button>
           </div>
         </div>
@@ -938,8 +892,8 @@ export default function BankingClient({ initialData }: Props) {
                 <FieldLabel><TooltipLabel label="Payment Amount" content="How much of the loan you want to pay down right now from checking." /></FieldLabel>
                 <input type="number" min="0" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder="0.00" />
               </label>
-              <button onClick={submitLoanPayment} disabled={Number(paymentAmount) <= 0 || allBusy}>
-                {paymentSubmitting ? "Submitting Payment..." : "Pay Loan"}
+              <button onClick={loanPayment.run} disabled={Number(paymentAmount) <= 0 || allBusy}>
+                {loanPayment.busy ? "Submitting Payment..." : "Pay Loan"}
               </button>
             </div>
           ) : (
@@ -948,8 +902,8 @@ export default function BankingClient({ initialData }: Props) {
                 <FieldLabel><TooltipLabel label="Loan Principal" content="The amount you want to borrow. Approved principal is deposited into checking." /></FieldLabel>
                 <input type="number" min="0" step="0.01" value={loanPrincipal} onChange={(event) => setLoanPrincipal(event.target.value)} placeholder="1000.00" />
               </label>
-              <button onClick={submitLoanApplication} disabled={Number(loanPrincipal) <= 0 || allBusy}>
-                {loanSubmitting ? "Applying..." : "Apply For Loan"}
+              <button onClick={loanApplication.run} disabled={Number(loanPrincipal) <= 0 || allBusy}>
+                {loanApplication.busy ? "Applying..." : "Apply For Loan"}
               </button>
             </div>
           )}

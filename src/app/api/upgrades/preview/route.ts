@@ -3,49 +3,31 @@ import {
   getUpgradePreviewForBusiness,
   upgradePreviewRequestSchema,
 } from "@/domains/upgrades";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { handleAuthedJsonRequest, notFound } from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return handleAuthedJsonRequest(
+    request,
+    upgradePreviewRequestSchema,
+    "Invalid upgrade preview payload.",
+    async ({ supabase, user }, data) => {
+      const business = await getBusinessById(supabase, user.id, data.businessId);
+      if (!business) {
+        return notFound("Business not found.");
+      }
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+      const upgrades = await getBusinessUpgrades(supabase, user.id, business.id);
+      const currentLevel =
+        upgrades.find((entry) => entry.upgrade_key === data.upgradeKey)?.level ?? 0;
 
-  const payload = await request.json().catch(() => null);
-  const parsed = upgradePreviewRequestSchema.safeParse(payload);
+      const preview = await getUpgradePreviewForBusiness(supabase, business.type, {
+        upgradeKey: data.upgradeKey,
+        currentLevel,
+      });
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid upgrade preview payload." },
-      { status: 400 }
-    );
-  }
-
-  try {
-    const business = await getBusinessById(supabase, user.id, parsed.data.businessId);
-    if (!business) {
-      return NextResponse.json({ error: "Business not found." }, { status: 404 });
-    }
-
-    const upgrades = await getBusinessUpgrades(supabase, user.id, business.id);
-    const currentLevel =
-      upgrades.find((entry) => entry.upgrade_key === parsed.data.upgradeKey)?.level ?? 0;
-
-    const preview = await getUpgradePreviewForBusiness(supabase, business.type, {
-      upgradeKey: parsed.data.upgradeKey,
-      currentLevel,
-    });
-
-    return NextResponse.json({ preview });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to compute upgrade preview." },
-      { status: 400 }
-    );
-  }
+      return NextResponse.json({ preview });
+    },
+    { errorMessage: "Failed to compute upgrade preview." }
+  );
 }

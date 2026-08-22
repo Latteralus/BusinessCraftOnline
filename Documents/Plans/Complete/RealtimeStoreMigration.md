@@ -1,3 +1,10 @@
+> **Status: complete.** This was the original implementation brief for the store/realtime
+> architecture (Zustand store, hydration provider, realtime provider, optimistic + guarded
+> resync) that the app runs today. Moved here from
+> `src/app/(authenticated)/contracts/ArchitecturalChange.md` (an unrelated location — it had
+> no connection to the contracts domain) now that every step below is implemented. Kept as
+> historical reference for why the current data-flow architecture looks the way it does.
+
 You are refactoring a Next.js + Supabase multiplayer browser game to eliminate polling and repeated server fetches across all authenticated pages. The goal is to move to a "hydrate once, subscribe to changes, update locally" architecture. The app is deployed on Vercel and uses Supabase for the database, auth, and Realtime.
 
 Current Problem

@@ -1,5 +1,5 @@
 import { fireEmployee, getEmployeeWithDetails } from "@/domains/employees";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { handleAuthedRequest, notFound } from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 type Params = {
@@ -9,50 +9,22 @@ type Params = {
 export async function GET(_request: Request, { params }: Params) {
   const { id } = await params;
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  try {
+  return handleAuthedRequest(async ({ supabase, user }) => {
     const employee = await getEmployeeWithDetails(supabase, user.id, id);
 
     if (!employee) {
-      return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+      return notFound("Employee not found.");
     }
 
     return NextResponse.json({ employee });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch employee." },
-      { status: 500 }
-    );
-  }
+  }, { errorMessage: "Failed to fetch employee.", errorStatus: 500 });
 }
 
 export async function DELETE(_request: Request, { params }: Params) {
   const { id } = await params;
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  try {
+  return handleAuthedRequest(async ({ supabase, user }) => {
     const employee = await fireEmployee(supabase, user.id, { employeeId: id });
     return NextResponse.json({ employee });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fire employee." },
-      { status: 400 }
-    );
-  }
+  }, { errorMessage: "Failed to fire employee." });
 }

@@ -1,7 +1,7 @@
 import { resolveBusinessUpgradeEffects, type BusinessUpgradeEffects } from "../../../shared/upgrades/effects";
 import type { BusinessType } from "@/config/businesses";
 import { applyCompletedUpgradeProjects, getBusinessUpgradeProjects } from "./projects";
-import type { BusinessUpgradeProject } from "@/domains/businesses/types";
+import type { BusinessUpgradeProject } from "@/domains/businesses";
 import type { QueryClient } from "@/lib/db/query-client";
 
 type BusinessUpgradeRow = {

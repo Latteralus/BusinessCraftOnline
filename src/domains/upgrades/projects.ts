@@ -1,7 +1,7 @@
 import { nowIso } from "@/lib/core/time";
 import { toNumber } from "@/lib/core/number";
 import type { QueryClient } from "@/lib/db/query-client";
-import type { BusinessUpgradeProject } from "@/domains/businesses/types";
+import type { BusinessUpgradeProject } from "@/domains/businesses";
 
 function normalizeProject(row: BusinessUpgradeProject): BusinessUpgradeProject {
   return {

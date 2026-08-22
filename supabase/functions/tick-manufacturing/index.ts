@@ -9,6 +9,7 @@ import {
   getManufacturingInputQuantityPerTick,
   getManufacturingOutputQuantityPerTick,
   getManufacturingRecipeByKey,
+  MANUFACTURING_XP_PER_LEVEL,
 } from "../_shared/manufacturing-config.ts";
 import { getResolvedBusinessUpgradeEffectsForBusinesses } from "../_shared/business-upgrades.ts";
 import {
@@ -17,7 +18,7 @@ import {
 } from "../../../src/domains/contracts/types.ts";
 
 const XP_PER_TICK = 5;
-const XP_PER_LEVEL = 100;
+const XP_PER_LEVEL = MANUFACTURING_XP_PER_LEVEL;
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;

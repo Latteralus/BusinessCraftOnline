@@ -1,7 +1,7 @@
 import { getCharacter, getOnlinePlayerPreviews, touchPlayerPresence } from "@/domains/auth-character";
 import type { OnlinePlayerPreview } from "@/domains/auth-character";
 import { getMarketStorefrontSettings } from "@/domains/market";
-import { requireAuthedUser } from "@/app/api/_shared/route-helpers";
+import { handleAuthedRequest } from "@/app/api/_shared/route-helpers";
 import { getUnreadChatCount } from "@/domains/chat";
 import { getUnreadMailCount } from "@/domains/mail";
 import type { QueryClient } from "@/lib/db/query-client";
@@ -52,30 +52,17 @@ async function loadAppShellData(supabase: QueryClient, userId: string, options: 
 }
 
 export async function GET() {
-  const auth = await requireAuthedUser();
-  if (!auth.ok) return auth.response;
-  const { supabase, user } = auth;
-
-  try {
-    return await withTiming("api-route", "/api/app-shell GET", async (timing) => {
+  return handleAuthedRequest(async ({ supabase, user }) => {
+    return withTiming("api-route", "/api/app-shell GET", async (timing) => {
       const shell = await timing.measure("app-shell-data", () => loadAppShellData(supabase, user.id));
       return NextResponse.json(shell);
     });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to load app shell." },
-      { status: 500 }
-    );
-  }
+  }, { errorMessage: "Failed to load app shell.", errorStatus: 500 });
 }
 
 export async function POST() {
-  const auth = await requireAuthedUser();
-  if (!auth.ok) return auth.response;
-  const { supabase, user } = auth;
-
-  try {
-    return await withTiming("api-route", "/api/app-shell POST", async (timing) => {
+  return handleAuthedRequest(async ({ supabase, user }) => {
+    return withTiming("api-route", "/api/app-shell POST", async (timing) => {
       const shell = await timing.measure("app-shell-data-with-presence", () =>
         loadAppShellData(supabase, user.id, { touchPresence: true })
       );
@@ -84,10 +71,5 @@ export async function POST() {
         ...shell,
       });
     });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to update player presence." },
-      { status: 500 }
-    );
-  }
+  }, { errorMessage: "Failed to update player presence.", errorStatus: 500 });
 }

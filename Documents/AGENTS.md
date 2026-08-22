@@ -10,10 +10,12 @@ a future session would otherwise have to re-derive.
 1. This file.
 2. `Documents/AI_GUIDE.md` — architecture, domain rules, data-flow contracts. Read the
    relevant domain's `DOMAIN.md` too if one exists.
-3. `Documents/changelog.md` — what actually changed recently and why, newest first.
-4. `Documents/Notes.md` — feature plans (currently: internal mail system design).
-5. `Documents/economy-audit-2026-03-09.md` — balancing proposals. **Not applied** to
-   `src/config/*` as of the last check — treat its numbers as proposed, not live.
+3. `Documents/changelog.md` — what actually changed recently and why, newest first. Feature
+   plans and balancing proposals that used to live in separate `Notes.md`/`economy-audit-*.md`
+   files are now folded into this log once worked through and removed.
+4. `Documents/Plans/QualityEconomyPlan.md` — the current standing proposal (production-quality
+   input-cap model + quality-adjusted NPC pricing). **Not yet implemented** as of this update —
+   see "Non-obvious facts" below for where its logic currently lives ahead of that module existing.
 
 ## Current dependency baseline (updated 2026-08-15)
 ```
@@ -62,6 +64,13 @@ again, re-run both before trusting it; TS majors are the most likely to surface 
 - Some RPCs are **service_role-only by design** (`append_personal_transaction`,
   `append_business_account_entry`, `append_business_financial_event`) — never grant
   these to `authenticated`; call only from server code via the service-role client.
+- **`QualityEconomyPlan.md`'s proposed `shared/production/quality.ts` module doesn't exist
+  yet, but its logic already does** — private, unexported functions inside
+  `supabase/functions/tick-manufacturing/index.ts` (`resolveOutputQuality`,
+  `resolveManufacturingQuality`) implement the old additive quality model the plan wants to
+  replace. When implementing the plan, pull those functions into the new shared module and
+  convert them to the input-quality-cap model rather than writing fresh ones — they already
+  encode most of the needed weighted-input logic.
 
 ## Open threads (update or remove as they resolve)
 - **2026-08-20 — CityPlan Phase 5 (route-based abstract freight) shipped locally, no migration.**
@@ -88,11 +97,25 @@ again, re-run both before trusting it; TS majors are the most likely to surface 
   instance, and `run_government_daily_update()` was manually confirmed
   idempotent (`skipped: true` on a second same-day call). See `changelog.md`
   (2026-08-19, "CityPlan Phase 4" -- also covers Phases 1-3's original
-  entries below it). **Still open**: nothing in 111-119 is on the hosted
-  project. Before pushing: `npx supabase db push`, then
-  `npx supabase functions deploy tick-extraction tick-government-daily
-  tick-city-stockpiles` (all three changed across these phases), then
-  confirm `tick_run_logs` shows all three running `status: "ok"`.
+  entries below it). **Update 2026-08-21/22**: a full-project assessment
+  found and fixed a real bug in migration 119's `deliver_government_contract_atomic`
+  (silent inventory-quantity rounding), a real concurrency race in 114's
+  `_materialize_city_stockpile_ids` (missing row locks), and a non-strict
+  `product_agg` in 112. The *first* attempt at the 119 fix introduced a
+  *different* bug (let `quantity_delivered` exceed `quantity_requested`,
+  violating that table's own CHECK) -- caught only by manually exercising a
+  genuinely fractional `quantity_requested` by hand against a fresh local
+  `db reset`, since the existing delivery test's fixture happens to produce a
+  whole-number `quantity_requested` and never exercised that path. Corrected,
+  re-verified by hand, and turned into a permanent test (new `describe` block
+  in `test/finance/government-contract-delivery.test.ts`) rather than left as
+  a one-off check. `test:finance` is now 64 tests (was 63); both suites pass
+  clean against a fresh local reset with all three fixes in place. See
+  `changelog.md` (2026-08-21/22 entry) for full detail. **Still open**:
+  nothing in 111-119 is on the hosted project. Before pushing:
+  `npx supabase db push`, then `npx supabase functions deploy tick-extraction
+  tick-government-daily tick-city-stockpiles` (all three changed across these
+  phases), then confirm `tick_run_logs` shows all three running `status: "ok"`.
 - **2026-08-17 — H7 batched NPC-sale settlement RPC unexercised against real
   data.** `settle_store_inventory_sales_atomic` (migration 092) and the
   tick-npc-purchases rewrite that calls it are deployed and running clean,

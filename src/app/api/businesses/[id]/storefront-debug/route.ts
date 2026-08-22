@@ -1,51 +1,41 @@
 import { getPlayer } from "@/domains/auth-character";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { handleAuthedRequest, notFound } from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  const [{ id: businessId }, supabase] = await Promise.all([
-    context.params,
-    createSupabaseServerClient(),
-  ]);
+  const { id: businessId } = await context.params;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return handleAuthedRequest(async ({ supabase, user }) => {
+    const player = await getPlayer(supabase, user.id).catch(() => null);
+    if (!player) {
+      return notFound("Player not found.");
+    }
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+    const { data: business, error: businessError } = await supabase
+      .from("businesses")
+      .select("id, player_id, name, type, city_id, created_at, updated_at")
+      .eq("id", businessId)
+      .maybeSingle();
 
-  const player = await getPlayer(supabase, user.id).catch(() => null);
-  if (!player) {
-    return NextResponse.json({ error: "Player not found." }, { status: 404 });
-  }
+    if (businessError) {
+      return NextResponse.json({ error: businessError.message }, { status: 500 });
+    }
 
-  const { data: business, error: businessError } = await supabase
-    .from("businesses")
-    .select("id, player_id, name, type, city_id, created_at, updated_at")
-    .eq("id", businessId)
-    .maybeSingle();
+    if (!business) {
+      return notFound("Business not found.");
+    }
 
-  if (businessError) {
-    return NextResponse.json({ error: businessError.message }, { status: 500 });
-  }
+    const isOwner = String(business.player_id) === user.id;
+    const isAdmin = player.role === "admin";
+    if (!isOwner && !isAdmin) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
 
-  if (!business) {
-    return NextResponse.json({ error: "Business not found." }, { status: 404 });
-  }
-
-  const isOwner = String(business.player_id) === user.id;
-  const isAdmin = player.role === "admin";
-  if (!isOwner && !isAdmin) {
-    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
-  }
-
-  const [settingsRes, shelfRes, inventoryRes, snapshotsRes, txRes, ledgerRes, financialEventsRes, tickLogsRes] =
-    await Promise.all([
+    const [settingsRes, shelfRes, inventoryRes, snapshotsRes, txRes, ledgerRes, financialEventsRes, tickLogsRes] =
+      await Promise.all([
       supabase
         .from("market_storefront_settings")
         .select("*")
@@ -96,40 +86,41 @@ export async function GET(
         .limit(10),
     ]);
 
-  const errors = [
-    settingsRes.error,
-    shelfRes.error,
-    inventoryRes.error,
-    snapshotsRes.error,
-    txRes.error,
-    ledgerRes.error,
-    financialEventsRes.error,
-    tickLogsRes.error,
-  ].filter(Boolean);
+    const errors = [
+      settingsRes.error,
+      shelfRes.error,
+      inventoryRes.error,
+      snapshotsRes.error,
+      txRes.error,
+      ledgerRes.error,
+      financialEventsRes.error,
+      tickLogsRes.error,
+    ].filter(Boolean);
 
-  if (errors.length > 0) {
-    return NextResponse.json(
-      { error: errors[0]?.message ?? "Failed to load storefront debug data." },
-      { status: 500 }
-    );
-  }
+    if (errors.length > 0) {
+      return NextResponse.json(
+        { error: errors[0]?.message ?? "Failed to load storefront debug data." },
+        { status: 500 }
+      );
+    }
 
-  return NextResponse.json({
-    business,
-    actor: {
-      userId: user.id,
-      playerRole: player.role,
-      isOwner,
-      isAdmin,
-    },
-    storefrontSettings: settingsRes.data ?? [],
-    shelfItems: shelfRes.data ?? [],
-    inventory: inventoryRes.data ?? [],
-    snapshots: snapshotsRes.data ?? [],
-    npcTransactions: txRes.data ?? [],
-    storefrontLedger: ledgerRes.data ?? [],
-    financialEvents: financialEventsRes.data ?? [],
-    tickLogs: tickLogsRes.data ?? [],
-    generatedAt: new Date().toISOString(),
+    return NextResponse.json({
+      business,
+      actor: {
+        userId: user.id,
+        playerRole: player.role,
+        isOwner,
+        isAdmin,
+      },
+      storefrontSettings: settingsRes.data ?? [],
+      shelfItems: shelfRes.data ?? [],
+      inventory: inventoryRes.data ?? [],
+      snapshots: snapshotsRes.data ?? [],
+      npcTransactions: txRes.data ?? [],
+      storefrontLedger: ledgerRes.data ?? [],
+      financialEvents: financialEventsRes.data ?? [],
+      tickLogs: tickLogsRes.data ?? [],
+      generatedAt: new Date().toISOString(),
+    });
   });
 }

@@ -4,7 +4,7 @@ import {
   getStorefrontPerformanceSummary,
   getTickHealthSummary,
 } from "@/domains/market";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { handleAuthedRequest, notFound } from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 function parseWindowHours(value: string | null): number {
@@ -14,24 +14,15 @@ function parseWindowHours(value: string | null): number {
 }
 
 export async function GET(request: Request) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return handleAuthedRequest(async ({ supabase, user }) => {
+    const player = await getPlayer(supabase, user.id);
+    if (!player) {
+      return notFound("Player not found.");
+    }
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+    const url = new URL(request.url);
+    const windowHours = parseWindowHours(url.searchParams.get("windowHours"));
 
-  const player = await getPlayer(supabase, user.id);
-  if (!player) {
-    return NextResponse.json({ error: "Player not found." }, { status: 404 });
-  }
-
-  const url = new URL(request.url);
-  const windowHours = parseWindowHours(url.searchParams.get("windowHours"));
-
-  try {
     const [tickHealth, storefrontPerformance, adminSummary] = await Promise.all([
       getTickHealthSummary(supabase, windowHours),
       getStorefrontPerformanceSummary(supabase, user.id, windowHours),
@@ -45,10 +36,5 @@ export async function GET(request: Request) {
       storefrontPerformance,
       adminSummary,
     });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to load analytics." },
-      { status: 500 }
-    );
-  }
+  }, { errorMessage: "Failed to load analytics.", errorStatus: 500 });
 }

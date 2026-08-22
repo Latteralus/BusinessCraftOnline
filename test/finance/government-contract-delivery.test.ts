@@ -319,3 +319,129 @@ describe("government contract delivery: cross-city rejection", () => {
     expect((contractRow as { quantity_delivered: number }).quantity_delivered).toBe(0);
   });
 });
+
+// Regression test for a real bug found and fixed 2026-08-21/22 (see
+// Documents/changelog.md): deliver_government_contract_atomic wrote a
+// fractional numeric quantity straight into business_inventory.quantity (an
+// integer column) with no rounding. The first fix attempt (capping the
+// deliverable amount against ceil(quantity_requested - quantity_delivered))
+// introduced a *different* bug, only caught by manually exercising a
+// genuinely fractional quantity_requested by hand: it let quantity_delivered
+// exceed quantity_requested, violating government_contracts' own CHECK
+// (migration 117). Neither the existing "full delivery" test above nor the
+// original hand-review caught either bug, because that test's
+// quantity_requested happens to land on a whole number by construction
+// (reorderPoint * 0.5 with round inputs) -- it never exercised the
+// fractional-remainder path. This test constructs a deliberately fractional
+// quantity_requested (41.7) directly, rather than relying on the
+// replenishment sweep, specifically to close that gap.
+describe("government contract delivery: fractional quantity_requested rounds to whole inventory units", () => {
+  let client: TestClient;
+  let playerId: string;
+  let businessId: string;
+  let contractId: string;
+  let itemKey: string;
+  let cityId: string;
+
+  beforeAll(async () => {
+    client = serviceRoleClient();
+    [cityId] = await getCityIds(client);
+    itemKey = `test_fractional_${randomUUID().slice(0, 8)}`;
+
+    const { data: stockpileRow, error: stockpileError } = await client
+      .from("city_stockpiles")
+      .insert({
+        city_id: cityId,
+        item_key: itemKey,
+        stored_quantity: 158.3,
+        target_quantity: 200,
+        reorder_point: 200,
+        critical_point: 50,
+        base_consumption_per_hour: 0,
+        minimum_quality: 1,
+        last_materialized_at: new Date().toISOString(),
+        next_reorder_at: new Date(Date.now() - 60_000).toISOString(),
+        is_active: true,
+      })
+      .select("id")
+      .single();
+    if (stockpileError) throw stockpileError;
+    const stockpileId = (stockpileRow as { id: string }).id;
+
+    const { data: providerRow, error: providerError } = await client
+      .from("government_contract_providers")
+      .select("id")
+      .eq("provider_type", "city")
+      .eq("city_id", cityId)
+      .single();
+    if (providerError) throw providerError;
+
+    const { data: contractRow, error: contractError } = await client
+      .from("government_contracts")
+      .insert({
+        provider_id: (providerRow as { id: string }).id,
+        city_id: cityId,
+        stockpile_id: stockpileId,
+        contract_type: "replenishment",
+        item_key: itemKey,
+        quantity_requested: 41.7,
+        quantity_delivered: 0,
+        minimum_quality: 1,
+        unit_price: 5,
+        total_value: 208.5,
+        status: "available",
+        urgency: "normal",
+      })
+      .select("id")
+      .single();
+    if (contractError) throw contractError;
+    contractId = (contractRow as { id: string }).id;
+
+    playerId = await createTestPlayer(client, "govcontractfractional");
+    businessId = await createTestBusiness(client, playerId, "general_store", cityId, "GovContractFractional");
+
+    const { error: invError } = await client.from("business_inventory").insert({
+      owner_player_id: playerId,
+      business_id: businessId,
+      city_id: cityId,
+      item_key: itemKey,
+      quality: 50,
+      quantity: 100,
+      reserved_quantity: 0,
+      unit_cost: 2,
+      total_cost: 200,
+    });
+    if (invError) throw invError;
+
+    const asPlayer = await playerClient(playerId);
+    await awardGovernmentContract(asPlayer, playerId, { contractId, businessId });
+  });
+
+  it("floors the delivered quantity to whole units and never lets quantity_delivered exceed the fractional quantity_requested", async () => {
+    const result = await deliverGovernmentContract(client, playerId, { contractId, quantity: 42 });
+
+    // 42 whole units requested, but only 41 can be delivered -- delivering
+    // 42 would make quantity_delivered (42) exceed quantity_requested (41.7),
+    // which the table's own CHECK forbids. The contract is left in_progress
+    // with an un-deliverable 0.7-unit residual rather than ever violating
+    // that constraint or silently corrupting the inventory row.
+    expect(result.delivered).toBe(41);
+    expect(result.contract.quantity_delivered).toBe(41);
+    expect(result.contract.status).toBe("in_progress");
+
+    const inventoryRows = await getBusinessInventoryRows(client, businessId, itemKey);
+    expect(inventoryRows).toHaveLength(1);
+    // Must be a clean whole integer -- the original bug silently wrote a
+    // rounded/truncated fractional value here when p_quantity wasn't floored
+    // to whole units before the write.
+    expect(Number.isInteger(inventoryRows[0].quantity)).toBe(true);
+    expect(inventoryRows[0].quantity).toBe(59);
+
+    // The remaining 0.7 units can never be delivered by a whole-unit-only
+    // quantity (floor(0.7) = 0) -- confirms the accepted, documented
+    // tradeoff rather than a silent no-op.
+    await expect(
+      deliverGovernmentContract(client, playerId, { contractId, quantity: 1 })
+    ).rejects.toThrow();
+  });
+});

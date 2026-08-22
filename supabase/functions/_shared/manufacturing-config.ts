@@ -1,5 +1,6 @@
 export {
   MANUFACTURING_TICK_MINUTES,
+  MANUFACTURING_XP_PER_LEVEL,
   getManufacturingInputQuantityPerTick,
   getManufacturingOutputQuantityPerTick,
   getManufacturingRecipeByKey,

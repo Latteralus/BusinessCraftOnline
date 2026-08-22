@@ -3,25 +3,16 @@ import {
   getPersonalInventory,
   getShippingQueue,
 } from "@/domains/inventory";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { handleAuthedRequest } from "@/app/api/_shared/route-helpers";
 import { withTiming } from "@/lib/server-timing";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return handleAuthedRequest(async ({ supabase, user }) => {
+    const url = new URL(request.url);
+    const businessId = url.searchParams.get("businessId") ?? undefined;
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  const url = new URL(request.url);
-  const businessId = url.searchParams.get("businessId") ?? undefined;
-
-  try {
-    return await withTiming("api-route", "/api/inventory GET", async (timing) => {
+    return withTiming("api-route", "/api/inventory GET", async (timing) => {
       const [personalInventory, businessInventory, shippingQueue] = await Promise.all([
         timing.measure("personal-inventory", () => getPersonalInventory(supabase, user.id)),
         timing.measure("business-inventory", () => getBusinessInventory(supabase, user.id, businessId)),
@@ -68,10 +59,5 @@ export async function GET(request: Request) {
         cityNamesById,
       });
     });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch inventory." },
-      { status: 500 }
-    );
-  }
+  }, { errorMessage: "Failed to fetch inventory.", errorStatus: 500 });
 }

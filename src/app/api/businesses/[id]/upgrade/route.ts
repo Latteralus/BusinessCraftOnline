@@ -1,5 +1,5 @@
 import { purchaseUpgrade, purchaseUpgradeSchema } from "@/domains/businesses";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { badRequest, handleAuthedRequest } from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 type Params = {
@@ -9,29 +9,17 @@ type Params = {
 export async function POST(request: Request, { params }: Params) {
   const { id } = await params;
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return handleAuthedRequest(async ({ supabase, user }) => {
+    const payload = await request.json().catch(() => null);
+    const parsed = purchaseUpgradeSchema.safeParse({
+      businessId: id,
+      upgradeKey: payload?.upgradeKey,
+    });
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+    if (!parsed.success) {
+      return badRequest(parsed.error.issues[0]?.message ?? "Invalid upgrade payload.");
+    }
 
-  const payload = await request.json().catch(() => null);
-  const parsed = purchaseUpgradeSchema.safeParse({
-    businessId: id,
-    upgradeKey: payload?.upgradeKey,
-  });
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid upgrade payload." },
-      { status: 400 }
-    );
-  }
-
-  try {
     const result = await purchaseUpgrade(
       supabase,
       user.id,
@@ -40,10 +28,5 @@ export async function POST(request: Request, { params }: Params) {
     );
 
     return NextResponse.json(result, { status: 201 });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to purchase upgrade." },
-      { status: 400 }
-    );
-  }
+  }, { errorMessage: "Failed to purchase upgrade." });
 }

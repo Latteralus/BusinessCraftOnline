@@ -1,5 +1,5 @@
 import { getContractById } from "@/domains/contracts";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { handleAuthedRequest, notFound } from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 type Params = {
@@ -9,27 +9,13 @@ type Params = {
 export async function GET(_request: Request, { params }: Params) {
   const { id } = await params;
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  try {
+  return handleAuthedRequest(async ({ supabase, user }) => {
     const contract = await getContractById(supabase, user.id, id);
 
     if (!contract) {
-      return NextResponse.json({ error: "Contract not found." }, { status: 404 });
+      return notFound("Contract not found.");
     }
 
     return NextResponse.json({ contract });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch contract." },
-      { status: 500 }
-    );
-  }
+  }, { errorMessage: "Failed to fetch contract.", errorStatus: 500 });
 }

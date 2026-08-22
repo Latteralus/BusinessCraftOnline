@@ -43,20 +43,6 @@ export function computeCurrentStock(
   return Math.max(0, storedQuantity - elapsedHours * effectiveConsumptionPerHour);
 }
 
-export function computeNextReorderAt(
-  currentStock: number,
-  reorderPoint: number,
-  effectiveConsumptionPerHour: number,
-  nowIso: string
-): string | null {
-  if (currentStock <= reorderPoint) return nowIso;
-  if (effectiveConsumptionPerHour > 0) {
-    const hoursUntilReorder = (currentStock - reorderPoint) / effectiveConsumptionPerHour;
-    return new Date(new Date(nowIso).getTime() + hoursUntilReorder * 60 * 60 * 1000).toISOString();
-  }
-  return null;
-}
-
 export type StockpileProjectionInput = {
   storedQuantity: number;
   lastMaterializedAtIso: string;

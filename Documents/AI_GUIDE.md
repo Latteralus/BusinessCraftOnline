@@ -150,10 +150,7 @@ Read this before touching code. It replaces the old `_AI_GUIDE.md`, `AIReadme.md
 ## Files Worth Reading Early
 - This file.
 - The relevant domain's `DOMAIN.md`, e.g. `src/domains/<domain>/DOMAIN.md`.
-- `Documents/changelog.md` — running history of what's been done and why.
-- `Documents/Bugs.md` — security review findings; check for still-open items before assuming the economy RPCs are safe.
-- `Documents/economy-audit-2026-03-09.md` — economy balancing analysis and proposed rebalancing; check whether proposals have been applied before citing its numbers as current.
-- `Documents/Notes.md` — feature plans (currently: the internal mail system plan).
+- `Documents/changelog.md` — running history of what's been done and why (security-review findings, economy-balancing analysis, and feature plans that used to live in their own `Bugs.md`/`economy-audit-*.md`/`Notes.md` files are folded into this log now that those files have been fully worked through and removed).
 - `src/stores/game-store.ts`, `src/providers/game-hydration-provider.tsx`, `src/providers/realtime-provider.tsx`, `src/stores/mutation-sync.ts`, `src/stores/optimistic.ts`.
 - `src/lib/supabase-server.ts`, `src/lib/supabase-service-role.ts`.
 - `supabase/config.toml`.
@@ -165,4 +162,4 @@ Read this before touching code. It replaces the old `_AI_GUIDE.md`, `AIReadme.md
 - Do not assume React Query exists.
 - Do not assume changing one loader is enough; this app often duplicates data assembly across the server loader, client fetcher, and realtime refresh paths.
 - Do not assume a linked Supabase project is empty, or is the project the deployed app actually uses — verify both.
-- Do not assume `Documents/economy-audit-2026-03-09.md`'s numbers reflect the current live config — check `src/config/*` and recent migrations first.
+- Do not assume any economy-balancing numbers from an old changelog entry reflect the current live config — check `src/config/*` and recent migrations first.

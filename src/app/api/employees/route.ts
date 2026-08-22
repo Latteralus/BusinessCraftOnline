@@ -5,76 +5,41 @@ import {
   hireEmployee,
   hireEmployeeSchema,
 } from "@/domains/employees";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { badRequest, handleAuthedJsonRequest, handleAuthedRequest } from "@/app/api/_shared/route-helpers";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return handleAuthedRequest(async ({ supabase, user }) => {
+    const url = new URL(request.url);
+    const rawFilters = {
+      status: url.searchParams.get("status") ?? undefined,
+      employeeType: url.searchParams.get("employeeType") ?? undefined,
+      businessId: url.searchParams.get("businessId") ?? undefined,
+    };
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+    const parsed = employeeListFilterSchema.safeParse(rawFilters);
+    if (!parsed.success) {
+      return badRequest(parsed.error.issues[0]?.message ?? "Invalid filters.");
+    }
 
-  const url = new URL(request.url);
-  const rawFilters = {
-    status: url.searchParams.get("status") ?? undefined,
-    employeeType: url.searchParams.get("employeeType") ?? undefined,
-    businessId: url.searchParams.get("businessId") ?? undefined,
-  };
-
-  const parsed = employeeListFilterSchema.safeParse(rawFilters);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid filters." },
-      { status: 400 }
-    );
-  }
-
-  try {
     const [employees, summary] = await Promise.all([
       getPlayerEmployees(supabase, user.id, parsed.data),
       getEmployeeSummary(supabase, user.id),
     ]);
 
     return NextResponse.json({ employees, summary });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch employees." },
-      { status: 500 }
-    );
-  }
+  }, { errorMessage: "Failed to fetch employees.", errorStatus: 500 });
 }
 
 export async function POST(request: Request) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  const payload = await request.json().catch(() => null);
-  const parsed = hireEmployeeSchema.safeParse(payload);
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid employee payload." },
-      { status: 400 }
-    );
-  }
-
-  try {
-    const employee = await hireEmployee(supabase, user.id, parsed.data);
-    return NextResponse.json({ employee }, { status: 201 });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to hire employee." },
-      { status: 400 }
-    );
-  }
+  return handleAuthedJsonRequest(
+    request,
+    hireEmployeeSchema,
+    "Invalid employee payload.",
+    async ({ supabase, user }, data) => {
+      const employee = await hireEmployee(supabase, user.id, data);
+      return NextResponse.json({ employee }, { status: 201 });
+    },
+    { errorMessage: "Failed to hire employee." }
+  );
 }

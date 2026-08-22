@@ -1,4 +1,5 @@
 export const MANUFACTURING_TICK_MINUTES = 1;
+export const MANUFACTURING_XP_PER_LEVEL = 100;
 
 export const MANUFACTURING_STATUSES = ["active", "idle", "resting", "retooling"] as const;
 

@@ -146,12 +146,21 @@ create policy "city_events_select_authenticated"
 -- 4. product_agg -- small custom aggregate used to compound multiple active
 --    event multipliers on the same index (e.g. two simultaneous city events
 --    both touching labor_supply). Postgres has no built-in PRODUCT aggregate.
+--
+--    strict is deliberate: a malformed event row whose modifiers JSON has an
+--    explicit null for the matching key (e.g. {"labor_index": null}) must not
+--    poison the whole product to null -- with a strict transition function,
+--    Postgres skips the transition entirely on a null input and leaves the
+--    running state (and therefore every other event's real contribution)
+--    untouched, instead of the outer coalesce(..., 1) silently resetting the
+--    index to neutral because product_agg itself returned null.
 -- ---------------------------------------------------------------------------
 
 create or replace function public._multiply_numeric_state(state numeric, value numeric)
 returns numeric
 language sql
 immutable
+strict
 as $$
   select state * value;
 $$;

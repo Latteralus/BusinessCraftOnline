@@ -2,8 +2,7 @@ import { STORE_BUSINESS_TYPES, type BusinessType } from "@/config/businesses";
 import {
   STOREFRONT_DEFAULT_SETTINGS,
 } from "@/config/market";
-import { supportsStorefront } from "@/domains/businesses";
-import { addBusinessAccountEntry } from "@/domains/businesses/service";
+import { addBusinessAccountEntry, supportsStorefront } from "@/domains/businesses";
 import { ensureOwnedBusiness } from "@/domains/_shared/ownership";
 import { reconcileBusinessInventoryReservations } from "@/domains/inventory";
 import { round2, round4, toNumber } from "@/lib/core/number";

@@ -21,7 +21,7 @@ import {
   type ManufacturingBusinessType,
 } from "@/config/production";
 import { ensureOwnedBusinessType } from "@/domains/_shared/ownership";
-import { getBusinessBalance } from "@/domains/businesses/service";
+import { getBusinessBalance } from "@/domains/businesses";
 import { getEmployeeById, getEmployeesByIds, getEmployeeStatusFromShift } from "@/domains/employees";
 import { getResolvedUpgradeEffects } from "@/domains/upgrades";
 import type { QueryClient } from "@/lib/db/query-client";

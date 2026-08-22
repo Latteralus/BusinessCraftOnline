@@ -134,11 +134,22 @@ on conflict (city_id, item_key) do nothing;
 --    same "architecture ready, dormant until content exists" pattern as
 --    Phase 2's event system.
 --
---    A single UPDATE ... FROM statement is one atomic operation, so the
---    rows it targets are locked by the UPDATE itself -- no separate FOR
---    UPDATE read phase is needed here, matching how migration 112's own
---    per-city UPDATE ... FROM needed no extra locking beyond the update
---    statement itself (only its singleton-row idempotency check did).
+--    Correction, superseding the original note here: a single UPDATE ...
+--    FROM statement's own row lock is NOT sufficient on its own. Three
+--    independent callers can touch the same stockpile row concurrently --
+--    the 5-minute due sweep, the daily government pass, and
+--    deliver_government_contract_atomic (which calls this function twice
+--    on the same row within one transaction). When a blocked UPDATE's
+--    target row is freed by a concurrent committer, Postgres's EvalPlanQual
+--    re-check only re-verifies the join/WHERE quals against the newer row
+--    version -- it does NOT recompute the SET expressions, which were
+--    already derived from the pre-lock snapshot. That silently discards
+--    whatever the other writer just committed. Fixed by explicitly locking
+--    every target row (in a stable order, to avoid a lock-order deadlock
+--    between two overlapping calls) in its own statement first, so the
+--    UPDATE ... FROM below runs as a fresh statement -- and under READ
+--    COMMITTED, a fresh statement takes a fresh snapshot that includes
+--    whatever just committed while this call was waiting for the lock.
 -- ---------------------------------------------------------------------------
 
 create or replace function public._materialize_city_stockpile_ids(p_ids uuid[])
@@ -154,6 +165,8 @@ begin
   if p_ids is null or array_length(p_ids, 1) is null then
     return 0;
   end if;
+
+  perform 1 from public.city_stockpiles where id = any(p_ids) order by id for update;
 
   with computed as (
     select

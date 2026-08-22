@@ -34,17 +34,6 @@ export function round4(value: number): number {
   return Number(value.toFixed(4));
 }
 
-export function resolveMultiplier(baseEffect: number, level: number): number {
-  if (level <= 0) return 1;
-  return round4(1 + baseEffect * level);
-}
-
-export function resolveReductionMultiplier(baseEffect: number, level: number, maxLevel: number): number {
-  if (level <= 0) return 1;
-  const cappedLevel = Math.min(level, maxLevel);
-  return round4(Math.max(0.1, 1 - baseEffect * cappedLevel));
-}
-
 export function getDowntimeMultiplier(policy: "none" | "partial" | "full" | null): number {
   if (policy === "full") return 0;
   if (policy === "partial") return 0.75;

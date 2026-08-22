@@ -11,7 +11,8 @@ import { fetchBusinessDetailsState } from "@/lib/client/queries";
 import { apiRoutes } from "@/lib/client/routes";
 import { formatCurrency, formatDateTime, formatLabel } from "@/lib/formatters";
 import { BUSINESS_TYPE_LABELS, formatBusinessType } from "@/lib/businesses";
-import { useBusinessesSlice, useGameStore, useTravelSlice, type BusinessDetailsEntry } from "@/stores/game-store";
+import { useBusinessesSlice, useGameStore, useTravelSlice } from "@/stores/game-store";
+import { SLICE_KEYS, runGuardedSliceFetch } from "@/stores/slice-fetch-guard";
 import { toBusinessDetailsClientEmployees } from "@/components/businesses/business-details-state";
 import { syncMutationViews } from "@/stores/mutation-sync";
 import BusinessDetailsClient from "@/components/businesses/BusinessDetailsClient";
@@ -192,7 +193,14 @@ export default function BusinessesClient({ initialData }: Props) {
   const cities = initialData.cities;
 
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessWithBalance | null>(null);
-  const [selectedDetail, setSelectedDetail] = useState<BusinessDetailsEntry | null>(null);
+  // Read reactively from the store (not a disconnected local snapshot) so
+  // this panel picks up whichever write actually lands -- realtime's own
+  // guarded refresh for this same business, or this component's own guarded
+  // fetch below, both write through the same runGuardedSliceFetch key and
+  // may race; only the store's generation-guarded result is trustworthy.
+  const selectedDetail = useGameStore((state) =>
+    selectedBusiness ? (state.businessDetails.data[selectedBusiness.id] ?? null) : null
+  );
   const [detailLoading, setDetailLoading] = useState(false);
   const upsertBusinessDetail = useGameStore((state) => state.upsertBusinessDetail);
   const removeBusinessDetail = useGameStore((state) => state.removeBusinessDetail);
@@ -341,10 +349,17 @@ export default function BusinessesClient({ initialData }: Props) {
     setDetailLoading(true);
     setSelectedBusiness(business);
     try {
-      const detail = await fetchBusinessDetailsState(business.id);
-      if (requestToken !== selectRequestRef.current) return;
-      upsertBusinessDetail(business.id, detail);
-      setSelectedDetail(detail);
+      // Routed through the same guarded key the realtime provider uses for
+      // this business's detail slice, so a click that lands while a
+      // realtime-triggered refresh is already in flight for this business
+      // can't have its result silently overwritten (or vice versa) by
+      // whichever response happens to resolve last. Render reads the result
+      // back out of the store above, not a local copy of this call's result.
+      await runGuardedSliceFetch(
+        SLICE_KEYS.businessDetail(business.id),
+        () => fetchBusinessDetailsState(business.id),
+        (detail) => upsertBusinessDetail(business.id, detail)
+      );
     } catch {
       if (requestToken !== selectRequestRef.current) return;
       setError("Failed to load business details.");
@@ -362,7 +377,6 @@ export default function BusinessesClient({ initialData }: Props) {
       removeBusinessDetail(selectedBusiness.id);
     }
     setSelectedBusiness(null);
-    setSelectedDetail(null);
   }
 
   if (detailLoading && selectedBusiness) {
